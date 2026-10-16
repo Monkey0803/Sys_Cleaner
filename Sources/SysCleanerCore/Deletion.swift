@@ -5,6 +5,9 @@ import Foundation
 public enum FileDeletion {
     public static func execute(_ entries: [ScanEntry], mode: DeleteMode) -> [DeleteResult] {
         entries.map { entry in
+            if entry.category == .developerCache && mode == .permanent {
+                return DeleteResult(url: entry.url, success: false, message: "protected")
+            }
             if let reason = refusal(for: entry) {
                 return DeleteResult(url: entry.url, success: false, message: reason)
             }
@@ -38,11 +41,19 @@ public enum FileDeletion {
             return "changedOrRunning"
         }
         if entry.isDirectory {
-            guard entry.category == .uninstall,
-                  let identifier = Bundle(url: entry.url)?.bundleIdentifier,
-                  !FileSafety.isApplicationRunning(entry.url, identifier: identifier),
-                  let signature = FileScanner.directorySignature(entry.url),
-                  signature.digest == entry.directorySignature else { return "changedOrRunning" }
+            if entry.category == .developerCache {
+                guard entry.scope.lastPathComponent == "DerivedData",
+                      entry.url.deletingLastPathComponent().standardizedFileURL.path == entry.scope.standardizedFileURL.path,
+                      !directoryInUse(entry.url),
+                      let signature = FileScanner.directorySignature(entry.url),
+                      signature.digest == entry.directorySignature else { return "changedOrRunning" }
+            } else {
+                guard entry.category == .uninstall,
+                      let identifier = Bundle(url: entry.url)?.bundleIdentifier,
+                      !FileSafety.isApplicationRunning(entry.url, identifier: identifier),
+                      let signature = FileScanner.directorySignature(entry.url),
+                      signature.digest == entry.directorySignature else { return "changedOrRunning" }
+            }
         } else {
             if entry.category == .systemCache {
                 let relative = entry.url.path.dropFirst(entry.scope.path.count).drop(while: { $0 == "/" })
@@ -60,6 +71,19 @@ public enum FileDeletion {
             if isOpenByAnotherProcess(entry.url) { return "fileInUse" }
         }
         return nil
+    }
+
+    private static func directoryInUse(_ directory: URL) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-t", "+D", directory.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus != 1
+        } catch { return true }
     }
 
     private static func isOpenByAnotherProcess(_ url: URL) -> Bool {

@@ -90,16 +90,18 @@ public struct ScanRequest: Sendable {
     public let olderThanDays: Int
     public let excludedPaths: [String]
     public let ignoredDuplicateHashes: Set<String>
+    public let derivedDataRoots: [URL]
 
     public init(category: ScanCategory, root: URL, minimumBytes: Int64 = 100 * 1_024 * 1_024,
                 olderThanDays: Int = 0, excludedPaths: [String] = [],
-                ignoredDuplicateHashes: Set<String> = []) {
+                ignoredDuplicateHashes: Set<String> = [], derivedDataRoots: [URL] = []) {
         self.category = category
         self.root = root
         self.minimumBytes = minimumBytes
         self.olderThanDays = olderThanDays
         self.excludedPaths = excludedPaths
         self.ignoredDuplicateHashes = ignoredDuplicateHashes
+        self.derivedDataRoots = derivedDataRoots
     }
 }
 

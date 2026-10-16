@@ -330,7 +330,8 @@ final class CleanerStore: ObservableObject {
         let request = ScanRequest(category: category, root: root, minimumBytes: Int64(minimumMB) * 1_024 * 1_024,
                                   olderThanDays: olderThanDays,
                                   excludedPaths: AppPreferences.shared.excludedPaths,
-                                  ignoredDuplicateHashes: AppPreferences.shared.ignoredDuplicateHashes)
+                                  ignoredDuplicateHashes: AppPreferences.shared.ignoredDuplicateHashes,
+                                  derivedDataRoots: AppPreferences.shared.derivedDataRoots)
         Task.detached(priority: .userInitiated) { [weak self] in
             let report = FileScanner.scan(request, control: newControl)
             await self?.finishScan(report, category: scannedCategory, scanID: scanID)

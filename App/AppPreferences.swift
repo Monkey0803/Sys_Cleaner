@@ -70,6 +70,7 @@ final class AppPreferences: ObservableObject {
     private static let sortKeyPrefix = "ScanSort."
     private static let excludedPathsKey = "ScanExcludedPaths"
     private static let ignoredDuplicateHashesKey = "IgnoredDuplicateHashes"
+    private static let derivedDataRootsKey = "ExtraDerivedDataRoots"
 
     @Published var language: AppLanguage {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey) }
@@ -93,6 +94,9 @@ final class AppPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(Array(ignoredDuplicateHashes).sorted(),
                                            forKey: Self.ignoredDuplicateHashesKey) }
     }
+    @Published private(set) var derivedDataRoots: [URL] {
+        didSet { UserDefaults.standard.set(derivedDataRoots.map(\.path), forKey: Self.derivedDataRootsKey) }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -101,6 +105,8 @@ final class AppPreferences: ObservableObject {
         logo = AppLogo(rawValue: defaults.string(forKey: Self.logoKey) ?? "") ?? .orbit
         excludedPaths = defaults.stringArray(forKey: Self.excludedPathsKey) ?? []
         ignoredDuplicateHashes = Set(defaults.stringArray(forKey: Self.ignoredDuplicateHashesKey) ?? [])
+        derivedDataRoots = (defaults.stringArray(forKey: Self.derivedDataRootsKey) ?? [])
+            .map { URL(fileURLWithPath: $0) }
     }
 
     func applyIcon() {
@@ -143,6 +149,20 @@ final class AppPreferences: ObservableObject {
 
     func clearIgnoredDuplicateGroups() {
         ignoredDuplicateHashes.removeAll()
+    }
+
+    func addDerivedDataRoot(_ url: URL) {
+        let root = url.standardizedFileURL
+        guard root.lastPathComponent == "DerivedData", FileSafety.isDirectory(root),
+              root.resolvingSymlinksInPath().path == root.path,
+              root.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path + "/"),
+              !derivedDataRoots.contains(where: { $0.path == root.path }) else { return }
+        derivedDataRoots.append(root)
+        derivedDataRoots.sort { $0.path < $1.path }
+    }
+
+    func removeDerivedDataRoot(_ url: URL) {
+        derivedDataRoots.removeAll { $0.path == url.path }
     }
 
 }

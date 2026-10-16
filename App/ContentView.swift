@@ -37,6 +37,9 @@ struct ContentView: View {
             .frame(minWidth: 200)
         } detail: {
             VStack(spacing: 0) {
+                if store.category == .developerCache {
+                    XcodeWorkspaceView()
+                } else {
                 header
                 Divider()
                 if store.isScanning {
@@ -96,6 +99,7 @@ struct ContentView: View {
                 }
                 if !store.warnings.isEmpty { warningsView }
                 if store.category != .space && store.category != .orphans { actionBar }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in

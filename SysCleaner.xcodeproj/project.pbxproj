@@ -7,11 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		091E81BB9397A7C35D7CFB51 /* XcodeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */; };
 		17282EAC48104789ACB76FB4 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D4285D6F8EBB45A49282921B /* InfoPlist.strings */; };
 		22D20911B15411DE7585F70E /* FileSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */; };
 		3F4FD4CBA332D2A17F89538D /* ServicesMenu.strings in Resources */ = {isa = PBXBuildFile; fileRef = AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */; };
 		51BED6A4CBE686C9EAEA312D /* SpacePie.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E912A313219445FB1AD75 /* SpacePie.swift */; };
 		521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */; };
+		5493669A51751302B25DA811 /* XcodeWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FBD249CFF274AD501630D /* XcodeWorkspaceView.swift */; };
 		5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706382312C541D86CE8A7B13 /* AppPreferences.swift */; };
 		645FC5F87984F5E40EC2F6ED /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 44CA5682F828CB6B5F3D9531 /* Localizable.strings */; };
 		6D804D809C0C1AA56A409310 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */; };
@@ -28,6 +30,8 @@
 /* Begin PBXFileReference section */
 		011A696469615F01985B1935 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		0615ABDC2BA0388108C2EAD4 /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XcodeStorage.swift; sourceTree = "<group>"; };
+		122FBD249CFF274AD501630D /* XcodeWorkspaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XcodeWorkspaceView.swift; sourceTree = "<group>"; };
 		15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		257C3E77B75C4A0EA2A9DE1C /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafety.swift; sourceTree = "<group>"; };
@@ -83,6 +87,7 @@
 				AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */,
 				9BA4296D3BA0EAD5EC528653 /* Info.plist */,
 				A0057F6D52D821DF08CC602F /* PrivacyInfo.xcprivacy */,
+				122FBD249CFF274AD501630D /* XcodeWorkspaceView.swift */,
 			);
 			name = App;
 			path = App;
@@ -112,6 +117,7 @@
 				FA30EEF2908C3F8BC514782C /* Models.swift */,
 				604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */,
 				9B0E912A313219445FB1AD75 /* SpacePie.swift */,
+				0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */,
 			);
 			name = SysCleanerCore;
 			path = Sources/SysCleanerCore;
@@ -206,6 +212,8 @@
 				5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */,
 				9A6FAB0A663DD86365F88360 /* SettingsView.swift in Sources */,
 				51BED6A4CBE686C9EAEA312D /* SpacePie.swift in Sources */,
+				5493669A51751302B25DA811 /* XcodeWorkspaceView.swift in Sources */,
+				091E81BB9397A7C35D7CFB51 /* XcodeStorage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

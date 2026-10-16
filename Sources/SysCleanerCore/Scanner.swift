@@ -96,10 +96,13 @@ public enum FileScanner {
                     guard let hash = entry.duplicateGroup else { return true }
                     return !request.ignoredDuplicateHashes.contains(hash)
                 }
-        case .systemCache, .developerCache:
-            let locations = request.category == .systemCache ? systemCacheLocations() : developerCacheLocations()
-            return scanCaches(category: request.category, locations: locations, control: control,
+        case .systemCache:
+            return scanCaches(category: .systemCache, locations: systemCacheLocations(), control: control,
                               excludedPaths: request.excludedPaths)
+        case .developerCache:
+            return XcodeStorage.derivedDataEntries(
+                roots: [XcodeStorage.defaultDerivedDataRoot] + request.derivedDataRoots,
+                excludedPaths: request.excludedPaths, control: control)
         case .uninstall:
             entries = scanApplications(control: control, excludedPaths: request.excludedPaths)
         case .orphans:

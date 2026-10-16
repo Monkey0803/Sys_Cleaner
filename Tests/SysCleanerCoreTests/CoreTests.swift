@@ -642,4 +642,94 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(decoded, original)
         XCTAssertNil(decoded.allocatedBytes)
     }
+
+    func testXcodeDerivedDataUsesMetadataAndKeepsUnknownProjectSeparate() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let derived = parent.appendingPathComponent("DerivedData")
+        let known = derived.appendingPathComponent("Opaque-1")
+        let unknown = derived.appendingPathComponent("Opaque-abcdefghijklmnopqrstuvwxabcd")
+        try FileManager.default.createDirectory(at: known, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unknown, withIntermediateDirectories: true)
+        let metadata = ["WorkspacePath": "/Projects/Actual/Actual.xcworkspace"]
+        try PropertyListSerialization.data(fromPropertyList: metadata, format: .xml, options: 0)
+            .write(to: known.appendingPathComponent("info.plist"))
+        try Data(repeating: 1, count: 32).write(to: known.appendingPathComponent("build.o"))
+        try Data(repeating: 2, count: 16).write(to: unknown.appendingPathComponent("build.o"))
+
+        let report = XcodeStorage.derivedDataEntries(roots: [derived])
+        XCTAssertEqual(report.entries.count, 2)
+        XCTAssertEqual(report.entries.first(where: { $0.url == known })?.note, metadata["WorkspacePath"])
+        XCTAssertEqual(report.entries.first(where: { $0.url == unknown })?.note, "")
+        XCTAssertEqual(report.entries.first(where: { $0.url == unknown })?.estimatedBytes, 16)
+        let globalCache = derived.appendingPathComponent("ModuleCache.noindex")
+        try FileManager.default.createDirectory(at: globalCache, withIntermediateDirectories: true)
+        XCTAssertFalse(XcodeStorage.isProjectDirectory(globalCache))
+        let excluded = XcodeStorage.derivedDataEntries(roots: [derived], excludedPaths: [unknown.path])
+        XCTAssertEqual(excluded.entries.map(\.url), [known])
+    }
+
+    func testXcodeDerivedDataChangeIsRefusedAndTrashCanRestore() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let derived = parent.appendingPathComponent("DerivedData")
+        let project = derived.appendingPathComponent("Fixture-abcdefghijklmnopqrstuvwxabcd")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let file = project.appendingPathComponent("build.o")
+        try Data(repeating: 1, count: 8).write(to: file)
+        let entry = try XCTUnwrap(XcodeStorage.derivedDataEntries(roots: [derived]).entries.first)
+        try Data(repeating: 2, count: 9).write(to: file)
+        XCTAssertEqual(FileDeletion.refusal(for: entry), "changedOrRunning")
+
+        let refreshed = try XCTUnwrap(XcodeStorage.derivedDataEntries(roots: [derived]).entries.first)
+        if FileDeletion.refusal(for: refreshed) == "changedOrRunning" {
+            throw XCTSkip("Xcode or a build process is active")
+        }
+        let result = try XCTUnwrap(FileDeletion.execute([refreshed], mode: .trash).first)
+        XCTAssertTrue(result.success, result.message)
+        let trashed = try XCTUnwrap(result.trashURL)
+        let item = CleanupHistoryItem(path: project.path, estimatedBytes: refreshed.estimatedBytes,
+                                      success: true, message: result.message, trashPath: trashed.path,
+                                      scopePath: derived.path, trashStamp: FileSafety.stamp(at: trashed))
+        XCTAssertNil(FileRestoration.restore(item, category: .developerCache))
+        XCTAssertTrue(FileSafety.isDirectory(project))
+    }
+
+    func testSimulatorJSONAllowsOnlyShutdownDevices() throws {
+        let json = """
+        {"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-27-0":[
+          {"udid":"00000000-0000-0000-0000-000000000001","name":"iPhone A","state":"Shutdown","isAvailable":true,"dataPathSize":4096},
+          {"udid":"00000000-0000-0000-0000-000000000002","name":"iPhone B","state":"Booted","isAvailable":true,"dataPathSize":8192}
+        ]}}
+        """
+        let devices = try XcodeStorage.parseSimulators(Data(json.utf8))
+        XCTAssertEqual(devices.count, 2)
+        XCTAssertTrue(try XCTUnwrap(devices.first(where: { $0.name == "iPhone A" })).canDelete)
+        XCTAssertFalse(try XCTUnwrap(devices.first(where: { $0.name == "iPhone B" })).canDelete)
+        XCTAssertEqual(devices[0].runtimeName, "iOS 27.0")
+        XCTAssertNoThrow(try XcodeStorage.validateSimulatorDeletion(
+            id: "00000000-0000-0000-0000-000000000001", in: devices))
+        XCTAssertThrowsError(try XcodeStorage.validateSimulatorDeletion(
+            id: "00000000-0000-0000-0000-000000000002", in: devices))
+        XCTAssertThrowsError(try XcodeStorage.validateSimulatorDeletion(
+            id: "00000000-0000-0000-0000-000000000001", in: devices.filter { $0.name != "iPhone A" }))
+    }
+
+    func testXcodeArchivesAreMeasuredForReadOnlyInventory() throws {
+        let archivesRoot = root.appendingPathComponent("Archives")
+        let archive = archivesRoot.appendingPathComponent("2026-10-16/Test.xcarchive")
+        try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+        let info: [String: Any] = ["ApplicationProperties": ["ApplicationPath": "Applications/Example.app"],
+                                   "CreationDate": Date(timeIntervalSince1970: 1000)]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: archive.appendingPathComponent("Info.plist"))
+        try Data(repeating: 1, count: 77).write(to: archive.appendingPathComponent("binary"))
+        let result = XcodeStorage.archives(at: archivesRoot)
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].name, "Example")
+        XCTAssertGreaterThanOrEqual(result[0].logicalBytes, 77)
+        XCTAssertEqual(result[0].created, Date(timeIntervalSince1970: 1000))
+    }
 }
