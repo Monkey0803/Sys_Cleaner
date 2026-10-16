@@ -8,9 +8,9 @@
 "uninstall" = "应用卸载";
 "orphans" = "残留候选";
 "spaceDescription" = "按估算大小逐层查看文件夹，此页面不执行删除。";
-"spaceMap" = "项目容量占比";
-"spaceMapHint" = "点击文件夹深入查看，点击文件预览";
-"remainingSpaceItems" = "其余项目";
+"spacePie" = "项目容量占比";
+"spacePieHint" = "点击扇区或图例查看文件夹、预览文件";
+"otherSpaceSlice" = "其他";
 "previewFile" = "预览文件";
 "largeDescription" = "查找大文件，逐项审阅后再清理。";
 "duplicatesDescription" = "比较文件内容，并在每组中保留一份。";

@@ -8,9 +8,9 @@
 "uninstall" = "Uninstall Apps";
 "orphans" = "Leftover Candidates";
 "spaceDescription" = "Explore folders by estimated file size. This view does not delete files.";
-"spaceMap" = "Space by item";
-"spaceMapHint" = "Select a folder to explore or a file to preview";
-"remainingSpaceItems" = "Remaining items";
+"spacePie" = "Space by item";
+"spacePieHint" = "Select a slice or legend entry to explore or preview";
+"otherSpaceSlice" = "Other";
 "previewFile" = "Preview file";
 "largeDescription" = "Find large files and review each one before cleanup.";
 "duplicatesDescription" = "Compare file contents and retain one copy in every group.";

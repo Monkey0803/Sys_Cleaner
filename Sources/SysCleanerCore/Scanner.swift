@@ -217,6 +217,7 @@ public enum FileScanner {
         var directories: [URL] = []
         var otherTotals: [URL: Int64] = [:]
         var visibleFiles: [SpaceItem] = []
+        var zeroFiles: [SpaceItem] = []
         var count = 0
         var total: Int64 = 0
         walkFiles(under: root, control: control, warnings: &warnings,
@@ -225,7 +226,9 @@ public enum FileScanner {
             count += 1
             total += stamp.size
             let parent = url.deletingLastPathComponent()
-            if stamp.size >= 1_048_576 && visibleFiles.count < 10_000 {
+            if stamp.size == 0 && zeroFiles.count < 10_000 {
+                zeroFiles.append(SpaceItem(url: url, parent: parent, bytes: 0, isFolder: false))
+            } else if stamp.size >= 1_048_576 && visibleFiles.count < 10_000 {
                 visibleFiles.append(SpaceItem(url: url, parent: parent, bytes: stamp.size, isFolder: false))
             } else {
                 otherTotals[parent, default: 0] += stamp.size
@@ -235,17 +238,19 @@ public enum FileScanner {
         for directory in directories.reversed() where directory.path != root.path {
             directoryTotals[directory.deletingLastPathComponent(), default: 0] += directoryTotals[directory, default: 0]
         }
-        let folders = directoryTotals.compactMap { url, bytes -> SpaceItem? in
-            guard url.path != root.path else { return nil }
-            return SpaceItem(url: url, parent: url.deletingLastPathComponent(), bytes: bytes, isFolder: true)
+        let folders = directories.filter { $0.path != root.path }.map { url in
+            SpaceItem(url: url, parent: url.deletingLastPathComponent(),
+                      bytes: directoryTotals[url, default: 0], isFolder: true)
         }
-        let others = otherTotals.map { parent, bytes in
+        let others = otherTotals.filter { $0.value > 0 }.map { parent, bytes in
             SpaceItem(url: parent.appendingPathComponent("__other_files__"), parent: parent,
                       bytes: bytes, isFolder: false, isOther: true)
         }
-        if visibleFiles.count == 10_000 { appendWarning("spaceLimit", to: &warnings) }
+        if visibleFiles.count == 10_000 || zeroFiles.count == 10_000 {
+            appendWarning("spaceLimit", to: &warnings)
+        }
         return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
-                          spaceItems: folders + visibleFiles + others,
+                          spaceItems: folders + visibleFiles + zeroFiles + others,
                           scannedFileCount: count, scannedBytes: total)
     }
 

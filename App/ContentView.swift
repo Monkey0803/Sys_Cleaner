@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
@@ -12,6 +13,8 @@ struct ContentView: View {
     @State private var showingConfirmation = false
     @State private var inspectedEntry: ScanEntry?
     @State private var previewURL: URL?
+    @State private var spacePieHasAppeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView {
@@ -271,7 +274,10 @@ struct ContentView: View {
     }
 
     private var scanButton: some View {
-        Button(store.hasScanned ? L("scanAgain") : L("startScan")) { store.scan() }
+        Button(store.hasScanned ? L("scanAgain") : L("startScan")) {
+            if store.category == .space { spacePieHasAppeared = false }
+            store.scan()
+        }
             .buttonStyle(.borderedProminent)
             .disabled(store.isScanning || store.isDeleting)
     }
@@ -390,7 +396,11 @@ struct ContentView: View {
     private var spaceContent: some View {
         VStack(spacing: 0) {
             HStack {
-                Button { store.spaceFolder?.deleteLastPathComponent() } label: {
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                        store.spaceFolder = store.spaceFolder?.deletingLastPathComponent()
+                    }
+                } label: {
                     Label("back", systemImage: "chevron.left")
                 }
                 .disabled(store.spaceFolder == nil || store.spaceFolder?.path == store.root.path)
@@ -400,7 +410,11 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
             Divider()
-            spaceMap
+            SpacePieChartView(items: store.visibleSpaceChildren,
+                              entranceDuration: spacePieHasAppeared ? 0.25 : 0.45,
+                              onAppear: { spacePieHasAppeared = true },
+                              onOpen: openSpaceItem)
+                .id((store.spaceFolder ?? store.root).path)
             List(store.visibleSpaceChildren) { child in
                 HStack {
                     Image(systemName: child.isFolder ? "folder.fill" : child.isOther ? "ellipsis" : "doc")
@@ -410,7 +424,7 @@ struct ContentView: View {
                     Text(ByteCountFormatter.string(fromByteCount: child.bytes, countStyle: .file))
                         .foregroundStyle(.secondary)
                     if child.isFolder {
-                        Button { store.spaceFolder = child.url } label: { Image(systemName: "chevron.right") }
+                        Button { openSpaceItem(child) } label: { Image(systemName: "chevron.right") }
                             .buttonStyle(.borderless)
                     } else if !child.isOther {
                         Button { previewURL = child.url } label: { Image(systemName: "eye") }
@@ -425,54 +439,14 @@ struct ContentView: View {
         }
     }
 
-    private var spaceMap: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("spaceMap").font(.headline)
-                Spacer()
-                Text("spaceMapHint").font(.caption).foregroundStyle(.secondary)
+    private func openSpaceItem(_ item: SpaceItem) {
+        if item.isFolder {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                store.spaceFolder = item.url
             }
-            GeometryReader { geometry in
-                let cells = SpaceTreemap.layout(store.visibleSpaceChildren, in: geometry.size)
-                ZStack(alignment: .topLeading) {
-                    ForEach(Array(cells.enumerated()), id: \.element.id) { index, cell in
-                        let name = cell.item.map { $0.isOther ? L("otherFiles") : $0.url.lastPathComponent }
-                            ?? L("remainingSpaceItems")
-                        let size = ByteCountFormatter.string(fromByteCount: cell.bytes, countStyle: .file)
-                        Button {
-                            guard let item = cell.item else { return }
-                            if item.isFolder { store.spaceFolder = item.url }
-                            else if !item.isOther { previewURL = item.url }
-                        } label: {
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(cell.item == nil || cell.item?.isOther == true ? Color.gray.opacity(0.65) :
-                                      Color(hue: (0.53 + Double(index) * 0.073)
-                                        .truncatingRemainder(dividingBy: 1),
-                                            saturation: 0.72, brightness: 0.62))
-                                .overlay(alignment: .topLeading) {
-                                    if cell.frame.width > 75 && cell.frame.height > 44 {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(name).font(.caption.bold()).lineLimit(1)
-                                            Text(size).font(.caption2).opacity(0.85)
-                                        }
-                                        .foregroundStyle(.white)
-                                        .padding(8)
-                                    }
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(cell.item == nil || cell.item?.isOther == true)
-                        .help("\(name) · \(size)")
-                        .accessibilityLabel("\(name), \(size)")
-                        .frame(width: max(0, cell.frame.width - 2), height: max(0, cell.frame.height - 2))
-                        .position(x: cell.frame.midX, y: cell.frame.midY)
-                    }
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-            }
-            .frame(height: 240)
+        } else if !item.isOther {
+            previewURL = item.url
         }
-        .padding(.horizontal, 20).padding(.vertical, 10)
     }
 
     private var warningsView: some View {
@@ -636,5 +610,159 @@ struct ContentView: View {
         }
         .padding(20)
         .frame(width: 700, height: 480)
+    }
+}
+
+private struct SpacePieChartView: View {
+    let items: [SpaceItem]
+    let entranceDuration: Double
+    let onAppear: () -> Void
+    let onOpen: (SpaceItem) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
+    @State private var revealProgress = 0.0
+    @State private var hoveredID: String?
+
+    private let colors: [Color] = [
+        .blue, .teal, .orange, .purple, .pink, .green
+    ]
+
+    private var slices: [SpacePieSlice] { SpacePie.slices(items) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("spacePie").font(.headline)
+                Spacer()
+                Text("spacePieHint").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 18) {
+                Chart(Array(slices.enumerated()), id: \.element.id) { index, slice in
+                    SectorMark(angle: .value(L("sortSize"), slice.bytes),
+                               innerRadius: .ratio(0),
+                               outerRadius: .ratio(hoveredID == slice.id ? 1 : 0.92),
+                               angularInset: 1)
+                        .foregroundStyle(color(for: slice, at: index))
+                        .opacity(hoveredID == nil || hoveredID == slice.id ? 1 : 0.68)
+                }
+                .chartLegend(.hidden)
+                .chartOverlay { _ in
+                    GeometryReader { geometry in
+                        Rectangle().fill(.clear).contentShape(Rectangle())
+                            .onContinuousHover { phase in
+                                switch phase {
+                                case .active(let location):
+                                    setHovered(slice(at: location, in: geometry.size)?.id)
+                                case .ended:
+                                    setHovered(nil)
+                                }
+                            }
+                            .onTapGesture { location in
+                                if let item = slice(at: location, in: geometry.size)?.item {
+                                    onOpen(item)
+                                }
+                            }
+                    }
+                }
+                .mask(PieRevealMask(progress: revealProgress))
+                .frame(width: 220, height: 220)
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
+                        let label = slice.item?.url.lastPathComponent ?? L("otherSpaceSlice")
+                        let size = slice.bytes.formatted(.byteCount(style: .file).locale(locale))
+                        let percentage = slice.fraction.formatted(
+                            .percent.precision(.fractionLength(1)).locale(locale))
+                        if let item = slice.item {
+                            Button { onOpen(item) } label: {
+                                legendRow(label: label, size: size, percentage: percentage,
+                                          color: color(for: slice, at: index))
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                            .onHover { setHovered($0 ? slice.id : nil) }
+                            .help("\(label) · \(size) · \(percentage)")
+                        } else {
+                            legendRow(label: label, size: size, percentage: percentage,
+                                      color: .gray)
+                                .help("\(label) · \(size) · \(percentage)")
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 220)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 10)
+        .onAppear {
+            onAppear()
+            if reduceMotion {
+                revealProgress = 1
+            } else {
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: entranceDuration)) { revealProgress = 1 }
+                }
+            }
+        }
+        .onChange(of: reduceMotion) { _, isReduced in
+            if isReduced { revealProgress = 1 }
+        }
+    }
+
+    private func legendRow(label: String, size: String, percentage: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 10, height: 10)
+            Text(label).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 3)
+            Text(size).foregroundStyle(.secondary)
+            Text(percentage).foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
+        }
+        .font(.caption)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private func color(for slice: SpacePieSlice, at index: Int) -> Color {
+        if slice.isOther { return .gray }
+        let individualIndex = slices.prefix(index).filter { !$0.isOther }.count
+        return colors[individualIndex % colors.count]
+    }
+
+    private func setHovered(_ id: String?) {
+        guard hoveredID != id else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { hoveredID = id }
+    }
+
+    private func slice(at point: CGPoint, in size: CGSize) -> SpacePieSlice? {
+        let x = point.x - size.width / 2
+        let y = point.y - size.height / 2
+        let radius = min(size.width, size.height) / 2
+        guard hypot(x, y) <= radius else { return nil }
+        let angle = atan2(x, -y)
+        let fraction = (angle < 0 ? angle + 2 * .pi : angle) / (2 * .pi)
+        return SpacePie.slice(at: fraction, in: slices)
+    }
+}
+
+private struct PieRevealMask: Shape {
+    var progress: Double
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard progress < 1 else { return Path(rect) }
+        guard progress > 0 else { return Path() }
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = hypot(rect.width, rect.height)
+        var path = Path()
+        path.move(to: center)
+        path.addArc(center: center, radius: radius,
+                    startAngle: .degrees(-90), endAngle: .degrees(-90 + progress * 360),
+                    clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }

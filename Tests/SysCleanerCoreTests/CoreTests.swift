@@ -547,26 +547,39 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(identifiers.contains("com.example.product.shareextension"))
     }
 
-    func testTreemapCoversAreaWithoutOverlapAndGroupsRemainder() {
-        let parent = URL(fileURLWithPath: "/tmp/treemap")
-        let sizes: [Int64] = [50, 25, 15, 5, 3, 2]
+    func testPieGroupsOtherAndKeepsAtMostSevenPositiveSlices() {
+        let parent = URL(fileURLWithPath: "/tmp/space-pie")
+        let sizes: [Int64] = [50, 25, 15, 5, 3, 2, 1, 0]
         let items = sizes.enumerated().map { index, bytes in
             SpaceItem(url: parent.appendingPathComponent("item\(index)"), parent: parent,
                       bytes: bytes, isFolder: index.isMultiple(of: 2))
         }
-        let cells = SpaceTreemap.layout(items, in: CGSize(width: 600, height: 300), limit: 4)
-        XCTAssertEqual(cells.count, 4)
-        XCTAssertEqual(cells.filter(\.isRemainder).first?.bytes, 10)
-        let area = cells.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height }
-        XCTAssertEqual(area, 180_000, accuracy: 1)
-        for left in cells.indices {
-            XCTAssertTrue(CGRect(origin: .zero, size: CGSize(width: 600, height: 300))
-                .contains(cells[left].frame))
-            for right in cells.indices where left < right {
-                let overlap = cells[left].frame.intersection(cells[right].frame)
-                XCTAssertLessThan(overlap.width * overlap.height, 0.1)
-            }
-        }
+        let existingOther = SpaceItem(url: parent.appendingPathComponent("other"), parent: parent,
+                                      bytes: 4, isFolder: false, isOther: true)
+        let slices = SpacePie.slices([existingOther] + items.reversed())
+        XCTAssertEqual(slices.count, 7)
+        XCTAssertEqual(slices.map(\.bytes), [50, 25, 15, 5, 5, 3, 2])
+        XCTAssertEqual(slices.filter { !$0.isOther }.map(\.bytes), [50, 25, 15, 5, 3, 2])
+        XCTAssertEqual(slices.first(where: \.isOther)?.bytes, 5)
+        XCTAssertEqual(slices.reduce(Int64(0)) { $0 + $1.bytes }, 105)
+        XCTAssertEqual(slices.reduce(0.0) { $0 + $1.fraction }, 1, accuracy: 0.000001)
+        XCTAssertFalse(slices.contains { $0.item?.bytes == 0 })
+        XCTAssertEqual(SpacePie.slice(at: 0, in: slices)?.bytes, 50)
+        XCTAssertEqual(SpacePie.slice(at: 0.9999, in: slices)?.bytes, 2)
+        XCTAssertNil(SpacePie.slice(at: 1, in: slices))
+        XCTAssertTrue(SpacePie.slices([items.last!]).isEmpty)
+    }
+
+    func testSpaceScanKeepsZeroSizeFilesAndFoldersInListOnly() throws {
+        let emptyFile = root.appendingPathComponent("empty.txt")
+        let emptyFolder = root.appendingPathComponent("Empty Folder")
+        try Data().write(to: emptyFile)
+        try FileManager.default.createDirectory(at: emptyFolder, withIntermediateDirectories: true)
+
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        let zeroItems = report.spaceItems.filter { $0.bytes == 0 && !$0.isOther }
+        XCTAssertEqual(Set(zeroItems.map(\.url.lastPathComponent)), ["empty.txt", "Empty Folder"])
+        XCTAssertTrue(SpacePie.slices(report.spaceItems).isEmpty)
     }
 
     func testParallelSpaceScanProducesStableFolderTotals() throws {
