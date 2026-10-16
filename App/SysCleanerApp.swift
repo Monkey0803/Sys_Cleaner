@@ -14,7 +14,6 @@ struct SysCleanerApp: App {
                 .environmentObject(store)
                 .environmentObject(preferences)
                 .environment(\.locale, preferences.language.locale)
-                .preferredColorScheme(preferences.theme.colorScheme)
                 .frame(minWidth: 980, minHeight: 640)
         }
         .windowStyle(.titleBar)
@@ -26,7 +25,6 @@ struct SysCleanerApp: App {
             SettingsView()
                 .environmentObject(preferences)
                 .environment(\.locale, preferences.language.locale)
-                .preferredColorScheme(preferences.theme.colorScheme)
         }
 
         MenuBarExtra {
@@ -44,6 +42,7 @@ struct SysCleanerApp: App {
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppPreferences.shared.applyIcon()
+        AppPreferences.shared.applyAppearance()
         NSApp.servicesProvider = self
     }
 

@@ -1,0 +1,3 @@
+"NSDesktopFolderUsageDescription" = "扫描您选择的桌面文件，用于分析储存空间并审阅清理项目。";
+"NSDocumentsFolderUsageDescription" = "扫描您选择的文稿文件，用于分析储存空间并审阅清理项目。";
+"NSDownloadsFolderUsageDescription" = "扫描您选择的下载文件，用于分析储存空间并审阅清理项目。";

@@ -1,0 +1,3 @@
+"NSDesktopFolderUsageDescription" = "Scan Desktop files you choose for storage analysis and cleanup review.";
+"NSDocumentsFolderUsageDescription" = "Scan Documents files you choose for storage analysis and cleanup review.";
+"NSDownloadsFolderUsageDescription" = "Scan Downloads files you choose for storage analysis and cleanup review.";

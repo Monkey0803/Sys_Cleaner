@@ -42,8 +42,13 @@
 "noResults" = "No results";
 "noResultsDetail" = "No matching items were found in the accessible locations.";
 "minimumSize" = "Minimum size";
+"minimum100MB" = "100 MB";
+"minimum500MB" = "500 MB";
+"minimum1GB" = "1 GB";
 "olderThan" = "Modified before";
 "anyTime" = "Any time";
+"olderThan30Days" = "30 days";
+"olderThan180Days" = "180 days";
 "itemsCount" = "%d items";
 "estimated" = "Estimated size";
 "notMeasured" = "Not measured";

@@ -42,8 +42,13 @@
 "noResults" = "没有结果";
 "noResultsDetail" = "可访问的位置中没有找到符合条件的项目。";
 "minimumSize" = "最小大小";
+"minimum100MB" = "100 MB";
+"minimum500MB" = "500 MB";
+"minimum1GB" = "1 GB";
 "olderThan" = "修改时间早于";
 "anyTime" = "不限时间";
+"olderThan30Days" = "30 天";
+"olderThan180Days" = "180 天";
 "itemsCount" = "%d 项";
 "estimated" = "估算大小";
 "notMeasured" = "未计算";

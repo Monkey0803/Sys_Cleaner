@@ -45,8 +45,7 @@ struct ContentView: View {
                         if let progress = store.scanProgress {
                             Text(String(format: L("scanProgressCounts"), progress.processedFiles,
                                         progress.processedDirectories,
-                                        ByteCountFormatter.string(fromByteCount: progress.processedBytes,
-                                                                  countStyle: .file)))
+                                        fileSize(progress.processedBytes)))
                                 .foregroundStyle(.secondary)
                             Text(progress.currentPath)
                                 .font(.caption.monospaced())
@@ -131,7 +130,7 @@ struct ContentView: View {
                 Button(L("cancel"), role: .cancel) {}
             } message: {
                 Text(String(format: L("confirmCount"), store.selectedEntries.count,
-                            ByteCountFormatter.string(fromByteCount: store.estimatedSelectedBytes, countStyle: .file)))
+                            fileSize(store.estimatedSelectedBytes)))
             }
             .sheet(isPresented: $store.showResults) { resultsSheet }
             .sheet(isPresented: $store.showHistory) { historySheet }
@@ -193,19 +192,27 @@ struct ContentView: View {
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
             }
             if store.category == .large {
-                HStack {
-                    Picker("minimumSize", selection: $store.minimumMB) {
-                        Text("100 MB").tag(100)
-                        Text("500 MB").tag(500)
-                        Text("1 GB").tag(1024)
+                HStack(spacing: 32) {
+                    HStack(spacing: 8) {
+                        Text("minimumSize")
+                        Picker("minimumSize", selection: $store.minimumMB) {
+                            Text("minimum100MB").tag(100)
+                            Text("minimum500MB").tag(500)
+                            Text("minimum1GB").tag(1024)
+                        }
+                        .labelsHidden()
+                        .frame(width: 96)
                     }
-                    .frame(width: 220)
-                    Picker("olderThan", selection: $store.olderThanDays) {
-                        Text("anyTime").tag(0)
-                        Text("30 days").tag(30)
-                        Text("180 days").tag(180)
+                    HStack(spacing: 8) {
+                        Text("olderThan")
+                        Picker("olderThan", selection: $store.olderThanDays) {
+                            Text("anyTime").tag(0)
+                            Text("olderThan30Days").tag(30)
+                            Text("olderThan180Days").tag(180)
+                        }
+                        .labelsHidden()
+                        .frame(width: 100)
                     }
-                    .frame(width: 220)
                     Spacer()
                 }
             }
@@ -248,8 +255,7 @@ struct ContentView: View {
             }
             HStack(spacing: 12) {
                 Label(String(format: L("itemsCount"), store.summaryCount), systemImage: "doc")
-                Label(ByteCountFormatter.string(fromByteCount: store.summaryBytes,
-                                                countStyle: .file), systemImage: "internaldrive")
+                Label(fileSize(store.summaryBytes), systemImage: "internaldrive")
                 Text(store.category == .uninstall && store.reviewedApplicationName == nil ?
                      (store.summaryBytes > 0 ? "reviewedAppSizes" : "appSizesOnReview") : "estimated")
                     .foregroundStyle(.secondary)
@@ -314,8 +320,7 @@ struct ContentView: View {
                     } header: {
                         HStack {
                             Text(String(format: L("duplicateGroupSummary"), group.count,
-                                        ByteCountFormatter.string(fromByteCount: group[0].estimatedBytes,
-                                                                  countStyle: .file)))
+                                        fileSize(group[0].estimatedBytes)))
                             Spacer()
                             Button("selectGroupCopies") { store.selectDuplicateGroup(group) }
                                 .disabled(ScanResultGrouping.selectableIDs(in: group)
@@ -378,7 +383,7 @@ struct ContentView: View {
                 if !entry.sizeIsKnown {
                     Text("—").font(.callout).foregroundStyle(.secondary)
                 } else if entry.estimatedBytes > 0 || store.category != .uninstall || entry.directorySignature != nil {
-                    Text(ByteCountFormatter.string(fromByteCount: entry.estimatedBytes, countStyle: .file))
+                    Text(fileSize(entry.estimatedBytes))
                         .font(.callout.monospacedDigit())
                 } else {
                     Text("—").font(.callout).foregroundStyle(.secondary)
@@ -421,7 +426,7 @@ struct ContentView: View {
                         .foregroundStyle(child.isFolder ? .blue : .secondary)
                     Text(child.isOther ? L("otherFiles") : child.url.lastPathComponent)
                     Spacer()
-                    Text(ByteCountFormatter.string(fromByteCount: child.bytes, countStyle: .file))
+                    Text(fileSize(child.bytes))
                         .foregroundStyle(.secondary)
                     if child.isFolder {
                         Button { openSpaceItem(child) } label: { Image(systemName: "chevron.right") }
@@ -480,7 +485,7 @@ struct ContentView: View {
     private var actionBar: some View {
         HStack {
             Text(String(format: L("selectedSummary"), store.selectedEntries.count,
-                        ByteCountFormatter.string(fromByteCount: store.estimatedSelectedBytes, countStyle: .file)))
+                        fileSize(store.estimatedSelectedBytes)))
                 .foregroundStyle(.secondary)
             Spacer()
             Button("moveToTrash") { pendingMode = .trash; showingConfirmation = true }
@@ -520,14 +525,13 @@ struct ContentView: View {
     }
 
     private func inspectorMessage(for entry: ScanEntry) -> String {
-        let modified = Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds))
-            .formatted(date: .abbreviated, time: .shortened)
+        let modified = localizedDate(Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds)))
         var lines = [entry.url.path,
                      "\(L("cleanupBasis")): \(reason(for: entry))"]
         if !(entry.category == .uninstall && entry.isDirectory &&
              entry.directorySignature == nil && entry.estimatedBytes == 0) {
             let size = !entry.sizeIsKnown ? L("notMeasured") :
-                ByteCountFormatter.string(fromByteCount: entry.estimatedBytes, countStyle: .file)
+                fileSize(entry.estimatedBytes)
             lines.append("\(L("estimated")): \(size)")
         }
         lines.append("\(L("modifiedAt")): \(modified)")
@@ -576,7 +580,7 @@ struct ContentView: View {
             } else {
                 List {
                     ForEach(store.cleanupHistory) { record in
-                        Section("\(record.date.formatted(date: .abbreviated, time: .shortened)) · \(L(record.category)) · \(L(record.mode == "trash" ? "moveToTrash" : "deletePermanently"))") {
+                        Section("\(localizedDate(record.date)) · \(L(record.category)) · \(L(record.mode == "trash" ? "moveToTrash" : "deletePermanently"))") {
                             ForEach(record.items) { item in
                                 HStack {
                                     Image(systemName: item.success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -587,8 +591,7 @@ struct ContentView: View {
                                             .lineLimit(1).truncationMode(.middle)
                                     }
                                     Spacer()
-                                    Text(ByteCountFormatter.string(fromByteCount: item.estimatedBytes,
-                                                                   countStyle: .file))
+                                    Text(fileSize(item.estimatedBytes))
                                         .font(.caption).foregroundStyle(.secondary)
                                     Text(L(item.restoredAt == nil ? item.message : "restored"))
                                         .font(.caption)
@@ -610,6 +613,15 @@ struct ContentView: View {
         }
         .padding(20)
         .frame(width: 700, height: 480)
+    }
+
+    private func fileSize(_ bytes: Int64) -> String {
+        bytes.formatted(.byteCount(style: .file).locale(preferences.language.locale))
+    }
+
+    private func localizedDate(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
+            .locale(preferences.language.locale))
     }
 }
 

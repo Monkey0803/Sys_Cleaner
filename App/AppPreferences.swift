@@ -31,11 +31,11 @@ enum AppTheme: String, CaseIterable, Identifiable {
     case system, dark, light
 
     var id: String { rawValue }
-    var colorScheme: ColorScheme? {
+    var appearance: NSAppearance? {
         switch self {
         case .system: nil
-        case .dark: .dark
-        case .light: .light
+        case .dark: NSAppearance(named: .darkAqua)
+        case .light: NSAppearance(named: .aqua)
         }
     }
 }
@@ -73,7 +73,10 @@ final class AppPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey) }
     }
     @Published var theme: AppTheme {
-        didSet { UserDefaults.standard.set(theme.rawValue, forKey: Self.themeKey) }
+        didSet {
+            UserDefaults.standard.set(theme.rawValue, forKey: Self.themeKey)
+            applyAppearance()
+        }
     }
     @Published var logo: AppLogo {
         didSet {
@@ -91,6 +94,10 @@ final class AppPreferences: ObservableObject {
 
     func applyIcon() {
         if let image = logo.image { NSApp.applicationIconImage = image }
+    }
+
+    func applyAppearance() {
+        NSApp.appearance = theme.appearance
     }
 
     func sortSelection(for category: ScanCategory) -> ScanSortSelection {
