@@ -226,6 +226,8 @@
 "appBundleBasis" = "应用包；清理前再次核对内容";
 "appExactMatchBasis" = "位于与此应用包标识精确匹配的路径内";
 "volumeOverview" = "已挂载卷概览";
+"volumeCount" = "%d 个卷";
+"volumeScrollHint" = "向下滚动查看更多卷";
 "hideVolumes" = "收起";
 "showVolumes" = "展开";
 "refreshVolumes" = "刷新容量";

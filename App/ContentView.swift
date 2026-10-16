@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var previewSelection: UUID?
     @State private var spacePieHasAppeared = false
     @State private var showingVolumeOverview = true
+    @State private var hoveredVolumeID: String?
     @State private var duplicateGroupPage = 0
     private let duplicateGroupsPerPage = 200
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -214,6 +215,9 @@ struct ContentView: View {
             if store.category == .space && !store.volumes.isEmpty {
                 HStack {
                     Text("volumeOverview").font(.callout.weight(.semibold))
+                    Text(String(format: L("volumeCount"), store.volumes.count))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Button(showingVolumeOverview ? "hideVolumes" : "showVolumes") {
                         showingVolumeOverview.toggle()
@@ -221,34 +225,26 @@ struct ContentView: View {
                         .buttonStyle(.borderless)
                 }
                 if showingVolumeOverview {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
+                    ScrollView(.vertical) {
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible())],
+                                  spacing: 8) {
                             ForEach(store.volumes) { volume in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(volume.name).font(.callout.weight(.medium)).lineLimit(1)
-                                    Text(String(format: L("volumeUsedValue"), fileSize(volume.usedBytes)))
-                                    Text(String(format: L("volumeFreeValue"), fileSize(volume.freeBytes)))
-                                    Text(String(format: L("volumeReclaimableValue"),
-                                                fileSize(volume.systemReclaimableEstimate)))
-                                    Button("chooseVolumeFolder") {
-                                        store.chooseFolder(startingAt: URL(fileURLWithPath: volume.id))
-                                    }
-                                    .buttonStyle(.link)
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 190, alignment: .leading)
-                                .padding(10)
-                                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                                volumeCard(volume)
                             }
                         }
                     }
-                    .scrollIndicators(.hidden)
+                    .frame(height: store.volumes.count > 2 ? 232 : 112)
+                    .scrollIndicators(.visible)
                     HStack {
                         Text("volumeReclaimableHelp")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
+                        if store.volumes.count > 4 {
+                            Text("volumeScrollHint")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                         Button("refreshVolumes") { store.refreshVolumes() }
                             .buttonStyle(.borderless)
                     }
@@ -355,6 +351,42 @@ struct ContentView: View {
         case .uninstall: "uninstallDescription"
         case .orphans: "orphansDescription"
         }
+    }
+
+    private func volumeCard(_ volume: CleanerStore.VolumeSummary) -> some View {
+        Button {
+            store.chooseFolder(startingAt: URL(fileURLWithPath: volume.id))
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "internaldrive")
+                        Text(volume.name).fontWeight(.medium)
+                    }
+                    .foregroundStyle(.primary)
+                    Text(String(format: L("volumeUsedValue"), fileSize(volume.usedBytes)))
+                    Text(String(format: L("volumeFreeValue"), fileSize(volume.freeBytes)))
+                    Text(String(format: L("volumeReclaimableValue"),
+                                fileSize(volume.systemReclaimableEstimate)))
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .frame(height: 112)
+            .background(.quaternary.opacity(hoveredVolumeID == volume.id ? 0.8 : 0.4),
+                        in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor.opacity(hoveredVolumeID == volume.id ? 0.55 : 0), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(L("chooseVolumeFolder"))
+        .onHover { hoveredVolumeID = $0 ? volume.id : nil }
     }
 
     private var scanButton: some View {
