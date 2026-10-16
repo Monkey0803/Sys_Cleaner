@@ -83,7 +83,7 @@ public enum FileScanner {
             var candidates: [(URL, FileStamp)] = []
             var limited = false
             walkFiles(under: root, control: control, warnings: &warnings,
-                      excludedPaths: request.excludedPaths) { url, stamp in
+                      parallel: true, excludedPaths: request.excludedPaths) { url, stamp in
                 guard stamp.size > 0 else { return }
                 if candidates.count < 100_000 { candidates.append((url, stamp)) }
                 else { limited = true; control.recordOmitted() }

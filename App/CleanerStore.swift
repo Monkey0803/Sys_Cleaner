@@ -31,6 +31,7 @@ final class CleanerStore: ObservableObject {
         didSet { refreshSpaceChildren() }
     }
     @Published private(set) var visibleEntries: [ScanEntry] = []
+    @Published private(set) var visibleDuplicateGroups: [[ScanEntry]] = []
     @Published private(set) var visibleSpaceChildren: [SpaceItem] = []
     @Published private(set) var sortSelection = AppPreferences.shared.sortSelection(for: .space) {
         didSet {
@@ -171,8 +172,6 @@ final class CleanerStore: ObservableObject {
             return lhs.name < rhs.name
         }
     }
-    var visibleDuplicateGroups: [[ScanEntry]] { ScanResultGrouping.duplicateGroups(visibleEntries) }
-
     func selectDuplicateGroup(_ group: [ScanEntry]) {
         guard category == .duplicates, !isDeleting else { return }
         selectedIDs.formUnion(ScanResultGrouping.selectableIDs(in: group))
@@ -209,7 +208,9 @@ final class CleanerStore: ObservableObject {
     private func refreshVisibleEntries() {
         let filtered = ScanResultFiltering.entries(entries, category: category,
                                                    query: resultQuery, filter: resultFilter)
-        visibleEntries = ScanSorting.entries(filtered, category: category, selection: sortSelection)
+        let sorted = ScanSorting.entries(filtered, category: category, selection: sortSelection)
+        visibleDuplicateGroups = category == .duplicates ? ScanResultGrouping.duplicateGroups(sorted) : []
+        visibleEntries = sorted
     }
 
     private func refreshSpaceChildren() {

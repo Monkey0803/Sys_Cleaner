@@ -16,7 +16,8 @@ struct ContentView: View {
     @State private var previewSelection: UUID?
     @State private var spacePieHasAppeared = false
     @State private var showingVolumeOverview = true
-    @State private var displayedDuplicateGroupCount = 200
+    @State private var duplicateGroupPage = 0
+    private let duplicateGroupsPerPage = 200
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -151,13 +152,17 @@ struct ContentView: View {
         .onChange(of: store.minimumMB) { _, _ in store.invalidateScan() }
         .onChange(of: store.olderThanDays) { _, _ in store.invalidateScan() }
         .onChange(of: preferences.language) { _, _ in store.refreshSorting() }
-        .onChange(of: store.category) { _, _ in displayedDuplicateGroupCount = 200 }
-        .onChange(of: store.resultQuery) { _, _ in displayedDuplicateGroupCount = 200 }
-        .onChange(of: store.resultFilter) { _, _ in displayedDuplicateGroupCount = 200 }
-        .onChange(of: store.sortSelection) { _, _ in displayedDuplicateGroupCount = 200 }
+        .onChange(of: store.category) { _, _ in duplicateGroupPage = 0 }
+        .onChange(of: store.resultQuery) { _, _ in duplicateGroupPage = 0 }
+        .onChange(of: store.resultFilter) { _, _ in duplicateGroupPage = 0 }
+        .onChange(of: store.sortSelection) { _, _ in duplicateGroupPage = 0 }
+        .onChange(of: store.visibleDuplicateGroups.count) { _, count in
+            duplicateGroupPage = min(duplicateGroupPage,
+                                     max(0, (count - 1) / duplicateGroupsPerPage))
+        }
         .onChange(of: store.hasScanned) { _, scanned in
             if store.category == .space && scanned { showingVolumeOverview = false }
-            if !scanned { displayedDuplicateGroupCount = 200 }
+            if !scanned { duplicateGroupPage = 0 }
         }
         .onAppear {
             FinderReviewBridge.shared.connect(store: store, openMainWindow: { openWindow(id: "main") })
@@ -389,7 +394,8 @@ struct ContentView: View {
         List(selection: $previewSelection) {
             if store.category == .duplicates {
                 let groups = store.visibleDuplicateGroups
-                ForEach(Array(groups.prefix(displayedDuplicateGroupCount).enumerated()), id: \.offset) { _, group in
+                ForEach(Array(groups.enumerated().dropFirst(duplicateGroupPage * duplicateGroupsPerPage)
+                    .prefix(duplicateGroupsPerPage)), id: \.offset) { _, group in
                     Section {
                         ForEach(group) { entry in resultRow(entry) }
                     } header: {
@@ -430,6 +436,7 @@ struct ContentView: View {
             }
         }
         .listStyle(.inset)
+        .id(store.category == .duplicates ? duplicateGroupPage : 0)
         .onKeyPress(.space) {
             guard let id = previewSelection,
                   let entry = store.visibleEntries.first(where: { $0.id == id }),
@@ -439,12 +446,27 @@ struct ContentView: View {
         }
         if store.category == .duplicates {
             let groupCount = store.visibleDuplicateGroups.count
-            if groupCount > displayedDuplicateGroupCount {
-                Button(String(format: L("showMoreDuplicateGroups"),
-                              min(displayedDuplicateGroupCount, groupCount), groupCount)) {
-                    displayedDuplicateGroupCount += 200
+            let pageCount = (groupCount + duplicateGroupsPerPage - 1) / duplicateGroupsPerPage
+            if pageCount > 1 {
+                HStack(spacing: 12) {
+                    Button("previousPage") { duplicateGroupPage -= 1 }
+                        .disabled(duplicateGroupPage == 0)
+                    Text(String(format: L("duplicatePageSummary"), duplicateGroupPage + 1, pageCount,
+                                duplicateGroupPage * duplicateGroupsPerPage + 1,
+                                min((duplicateGroupPage + 1) * duplicateGroupsPerPage, groupCount)))
+                        .foregroundStyle(.secondary)
+                    Menu("jumpToGroupRange") {
+                        ForEach(0..<pageCount, id: \.self) { page in
+                            Button(String(format: L("duplicateGroupRange"),
+                                          page * duplicateGroupsPerPage + 1,
+                                          min((page + 1) * duplicateGroupsPerPage, groupCount))) {
+                                duplicateGroupPage = page
+                            }
+                        }
+                    }
+                    Button("nextPage") { duplicateGroupPage += 1 }
+                        .disabled(duplicateGroupPage + 1 >= pageCount)
                 }
-                .buttonStyle(.borderless)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
             }
