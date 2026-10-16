@@ -1,0 +1,40 @@
+# Sys Cleaner
+
+Sys Cleaner 是支持 macOS 14 及以上版本的原生文件清理应用，使用 SwiftUI 编写，提供简体中文和英文界面。
+
+## 功能
+
+- 空间逐层分析、大文件筛选、按内容哈希确认重复文件。
+- 审阅当前用户的缓存和日志，以及 Xcode DerivedData、SwiftPM、Homebrew 缓存。
+- 卸载应用包，并查找当前用户资源库中与应用包标识精确匹配的文件。
+- 逐项勾选、默认移入废纸篓、单独提供永久删除，并显示每项结果。
+- 菜单栏常驻图标；关闭主窗口后可从菜单栏重新打开，或通过菜单退出应用。
+- 全程本地扫描；没有账号、遥测、定时清理、提权助手或常驻监控。
+
+## 构建与测试
+
+使用 Xcode 打开 `SysCleaner.xcodeproj`，运行 **Sys Cleaner** scheme。命令行可执行：
+
+```sh
+swift test
+xcodebuild -project SysCleaner.xcodeproj -scheme 'Sys Cleaner' -configuration Debug \
+  -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+```
+
+工程文件已包含在仓库中。新增 Swift 文件后，可用 `ruby scripts/generate-project.rb` 重新生成；此步骤需要 Ruby 的 `xcodeproj` gem。
+
+## 权限与清理规则
+
+空间分析、大文件和重复文件从用户选择的文件夹扫描。缓存和卸载功能只读取明确列出的本机位置。访问受保护目录可能需要用户在“系统设置 → 隐私与安全性 → 完整磁盘访问权限”中自行授权；拒绝授权后仍显示可访问的结果，并报告未完成扫描的位置。
+
+所有删除项目都必须先显示并由用户勾选。执行前再次检查文件身份、大小、修改时间、路径边界、符号链接、云端占位及保护目录。最近 15 分钟修改的缓存、`lsof` 显示正在使用的文件、运行中的应用，以及扫描后内容变化的应用包会被跳过。移入废纸篓失败不会自动改为永久删除。
+
+显示的大小是逻辑大小估算；APFS 克隆、稀疏文件或共享存储会使实际释放空间不同。空间分析页只读，小于 1 MB 的文件合并显示为“其他文件”，但仍计入文件夹总量。重复文件扫描跳过符号链接、硬链接和云端占位文件，每组保留一份不可勾选的副本。缓存页显示体积最大的 2,000 个文件，重复比较最多处理 100,000 个文件，超限时显示提示。应用卸载页先点“查看应用文件”，计算应用大小并审阅关联文件后才可勾选。首版不清理系统根目录、系统快照、iCloud 数据、应用归档或模拟器数据。
+
+## 直接分发
+
+Release 构建启用 Hardened Runtime，未启用 App Sandbox。准备 Developer ID Application 证书及 `notarytool` 钥匙串配置后，设置 `TEAM_ID`、`DEVELOPER_ID_APPLICATION` 和 `NOTARY_PROFILE`，执行 `zsh scripts/release.sh`。脚本会归档、签名、公证、装订、验证并生成 `build/release/Sys-Cleaner.zip`。只有使用真实签名身份完成全部验证后，才将产物视作可发布版本。
+
+## 许可与参考
+
+项目使用 MIT 许可证。功能流程参考 CleanMyMac、DaisyDisk、AppCleaner、Pearcleaner 和 Mole 的公开资料，源码独立实现，未复制这些项目的代码。

@@ -1,0 +1,388 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		22D20911B15411DE7585F70E /* FileSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */; };
+		521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */; };
+		645FC5F87984F5E40EC2F6ED /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 44CA5682F828CB6B5F3D9531 /* Localizable.strings */; };
+		6D804D809C0C1AA56A409310 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */; };
+		7CCE66357C97CF583DFAFE52 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FEE5B84E2DA78B3FE11FBF18 /* Cocoa.framework */; };
+		8201A730F69E8B6AD9693A32 /* SysCleanerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */; };
+		A914E1BE757716AD1051FA7F /* Deletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCAC6287E4E224CD89FB6F00 /* Deletion.swift */; };
+		AF422D85A92B8127615A8090 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011A696469615F01985B1935 /* ContentView.swift */; };
+		BD4D948DEFB37C0BBFA0857B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA30EEF2908C3F8BC514782C /* Models.swift */; };
+		F2BD4EE8D1BA6B2736E3AA38 /* CleanerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81DFF62E5B5D069B3674A928 /* CleanerStore.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		011A696469615F01985B1935 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		0615ABDC2BA0388108C2EAD4 /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafety.swift; sourceTree = "<group>"; };
+		273146B4DC39873970B43C59 /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		49B61AAC3F7BCA34CBDFF63F /* Sys Cleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sys Cleaner.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Scanner.swift; sourceTree = "<group>"; };
+		6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		81DFF62E5B5D069B3674A928 /* CleanerStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CleanerStore.swift; sourceTree = "<group>"; };
+		C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SysCleanerApp.swift; sourceTree = "<group>"; };
+		FA30EEF2908C3F8BC514782C /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		FCAC6287E4E224CD89FB6F00 /* Deletion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Deletion.swift; sourceTree = "<group>"; };
+		FEE5B84E2DA78B3FE11FBF18 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AB38B97D461ADCCFFD64E927 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7CCE66357C97CF583DFAFE52 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		03F6C9ED57AB35CD1AB9F26B /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				FEE5B84E2DA78B3FE11FBF18 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		3B090584BE2D7A75AECFB7CA /* App */ = {
+			isa = PBXGroup;
+			children = (
+				81DFF62E5B5D069B3674A928 /* CleanerStore.swift */,
+				011A696469615F01985B1935 /* ContentView.swift */,
+				C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */,
+				44CA5682F828CB6B5F3D9531 /* Localizable.strings */,
+				6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */,
+			);
+			name = App;
+			path = App;
+			sourceTree = "<group>";
+		};
+		AEDBDC7AE3D9B3AFBF9992CB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				49B61AAC3F7BCA34CBDFF63F /* Sys Cleaner.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BB1E839995D782FAF1C888CF /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				03F6C9ED57AB35CD1AB9F26B /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		CFB921B7A60FA82E3F3525D1 /* SysCleanerCore */ = {
+			isa = PBXGroup;
+			children = (
+				FCAC6287E4E224CD89FB6F00 /* Deletion.swift */,
+				2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */,
+				FA30EEF2908C3F8BC514782C /* Models.swift */,
+				604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */,
+			);
+			name = SysCleanerCore;
+			path = Sources/SysCleanerCore;
+			sourceTree = "<group>";
+		};
+		F8C6B68439D1AEA965778A71 = {
+			isa = PBXGroup;
+			children = (
+				AEDBDC7AE3D9B3AFBF9992CB /* Products */,
+				BB1E839995D782FAF1C888CF /* Frameworks */,
+				3B090584BE2D7A75AECFB7CA /* App */,
+				CFB921B7A60FA82E3F3525D1 /* SysCleanerCore */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		32C2DDE0EC579A7B01B17820 /* Sys Cleaner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D54EA191FFA616A3D9E7A762 /* Build configuration list for PBXNativeTarget "Sys Cleaner" */;
+			buildPhases = (
+				8EA7B08E51F5C9E1E191E650 /* Sources */,
+				AB38B97D461ADCCFFD64E927 /* Frameworks */,
+				0D6FEC7A9558AFEB4DB36C9E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Sys Cleaner";
+			productName = "Sys Cleaner";
+			productReference = 49B61AAC3F7BCA34CBDFF63F /* Sys Cleaner.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F1F7210352A507DE6AE81C45 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 2700;
+			};
+			buildConfigurationList = 1DF85AE75A9C8FB895B3FF3E /* Build configuration list for PBXProject "SysCleaner" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = F8C6B68439D1AEA965778A71;
+			minimizedProjectReferenceProxies = 0;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = AEDBDC7AE3D9B3AFBF9992CB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				32C2DDE0EC579A7B01B17820 /* Sys Cleaner */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0D6FEC7A9558AFEB4DB36C9E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				645FC5F87984F5E40EC2F6ED /* Localizable.strings in Resources */,
+				6D804D809C0C1AA56A409310 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8EA7B08E51F5C9E1E191E650 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F2BD4EE8D1BA6B2736E3AA38 /* CleanerStore.swift in Sources */,
+				AF422D85A92B8127615A8090 /* ContentView.swift in Sources */,
+				8201A730F69E8B6AD9693A32 /* SysCleanerApp.swift in Sources */,
+				A914E1BE757716AD1051FA7F /* Deletion.swift in Sources */,
+				22D20911B15411DE7585F70E /* FileSafety.swift in Sources */,
+				BD4D948DEFB37C0BBFA0857B /* Models.swift in Sources */,
+				521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		44CA5682F828CB6B5F3D9531 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				273146B4DC39873970B43C59 /* en */,
+				0615ABDC2BA0388108C2EAD4 /* zh-Hans */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		0BDE2F209CD0701100DEEE77 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		2C9067BF748FDA587E6BAE55 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sys Cleaner";
+				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "Scan files you choose for storage analysis and cleanup.";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "Scan files you choose for storage analysis and cleanup.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "Scan files you choose for storage analysis and cleanup.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.syscleaner.SysCleaner;
+				PRODUCT_NAME = "Sys Cleaner";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		442BE2311F55E77CD3FD84A5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		69453C8F22FD1F3F6FBFD298 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sys Cleaner";
+				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "Scan files you choose for storage analysis and cleanup.";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "Scan files you choose for storage analysis and cleanup.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "Scan files you choose for storage analysis and cleanup.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.syscleaner.SysCleaner;
+				PRODUCT_NAME = "Sys Cleaner";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1DF85AE75A9C8FB895B3FF3E /* Build configuration list for PBXProject "SysCleaner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				442BE2311F55E77CD3FD84A5 /* Debug */,
+				0BDE2F209CD0701100DEEE77 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D54EA191FFA616A3D9E7A762 /* Build configuration list for PBXNativeTarget "Sys Cleaner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2C9067BF748FDA587E6BAE55 /* Release */,
+				69453C8F22FD1F3F6FBFD298 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F1F7210352A507DE6AE81C45 /* Project object */;
+}
