@@ -428,6 +428,22 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(report.entries.filter(\.canDelete).count, 1)
     }
 
+    func testConcurrentDuplicateHashingKeepsContentGroupsAndOriginals() throws {
+        let edge = Data(repeating: 7, count: 4_096)
+        for (name, middle) in [("a1", UInt8(1)), ("a2", 1), ("a3", 1),
+                               ("b1", 2), ("b2", 2), ("unique", 3)] {
+            try (edge + Data(repeating: middle, count: 24_576) + edge)
+                .write(to: root.appendingPathComponent(name))
+        }
+        let report = FileScanner.scan(ScanRequest(category: .duplicates, root: root))
+        XCTAssertEqual(Set(report.entries.map { $0.url.lastPathComponent }),
+                       ["a1", "a2", "a3", "b1", "b2"])
+        XCTAssertEqual(Set(report.entries.compactMap(\.duplicateGroup)).count, 2)
+        XCTAssertEqual(Set(report.entries.filter { !$0.canDelete }.map { $0.url.lastPathComponent }),
+                       ["a1", "b1"])
+        XCTAssertEqual(report.entries.filter(\.canDelete).count, 3)
+    }
+
     func testCacheScanKeepsLargestTwoThousand() throws {
         for index in 0..<2_010 {
             let url = root.appendingPathComponent(String(format: "%04d", index))

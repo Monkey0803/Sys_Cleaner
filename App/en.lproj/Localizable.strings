@@ -166,6 +166,7 @@
 "clearSearchAndFilter" = "Clear search and filter";
 "visibleResultCount" = "Showing %d of %d";
 "duplicateGroupSummary" = "%d identical files · %@ each";
+"showMoreDuplicateGroups" = "Show more duplicate groups (%d of %d shown)";
 "selectGroupCopies" = "Select group copies";
 "clearGroupSelection" = "Clear group selection";
 "otherFiles" = "Other files in this folder";

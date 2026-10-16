@@ -307,52 +307,88 @@ public enum FileScanner {
 
     private static func findDuplicates(files: [(URL, FileStamp)], root: URL, control: ScanControl,
                                        warnings: inout [String]) -> [ScanEntry] {
-        let sized = Dictionary(grouping: files.compactMap { url, stamp -> (URL, FileStamp)? in
-            guard stamp.size > 0, stamp.linkCount == 1 else { return nil }
-            return (url, stamp)
-        }, by: { $0.1.size })
-        var results: [ScanEntry] = []
-        for (_, peers) in sized where peers.count > 1 && !control.isCancelled {
-            let candidateGroups: [[(URL, FileStamp)]]
-            if peers[0].1.size <= 16_384 {
-                // A full read of a small file costs less than opening it twice for a prehash.
-                candidateGroups = [peers]
+        let sized = Dictionary(grouping: files.filter { $0.1.size > 0 && $0.1.linkCount == 1 },
+                               by: { $0.1.size })
+        var fullCandidates: [(URL, FileStamp)] = []
+        var partialCandidates: [(URL, FileStamp)] = []
+        for (size, peers) in sized where peers.count > 1 {
+            if size <= 16_384 { fullCandidates.append(contentsOf: peers) }
+            else { partialCandidates.append(contentsOf: peers) }
+        }
+
+        // A sample hash only removes candidates; a full hash is still required for every shown group.
+        let partialDigests = parallelDigests(partialCandidates, control: control, partial: true)
+        var partialGroups: [PartialKey: [(URL, FileStamp)]] = [:]
+        for (index, candidate) in partialCandidates.enumerated() where !control.isCancelled {
+            let (url, stamp) = candidate
+            if let digest = partialDigests[index], FileSafety.stamp(at: url) == stamp {
+                partialGroups[PartialKey(size: stamp.size, digest: digest), default: []].append(candidate)
             } else {
-                var partialHashes: [String: [(URL, FileStamp)]] = [:]
-                for (url, stamp) in peers where !control.isCancelled {
-                    if let digest = partialHashFile(url, size: stamp.size, control: control),
-                       FileSafety.stamp(at: url) == stamp {
-                        partialHashes[digest, default: []].append((url, stamp))
-                    } else {
-                        appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
-                    }
-                }
-                candidateGroups = partialHashes.values.filter { $0.count > 1 }
+                appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
             }
-            for groupCandidates in candidateGroups where !control.isCancelled {
-                var hashes: [String: [(URL, FileStamp)]] = [:]
-                for (url, stamp) in groupCandidates where !control.isCancelled {
-                    if let digest = hashFile(url, control: control), FileSafety.stamp(at: url) == stamp {
-                        hashes[digest, default: []].append((url, stamp))
-                    } else {
-                        appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
-                    }
-                    control.visited(url, bytes: stamp.size)
-                }
-                for (digest, group) in hashes where group.count > 1 {
-                    let sorted = group.sorted { $0.0.path < $1.0.path }
-                    for (index, element) in sorted.enumerated() {
-                        results.append(ScanEntry(url: element.0, scope: root, category: .duplicates,
-                                                 stamp: element.1, estimatedBytes: element.1.size,
-                                                 risk: .review, note: index == 0 ? "keepOriginal" : "duplicateCopy",
-                                                 duplicateGroup: digest,
-                                                 canDelete: index != 0 &&
-                                                    FileSafety.isSafeLocation(element.0, scope: root, category: .duplicates)))
-                    }
-                }
+        }
+        for peers in partialGroups.values where peers.count > 1 {
+            fullCandidates.append(contentsOf: peers)
+        }
+
+        let fullDigests = parallelDigests(fullCandidates, control: control, partial: false)
+        var hashes: [PartialKey: [(URL, FileStamp)]] = [:]
+        for (index, candidate) in fullCandidates.enumerated() where !control.isCancelled {
+            let (url, stamp) = candidate
+            if let digest = fullDigests[index], FileSafety.stamp(at: url) == stamp {
+                hashes[PartialKey(size: stamp.size, digest: digest), default: []].append(candidate)
+            } else {
+                appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
+            }
+        }
+
+        var results: [ScanEntry] = []
+        for (key, group) in hashes where group.count > 1 && !control.isCancelled {
+            let sorted = group.sorted { $0.0.path < $1.0.path }
+            for (index, element) in sorted.enumerated() {
+                results.append(ScanEntry(url: element.0, scope: root, category: .duplicates,
+                                         stamp: element.1, estimatedBytes: element.1.size,
+                                         risk: .review, note: index == 0 ? "keepOriginal" : "duplicateCopy",
+                                         duplicateGroup: key.digest,
+                                         canDelete: index != 0 &&
+                                            FileSafety.isSafeLocation(element.0, scope: root, category: .duplicates)))
             }
         }
         return results
+    }
+
+    private struct PartialKey: Hashable {
+        let size: Int64
+        let digest: String
+    }
+
+    private static func parallelDigests(_ files: [(URL, FileStamp)], control: ScanControl,
+                                        partial: Bool) -> [String?] {
+        guard !files.isEmpty else { return [] }
+        // Keep the number of simultaneously open files bounded on large scans.
+        let lock = NSLock()
+        var nextIndex = 0
+        var digests = [String?](repeating: nil, count: files.count)
+        let workers = min(4, files.count)
+        DispatchQueue.concurrentPerform(iterations: workers) { _ in
+            while !control.isCancelled {
+                lock.lock()
+                let index = nextIndex
+                nextIndex += 1
+                lock.unlock()
+                guard index < files.count else { break }
+                let (url, stamp) = files[index]
+                let digest = autoreleasepool {
+                    partial ? partialHashFile(url, size: stamp.size, control: control) :
+                              hashFile(url, control: control)
+                }
+                lock.lock()
+                digests[index] = digest
+                lock.unlock()
+                if !partial { control.visited(url, bytes: stamp.size) }
+            }
+        }
+        return digests
     }
 
     private static func partialHashFile(_ url: URL, size: Int64, control: ScanControl) -> String? {

@@ -166,6 +166,7 @@
 "clearSearchAndFilter" = "清除搜索和筛选";
 "visibleResultCount" = "显示 %d / %d 项";
 "duplicateGroupSummary" = "%d 个相同文件 · 每个 %@";
+"showMoreDuplicateGroups" = "显示更多重复组（已显示 %d / %d 组）";
 "selectGroupCopies" = "选择本组副本";
 "clearGroupSelection" = "清空本组选择";
 "otherFiles" = "此文件夹中的其他文件";

@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var previewSelection: UUID?
     @State private var spacePieHasAppeared = false
     @State private var showingVolumeOverview = true
+    @State private var displayedDuplicateGroupCount = 200
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -150,8 +151,13 @@ struct ContentView: View {
         .onChange(of: store.minimumMB) { _, _ in store.invalidateScan() }
         .onChange(of: store.olderThanDays) { _, _ in store.invalidateScan() }
         .onChange(of: preferences.language) { _, _ in store.refreshSorting() }
+        .onChange(of: store.category) { _, _ in displayedDuplicateGroupCount = 200 }
+        .onChange(of: store.resultQuery) { _, _ in displayedDuplicateGroupCount = 200 }
+        .onChange(of: store.resultFilter) { _, _ in displayedDuplicateGroupCount = 200 }
+        .onChange(of: store.sortSelection) { _, _ in displayedDuplicateGroupCount = 200 }
         .onChange(of: store.hasScanned) { _, scanned in
             if store.category == .space && scanned { showingVolumeOverview = false }
+            if !scanned { displayedDuplicateGroupCount = 200 }
         }
         .onAppear {
             FinderReviewBridge.shared.connect(store: store, openMainWindow: { openWindow(id: "main") })
@@ -379,9 +385,11 @@ struct ContentView: View {
     }
 
     private var resultsContent: some View {
+        VStack(spacing: 0) {
         List(selection: $previewSelection) {
             if store.category == .duplicates {
-                ForEach(Array(store.visibleDuplicateGroups.enumerated()), id: \.offset) { _, group in
+                let groups = store.visibleDuplicateGroups
+                ForEach(Array(groups.prefix(displayedDuplicateGroupCount).enumerated()), id: \.offset) { _, group in
                     Section {
                         ForEach(group) { entry in resultRow(entry) }
                     } header: {
@@ -428,6 +436,19 @@ struct ContentView: View {
                   !entry.isDirectory else { return .ignored }
             previewURL = entry.url
             return .handled
+        }
+        if store.category == .duplicates {
+            let groupCount = store.visibleDuplicateGroups.count
+            if groupCount > displayedDuplicateGroupCount {
+                Button(String(format: L("showMoreDuplicateGroups"),
+                              min(displayedDuplicateGroupCount, groupCount), groupCount)) {
+                    displayedDuplicateGroupCount += 200
+                }
+                .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+        }
         }
     }
 
