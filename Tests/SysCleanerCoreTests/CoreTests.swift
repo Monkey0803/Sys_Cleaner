@@ -724,6 +724,88 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(XcodeStorage.sortedByRecentUse(rescanned).map(\.url), [older, newer, unknown])
     }
 
+    func testXcodeProjectGroupsAggregateKnownPathsAndKeepUnknownDirectoriesSeparate() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let roots = [parent.appendingPathComponent("Primary/DerivedData"),
+                     parent.appendingPathComponent("Custom/DerivedData")]
+        let known = roots.enumerated().map { index, root in root.appendingPathComponent("Known-\(index)") }
+        let unknown = roots.enumerated().map { index, root in
+            root.appendingPathComponent("Unknown\(index)-abcdefghijklmnopqrstuvwxabcd")
+        }
+        for (index, directory) in known.enumerated() {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let metadata: [String: Any] = ["WorkspacePath": "/Projects/Shared.xcworkspace",
+                                           "LastAccessedDate": Date(timeIntervalSince1970: Double(index + 1) * 1_000)]
+            try PropertyListSerialization.data(fromPropertyList: metadata, format: .xml, options: 0)
+                .write(to: directory.appendingPathComponent("info.plist"))
+            try Data(repeating: 1, count: (index + 1) * 10).write(to: directory.appendingPathComponent("build.o"))
+        }
+        for directory in unknown {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(repeating: 1, count: 5).write(to: directory.appendingPathComponent("build.o"))
+        }
+
+        let report = XcodeStorage.derivedDataEntries(roots: roots)
+        let groups = XcodeStorage.projectGroups(report.entries)
+        XCTAssertEqual(groups.count, 3)
+        let shared = try XCTUnwrap(groups.first(where: { $0.projectPath == "/Projects/Shared.xcworkspace" }))
+        XCTAssertEqual(Set(shared.entries.map(\.url)), Set(known))
+        XCTAssertEqual(shared.logicalBytes, shared.entries.reduce(0) { $0 + $1.estimatedBytes })
+        XCTAssertEqual(shared.allocatedBytes, shared.entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) })
+        XCTAssertEqual(shared.lastActivity, Date(timeIntervalSince1970: 2_000))
+        XCTAssertEqual(Set(groups.filter { $0.projectPath == nil }.flatMap(\.entries).map(\.url)), Set(unknown))
+        XCTAssertTrue(groups.filter { $0.projectPath == nil }.allSatisfy { $0.entries.count == 1 })
+    }
+
+    func testXcodeEmptyAndUnreadableRootsReportCompleteness() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let empty = parent.appendingPathComponent("Empty/DerivedData")
+        let unreadable = parent.appendingPathComponent("Denied/DerivedData")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unreadable, withIntermediateDirectories: true)
+        let emptyReport = XcodeStorage.derivedDataEntries(roots: [empty])
+        XCTAssertTrue(emptyReport.entries.isEmpty)
+        XCTAssertTrue(emptyReport.warnings.isEmpty)
+        XCTAssertEqual(emptyReport.omittedCount, 0)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: unreadable.path) }
+        guard (try? FileManager.default.contentsOfDirectory(atPath: unreadable.path)) == nil else {
+            throw XCTSkip("This process can read directories without permission")
+        }
+        let report = XcodeStorage.derivedDataEntries(roots: [empty, unreadable])
+        XCTAssertTrue(report.entries.isEmpty)
+        XCTAssertEqual(report.omittedCount, 1)
+        XCTAssertEqual(report.warnings, ["Cannot read \(unreadable.path)"])
+    }
+
+    func testXcodeScanReportsDirectoryChangedWhileMeasuring() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let derived = parent.appendingPathComponent("DerivedData")
+        let project = derived.appendingPathComponent("Changing-abcdefghijklmnopqrstuvwxabcd")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 8).write(to: project.appendingPathComponent("build.o"))
+        let control = ScanControl { progress in
+            if progress.processedDirectories == 1 && progress.processedFiles == 0 {
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+            guard progress.processedFiles == 1 else { return }
+            try? Data(repeating: 2, count: 9).write(to: URL(fileURLWithPath: progress.currentPath))
+        }
+        control.begin(.discovering, path: derived)
+        Thread.sleep(forTimeInterval: 0.25)
+        let report = XcodeStorage.derivedDataEntries(roots: [derived], control: control)
+        XCTAssertTrue(report.entries.isEmpty)
+        XCTAssertEqual(report.omittedCount, 1)
+        XCTAssertEqual(report.warnings, ["Cannot verify \(project.path)"])
+    }
+
     func testXcodeDerivedDataChangeIsRefusedAndTrashCanRestore() throws {
         let parent = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")

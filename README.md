@@ -36,9 +36,11 @@ Every deletion starts from a visible, manually selected result. The app checks f
 
 Logical and allocated-block sizes are shown separately. APFS clones, sparse files, and shared storage can make actual reclaimed space differ; the cleanup result also shows the observed change in available volume capacity, which may include unrelated activity. Scan results show whether unreadable locations or item limits made them partial. Space Analysis is read-only: positive-size files smaller than 1 MB are grouped into “Other files” while still contributing to folder totals; the pie chart shows the six largest positive-size items and combines remaining items with “Other files” into an “Other” slice. Zero-size items remain in the list up to its limit. Duplicate scanning excludes symlinks, hard links, and cloud placeholders; one copy per content hash group remains nonselectable. Cache results show the 2,000 largest files, and duplicate comparison is limited to 100,000 files with a warning when a scan exceeds that bound. App Uninstall lists apps quickly and measures bundle sizes in the background; open an app to inspect matched files before selection. Running apps must be quit and rescanned before review. Old history entries, permanently deleted items, and Trash items that have changed cannot be restored through history. Cleanup never targets system roots, snapshots, iCloud data, or app archives; simulator device deletion requires separate confirmation.
 
-## Direct distribution
+## Source availability and optional direct distribution
 
-Release builds use Hardened Runtime and no App Sandbox. Before packaging, install a Developer ID Application certificate and configure a `notarytool` keychain profile. Set `TEAM_ID`, `DEVELOPER_ID_APPLICATION`, and `NOTARY_PROFILE`, then run `zsh scripts/release.sh`. The script archives, signs, notarizes, staples, verifies, and creates `build/release/Sys-Cleaner.zip`. No release artifact is considered ready until these checks complete on a real signing identity.
+This repository publishes source code on GitHub; it does not currently provide a downloadable app binary. Build locally using the commands above.
+
+If a direct-download binary is offered later, release builds use Hardened Runtime and no App Sandbox. Install a Developer ID Application certificate and configure a `notarytool` keychain profile. Set `TEAM_ID`, `DEVELOPER_ID_APPLICATION`, and `NOTARY_PROFILE`, then run `zsh scripts/release.sh`. The script archives, signs, notarizes, staples, verifies, and creates `build/release/Sys-Cleaner.zip`. No binary is ready for distribution until these checks complete on a real signing identity.
 
 ## License and references
 

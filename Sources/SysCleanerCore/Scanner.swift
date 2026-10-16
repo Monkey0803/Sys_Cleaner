@@ -688,6 +688,7 @@ public enum FileScanner {
         var total: Int64 = 0
         var allocated: Int64 = 0
         for (url, stamp) in files.sorted(by: { $0.0.path < $1.0.path }) {
+            guard !control.isCancelled, FileSafety.stamp(at: url) == stamp else { return nil }
             total += stamp.size
             allocated += stamp.allocatedBytes ?? 0
             let part = "\(url.path.dropFirst(root.path.count))|\(stamp.device)|\(stamp.inode)|\(stamp.size)|\(stamp.modifiedSeconds)|\(stamp.modifiedNanoseconds)"

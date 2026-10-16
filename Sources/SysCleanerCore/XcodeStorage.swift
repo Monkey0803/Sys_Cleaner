@@ -27,6 +27,21 @@ public struct XcodeSimulator: Identifiable, Sendable {
     }
 }
 
+public struct XcodeProjectGroup: Identifiable, Sendable {
+    public let id: String
+    public let projectPath: String?
+    public let entries: [ScanEntry]
+    public var logicalBytes: Int64 { entries.reduce(0) { $0 + $1.estimatedBytes } }
+    public var allocatedBytes: Int64? {
+        guard entries.allSatisfy({ $0.allocatedBytes != nil }) else { return nil }
+        return entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) }
+    }
+    public var lastActivity: Date {
+        entries.map { $0.lastUsedDate ?? Date(timeIntervalSince1970: Double($0.stamp.modifiedSeconds)) }
+            .max() ?? .distantPast
+    }
+}
+
 public enum XcodeStorage {
     public static var defaultDerivedDataRoot: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -57,6 +72,17 @@ public enum XcodeStorage {
         }
     }
 
+    public static func projectGroups(_ entries: [ScanEntry]) -> [XcodeProjectGroup] {
+        let buckets = Dictionary(grouping: entries) { entry in
+            entry.note.isEmpty ? "unknown:\(entry.url.path)"
+                : "project:\(URL(fileURLWithPath: entry.note).standardizedFileURL.path)"
+        }
+        return buckets.map { id, members in
+            XcodeProjectGroup(id: id, projectPath: members.first?.note.isEmpty == false ? members.first?.note : nil,
+                              entries: members.sorted { $0.url.path < $1.url.path })
+        }
+    }
+
     public static func isProjectDirectory(_ url: URL) -> Bool {
         let name = url.lastPathComponent
         guard !name.hasSuffix(".noindex") else { return false }
@@ -77,7 +103,10 @@ public enum XcodeStorage {
             guard seen.insert(root.path).inserted else { continue }
             guard let children = try? FileManager.default.contentsOfDirectory(at: root,
                     includingPropertiesForKeys: nil) else {
-                if FileManager.default.fileExists(atPath: root.path) { warnings.append("Cannot read \(root.path)") }
+                if FileManager.default.fileExists(atPath: root.path) {
+                    warnings.append("Cannot read \(root.path)")
+                    control.recordOmitted()
+                }
                 continue
             }
             for child in children where !control.isCancelled {
@@ -86,9 +115,13 @@ public enum XcodeStorage {
                       !excludedPaths.contains(where: { child.path == $0 || child.path.hasPrefix($0 + "/") }),
                       FileSafety.isSafeLocation(child, scope: root, category: .developerCache),
                       let before = FileSafety.stamp(at: child) else { continue }
+                let omittedBefore = control.omittedCount
                 guard let metrics = FileScanner.directorySignature(child, control: control),
                       FileSafety.stamp(at: child) == before else {
-                    if !control.isCancelled { warnings.append("Cannot read \(child.path)"); control.recordOmitted() }
+                    if !control.isCancelled {
+                        warnings.append("Cannot verify \(child.path)")
+                        if control.omittedCount == omittedBefore { control.recordOmitted() }
+                    }
                     continue
                 }
                 let metadata = projectMetadata(in: child)

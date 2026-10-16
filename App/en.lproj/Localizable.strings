@@ -28,6 +28,8 @@
 "xcodeChooseRootHelp" = "Choose a DerivedData folder inside your home directory.";
 "xcodeNoProjects" = "No Project Build Data";
 "xcodeNoProjectsDetail" = "Add a custom DerivedData location and scan again.";
+"xcodePartialNoProjects" = "Scan Incomplete";
+"xcodePartialNoProjectsDetail" = "Some locations could not be read, so projects may be missing. Expand the warnings below for details.";
 "xcodeNoMatchingProjects" = "No Matching Projects";
 "xcodeNoMatchingProjectsDetail" = "Change the search or filter to see more projects.";
 "xcodeSearchProjects" = "Search projects or paths";
@@ -43,6 +45,8 @@
 "xcodeRebuildHelp" = "Xcode will regenerate this build data the next time you build the project.";
 "xcodeLastModified" = "Last modified: %@";
 "xcodeLastUsed" = "Last used: %@";
+"xcodeLastActivity" = "Recent activity: %@";
+"xcodeBuildDirectories" = "%d build directories; expand to select individually";
 "xcodeAllocated" = "Estimated disk use: %@";
 "xcodeTrashConfirm" = "Move selected project build data to the Trash?";
 "xcodeArchivesReadOnly" = "An archive may be your only distributable build. Archives are read-only here.";
@@ -95,6 +99,7 @@
 "back" = "Back";
 "scanWarnings" = "%d scan notices";
 "cannotRead" = "Cannot read";
+"cannotVerify" = "Could not verify (changed or unreadable)";
 "changedUnreadable" = "Changed or unreadable:";
 "fullDiskAccess" = "Open Full Disk Access settings";
 "selectedSummary" = "%d selected · %@ estimated";

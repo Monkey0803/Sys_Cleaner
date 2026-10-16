@@ -29,29 +29,30 @@ struct XcodeWorkspaceView: View {
         case size, recent, name
     }
 
-    private var visibleProjects: [ScanEntry] {
+    private var visibleProjects: [XcodeProjectGroup] {
         let query = projectQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = store.entries.filter { entry in
+        let filtered = XcodeStorage.projectGroups(store.entries).filter { group in
             let matchesFilter: Bool
             switch projectFilter {
             case .all: matchesFilter = true
-            case .identified: matchesFilter = !entry.note.isEmpty
-            case .unknown: matchesFilter = entry.note.isEmpty
+            case .identified: matchesFilter = group.projectPath != nil
+            case .unknown: matchesFilter = group.projectPath == nil
             }
             return matchesFilter && (query.isEmpty
-                || projectName(entry).localizedStandardContains(query)
-                || entry.note.localizedStandardContains(query)
-                || entry.url.path.localizedStandardContains(query))
+                || projectName(group).localizedStandardContains(query)
+                || (group.projectPath?.localizedStandardContains(query) ?? false)
+                || group.entries.contains { $0.url.path.localizedStandardContains(query) })
         }
         switch projectSort {
         case .recent:
-            return XcodeStorage.sortedByRecentUse(filtered)
+            return filtered.sorted { $0.lastActivity == $1.lastActivity
+                ? $0.id < $1.id : $0.lastActivity > $1.lastActivity }
         case .size:
             return filtered.sorted { left, right in
-                if left.estimatedBytes != right.estimatedBytes {
-                    return left.estimatedBytes > right.estimatedBytes
+                if left.logicalBytes != right.logicalBytes {
+                    return left.logicalBytes > right.logicalBytes
                 }
-                return left.url.path < right.url.path
+                return left.id < right.id
             }
         case .name:
             return filtered.sorted { left, right in
@@ -59,9 +60,14 @@ struct XcodeWorkspaceView: View {
                 let rightName = projectName(right)
                 let comparison = leftName.localizedStandardCompare(rightName)
                 if comparison != .orderedSame { return comparison == .orderedAscending }
-                return left.url.path < right.url.path
+                return left.id < right.id
             }
         }
+    }
+
+    private func projectName(_ group: XcodeProjectGroup) -> String {
+        group.projectPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+            ?? L("xcodeUnknownProject")
     }
 
     private func projectName(_ entry: ScanEntry) -> String {
@@ -70,7 +76,7 @@ struct XcodeWorkspaceView: View {
     }
 
     private func pruneHiddenProjectSelection() {
-        store.selectedIDs.formIntersection(Set(visibleProjects.map(\.id)))
+        store.selectedIDs.formIntersection(Set(visibleProjects.flatMap(\.entries).map(\.id)))
     }
 
     var body: some View {
@@ -82,7 +88,7 @@ struct XcodeWorkspaceView: View {
                 }
                 Spacer()
                 Button("scanAgain") { refresh() }
-                    .disabled(store.isScanning || store.isDeleting || loadingExtras)
+                    .disabled(store.isDeleting || loadingExtras)
             }
             .padding(20)
             Picker("xcodeSection", selection: $section) {
@@ -106,7 +112,9 @@ struct XcodeWorkspaceView: View {
             }
         }
         .task {
-            if !store.hasScanned && !store.isScanning { store.scan() }
+            if !store.hasScanned && !store.isScanning && !store.warnings.contains("scanCancelled") {
+                store.scan()
+            }
             await refreshExtras()
         }
         .alert("xcodeTrashConfirm", isPresented: $showingTrashConfirmation) {
@@ -168,22 +176,65 @@ struct XcodeWorkspaceView: View {
                 }.padding(.horizontal, 20)
             }
             if store.isScanning {
-                ProgressView("scanning").frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    ProgressView("scanning")
+                    if let progress = store.scanProgress {
+                        Text(L("scanStage_\(progress.stage.rawValue)"))
+                        Text(String(format: L("scanProgressCounts"), progress.processedFiles,
+                                    progress.processedDirectories, progress.currentPath))
+                            .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                    }
+                    Button("cancel") { store.cancel() }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .padding(20).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if visibleProjects.isEmpty {
-                ContentUnavailableView(store.entries.isEmpty ? "xcodeNoProjects" : "xcodeNoMatchingProjects",
+                ContentUnavailableView(store.hasPartialResults && store.entries.isEmpty
+                                       ? "xcodePartialNoProjects"
+                                       : store.entries.isEmpty ? "xcodeNoProjects" : "xcodeNoMatchingProjects",
                                        systemImage: "hammer",
-                                       description: Text(store.entries.isEmpty
+                                       description: Text(store.hasPartialResults && store.entries.isEmpty
+                                           ? "xcodePartialNoProjectsDetail" : store.entries.isEmpty
                                            ? "xcodeNoProjectsDetail" : "xcodeNoMatchingProjectsDetail"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(visibleProjects) { entry in
-                    projectRow(entry)
+                List(visibleProjects) { group in
+                    if group.entries.count > 1 {
+                        DisclosureGroup {
+                            ForEach(group.entries) { entry in projectRow(entry) }
+                        } label: {
+                            projectGroupRow(group)
+                        }
+                    } else if let entry = group.entries.first {
+                        projectRow(entry)
+                    }
                 }
                 .listStyle(.inset)
             }
+            if !store.isScanning && (store.hasScanned || store.hasPartialResults) {
+                HStack {
+                    Text(store.hasPartialResults ? "partialResults" : "completeResults")
+                    if store.scanMetrics.omittedCount > 0 {
+                        Text(String(format: L("omittedItemsCount"), store.scanMetrics.omittedCount))
+                    }
+                    Spacer()
+                }
+                .font(.caption).foregroundStyle(store.hasPartialResults ? .orange : .secondary)
+                .padding(.horizontal, 20).padding(.top, 8)
+            }
             if !store.warnings.isEmpty {
-                Text(String(format: L("scanWarnings"), store.warnings.count))
-                    .font(.caption).foregroundStyle(.orange).padding(8)
+                DisclosureGroup(String(format: L("scanWarnings"), store.warnings.count)) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(store.warnings, id: \.self) { warning in
+                                Text(localizedWarning(warning)).font(.caption).textSelection(.enabled)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(height: 100)
+                }
+                .font(.caption).padding(10)
+                .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 20)
             }
             HStack {
                 Text(String(format: L("selectedSummary"), store.selectedEntries.count,
@@ -196,6 +247,41 @@ struct XcodeWorkspaceView: View {
             .padding(16)
             .background(.bar)
         }
+    }
+
+    private func projectGroupRow(_ group: XcodeProjectGroup) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(projectName(group)).font(.headline)
+                if let path = group.projectPath {
+                    Text(path).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Text(String(format: L("xcodeBuildDirectories"), group.entries.count))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(String(format: L("xcodeLastActivity"), group.lastActivity.formatted()))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(ByteCountFormatter.string(fromByteCount: group.logicalBytes, countStyle: .file))
+                if let allocated = group.allocatedBytes {
+                    Text(String(format: L("xcodeAllocated"),
+                                ByteCountFormatter.string(fromByteCount: allocated, countStyle: .file)))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }.padding(.vertical, 6)
+    }
+
+    private func localizedWarning(_ warning: String) -> String {
+        if warning.hasPrefix("Cannot read ") {
+            return warning.replacingOccurrences(of: "Cannot read ", with: L("cannotRead") + " ")
+        }
+        if warning.hasPrefix("Cannot verify ") {
+            return warning.replacingOccurrences(of: "Cannot verify ", with: L("cannotVerify") + " ")
+        }
+        return L(warning)
     }
 
     private func projectRow(_ entry: ScanEntry) -> some View {

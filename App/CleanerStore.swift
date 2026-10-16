@@ -256,7 +256,7 @@ final class CleanerStore: ObservableObject {
         if category == .uninstall { cancelApplicationSizeMeasurement() }
         if runningScans[category]?.isApplicationPreparation == true { cancel() }
         if category == .uninstall { backFromApplication() }
-        if hasScanned || isScanning {
+        if hasScanned || isScanning || !warnings.isEmpty {
             categoryResults[category] = currentResult()
         } else {
             categoryResults.removeValue(forKey: category)

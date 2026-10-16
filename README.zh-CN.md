@@ -36,9 +36,11 @@ xcodebuild -project SysCleaner.xcodeproj -scheme 'Sys Cleaner' -configuration De
 
 逻辑大小和已分配磁盘块大小分别显示。APFS 克隆、稀疏文件或共享存储会使实际释放空间不同；清理结果也会显示卷可用容量的观测变化，其中可能包含其他活动。扫描结果会标明不可读位置或项目上限导致的不完整情况。空间分析页只读，大于零且小于 1 MB 的文件合并显示为“其他文件”，但仍计入文件夹总量；饼图显示容量最大的 6 个非零项目，其余项目与原有“其他文件”合并为“其他”扇区，零容量项目最多单独列出 10,000 项。重复文件扫描跳过符号链接、硬链接和云端占位文件，每组保留一份不可勾选的副本。缓存页显示体积最大的 2,000 个文件，重复比较最多处理 100,000 个文件，超限时显示提示。应用卸载页先快速列出应用，再在后台逐项计算包内大小；打开应用详情后审阅关联文件并勾选。运行中的应用需退出并重新扫描。旧版本清理记录、永久删除的项目及废纸篓中已变化的项目无法通过记录恢复。首版不清理系统根目录、系统快照、iCloud 数据或应用归档；模拟器设备删除需单独确认。
 
-## 直接分发
+## 源码开源与可选的直接分发
 
-Release 构建启用 Hardened Runtime，未启用 App Sandbox。准备 Developer ID Application 证书及 `notarytool` 钥匙串配置后，设置 `TEAM_ID`、`DEVELOPER_ID_APPLICATION` 和 `NOTARY_PROFILE`，执行 `zsh scripts/release.sh`。脚本会归档、签名、公证、装订、验证并生成 `build/release/Sys-Cleaner.zip`。只有使用真实签名身份完成全部验证后，才将产物视作可发布版本。
+目前仅在 GitHub 开源源码，不提供可下载的 App 二进制。可按上面的命令在本机自行构建。
+
+如果将来提供直接下载的 App，Release 构建启用 Hardened Runtime，未启用 App Sandbox。准备 Developer ID Application 证书及 `notarytool` 钥匙串配置后，设置 `TEAM_ID`、`DEVELOPER_ID_APPLICATION` 和 `NOTARY_PROFILE`，执行 `zsh scripts/release.sh`。脚本会归档、签名、公证、装订、验证并生成 `build/release/Sys-Cleaner.zip`。只有使用真实签名身份完成全部验证后，才将二进制产物视作可分发版本。
 
 ## 许可与参考
 

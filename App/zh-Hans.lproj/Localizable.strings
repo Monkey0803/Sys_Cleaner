@@ -28,6 +28,8 @@
 "xcodeChooseRootHelp" = "请选择位于个人目录中的 DerivedData 文件夹。";
 "xcodeNoProjects" = "没有项目构建数据";
 "xcodeNoProjectsDetail" = "可添加自定义 DerivedData 路径后重新扫描。";
+"xcodePartialNoProjects" = "扫描未完成";
+"xcodePartialNoProjectsDetail" = "部分位置未能读取，当前列表可能缺少项目。展开下方警告查看原因。";
 "xcodeNoMatchingProjects" = "没有匹配的项目";
 "xcodeNoMatchingProjectsDetail" = "调整搜索内容或筛选条件后重试。";
 "xcodeSearchProjects" = "搜索项目或路径";
@@ -43,6 +45,8 @@
 "xcodeRebuildHelp" = "清理后再次构建此项目时，Xcode 将重新生成构建数据。";
 "xcodeLastModified" = "最近修改：%@";
 "xcodeLastUsed" = "最近使用：%@";
+"xcodeLastActivity" = "最近活动：%@";
+"xcodeBuildDirectories" = "%d 个构建目录；展开后逐项选择";
 "xcodeAllocated" = "磁盘占用估算：%@";
 "xcodeTrashConfirm" = "将所选项目构建数据移入废纸篓？";
 "xcodeArchivesReadOnly" = "归档可能是唯一的发布产物；此处仅供查看，不能删除。";
@@ -95,6 +99,7 @@
 "back" = "返回";
 "scanWarnings" = "%d 条扫描提示";
 "cannotRead" = "无法读取";
+"cannotVerify" = "无法核验（可能已变化或不可读）";
 "changedUnreadable" = "已变化或无法读取：";
 "fullDiskAccess" = "打开完整磁盘访问权限设置";
 "selectedSummary" = "已选 %d 项 · 估算 %@";
