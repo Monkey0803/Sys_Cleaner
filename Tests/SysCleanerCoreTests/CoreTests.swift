@@ -668,7 +668,9 @@ final class CoreTests: XCTestCase {
         let unknown = derived.appendingPathComponent("Opaque-abcdefghijklmnopqrstuvwxabcd")
         try FileManager.default.createDirectory(at: known, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: unknown, withIntermediateDirectories: true)
-        let metadata = ["WorkspacePath": "/Projects/Actual/Actual.xcworkspace"]
+        let accessed = Date(timeIntervalSince1970: 1_000)
+        let metadata: [String: Any] = ["WorkspacePath": "/Projects/Actual/Actual.xcworkspace",
+                                       "LastAccessedDate": accessed]
         try PropertyListSerialization.data(fromPropertyList: metadata, format: .xml, options: 0)
             .write(to: known.appendingPathComponent("info.plist"))
         try Data(repeating: 1, count: 32).write(to: known.appendingPathComponent("build.o"))
@@ -676,14 +678,50 @@ final class CoreTests: XCTestCase {
 
         let report = XcodeStorage.derivedDataEntries(roots: [derived])
         XCTAssertEqual(report.entries.count, 2)
-        XCTAssertEqual(report.entries.first(where: { $0.url == known })?.note, metadata["WorkspacePath"])
+        XCTAssertEqual(report.entries.first(where: { $0.url == known })?.note,
+                       "/Projects/Actual/Actual.xcworkspace")
+        XCTAssertEqual(report.entries.first(where: { $0.url == known })?.lastUsedDate, accessed)
         XCTAssertEqual(report.entries.first(where: { $0.url == unknown })?.note, "")
+        XCTAssertNil(report.entries.first(where: { $0.url == unknown })?.lastUsedDate)
         XCTAssertEqual(report.entries.first(where: { $0.url == unknown })?.estimatedBytes, 16)
         let globalCache = derived.appendingPathComponent("ModuleCache.noindex")
         try FileManager.default.createDirectory(at: globalCache, withIntermediateDirectories: true)
         XCTAssertFalse(XcodeStorage.isProjectDirectory(globalCache))
         let excluded = XcodeStorage.derivedDataEntries(roots: [derived], excludedPaths: [unknown.path])
         XCTAssertEqual(excluded.entries.map(\.url), [known])
+    }
+
+    func testXcodeRecentSortUsesScannedMetadataUntilRescan() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let derived = parent.appendingPathComponent("DerivedData")
+        let older = derived.appendingPathComponent("Older-1")
+        let newer = derived.appendingPathComponent("Newer-1")
+        let unknown = derived.appendingPathComponent("Unknown-abcdefghijklmnopqrstuvwxabcd")
+        for directory in [older, newer, unknown] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        func writeAccessDate(_ date: Date, to directory: URL) throws {
+            let metadata: [String: Any] = ["WorkspacePath": "/Projects/\(directory.lastPathComponent).xcodeproj",
+                                           "LastAccessedDate": date]
+            try PropertyListSerialization.data(fromPropertyList: metadata, format: .xml, options: 0)
+                .write(to: directory.appendingPathComponent("info.plist"))
+        }
+        let early = Date(timeIntervalSince1970: 1_000)
+        let late = Date(timeIntervalSince1970: 2_000)
+        try writeAccessDate(early, to: older)
+        try writeAccessDate(late, to: newer)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_500)],
+                                              ofItemAtPath: unknown.path)
+
+        let scanned = XcodeStorage.derivedDataEntries(roots: [derived]).entries
+        XCTAssertEqual(XcodeStorage.sortedByRecentUse(scanned).map(\.url), [newer, unknown, older])
+
+        try writeAccessDate(late.addingTimeInterval(1_000), to: older)
+        XCTAssertEqual(XcodeStorage.sortedByRecentUse(scanned).map(\.url), [newer, unknown, older])
+        let rescanned = XcodeStorage.derivedDataEntries(roots: [derived]).entries
+        XCTAssertEqual(XcodeStorage.sortedByRecentUse(rescanned).map(\.url), [older, newer, unknown])
     }
 
     func testXcodeDerivedDataChangeIsRefusedAndTrashCanRestore() throws {

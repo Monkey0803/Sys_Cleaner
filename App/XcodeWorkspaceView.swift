@@ -43,25 +43,24 @@ struct XcodeWorkspaceView: View {
                 || entry.note.localizedStandardContains(query)
                 || entry.url.path.localizedStandardContains(query))
         }
-        return filtered.sorted { left, right in
-            switch projectSort {
-            case .size:
+        switch projectSort {
+        case .recent:
+            return XcodeStorage.sortedByRecentUse(filtered)
+        case .size:
+            return filtered.sorted { left, right in
                 if left.estimatedBytes != right.estimatedBytes {
                     return left.estimatedBytes > right.estimatedBytes
                 }
-            case .recent:
-                let leftDate = XcodeStorage.lastUsed(in: left.url)
-                    ?? Date(timeIntervalSince1970: Double(left.stamp.modifiedSeconds))
-                let rightDate = XcodeStorage.lastUsed(in: right.url)
-                    ?? Date(timeIntervalSince1970: Double(right.stamp.modifiedSeconds))
-                if leftDate != rightDate { return leftDate > rightDate }
-            case .name:
+                return left.url.path < right.url.path
+            }
+        case .name:
+            return filtered.sorted { left, right in
                 let leftName = projectName(left)
                 let rightName = projectName(right)
                 let comparison = leftName.localizedStandardCompare(rightName)
                 if comparison != .orderedSame { return comparison == .orderedAscending }
+                return left.url.path < right.url.path
             }
-            return left.url.path < right.url.path
         }
     }
 
@@ -201,7 +200,7 @@ struct XcodeWorkspaceView: View {
 
     private func projectRow(_ entry: ScanEntry) -> some View {
         let path = entry.note
-        let lastUsed = XcodeStorage.lastUsed(in: entry.url)
+        let lastUsed = entry.lastUsedDate
         return HStack(alignment: .top, spacing: 12) {
             Toggle("", isOn: Binding(get: { store.selectedIDs.contains(entry.id) }, set: { selected in
                 if selected { store.selectedIDs.insert(entry.id) }

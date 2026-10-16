@@ -48,6 +48,7 @@ public struct ScanEntry: Identifiable, Sendable {
     public let sizeIsKnown: Bool
     public let risk: RiskLevel
     public let note: String
+    public let lastUsedDate: Date?
     public let duplicateGroup: String?
     public let isDirectory: Bool
     public let canDelete: Bool
@@ -55,7 +56,7 @@ public struct ScanEntry: Identifiable, Sendable {
 
     public init(id: UUID = UUID(), url: URL, scope: URL, category: ScanCategory, stamp: FileStamp,
                 estimatedBytes: Int64, allocatedBytes: Int64? = nil, sizeIsKnown: Bool = true,
-                risk: RiskLevel = .review, note: String = "",
+                risk: RiskLevel = .review, note: String = "", lastUsedDate: Date? = nil,
                 duplicateGroup: String? = nil, isDirectory: Bool = false,
                 canDelete: Bool = true, directorySignature: String? = nil) {
         self.id = id
@@ -68,6 +69,7 @@ public struct ScanEntry: Identifiable, Sendable {
         self.sizeIsKnown = sizeIsKnown
         self.risk = risk
         self.note = note
+        self.lastUsedDate = lastUsedDate
         self.duplicateGroup = duplicateGroup
         self.isDirectory = isDirectory
         self.canDelete = canDelete
@@ -77,7 +79,7 @@ public struct ScanEntry: Identifiable, Sendable {
     public func withEstimatedBytes(_ bytes: Int64, allocatedBytes: Int64? = nil) -> ScanEntry {
         ScanEntry(id: id, url: url, scope: scope, category: category, stamp: stamp,
                   estimatedBytes: bytes, allocatedBytes: allocatedBytes,
-                  sizeIsKnown: true, risk: risk, note: note,
+                  sizeIsKnown: true, risk: risk, note: note, lastUsedDate: lastUsedDate,
                   duplicateGroup: duplicateGroup,
                   isDirectory: isDirectory, canDelete: canDelete, directorySignature: directorySignature)
     }

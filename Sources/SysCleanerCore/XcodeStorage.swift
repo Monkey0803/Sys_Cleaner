@@ -38,22 +38,23 @@ public enum XcodeStorage {
             .appendingPathComponent("Library/Developer/Xcode/Archives")
     }
 
-    public static func projectPath(in derivedData: URL) -> String? {
+    private static func projectMetadata(in derivedData: URL) -> (path: String?, lastUsed: Date?) {
         let info = derivedData.appendingPathComponent("info.plist")
         guard let data = try? Data(contentsOf: info),
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
-                as? [String: Any],
-              let path = (plist["WorkspacePath"] as? String) ?? (plist["ProjectPath"] as? String),
-              !path.isEmpty else { return nil }
-        return path
+                as? [String: Any] else { return (nil, nil) }
+        let path = (plist["WorkspacePath"] as? String) ?? (plist["ProjectPath"] as? String)
+        return (path?.isEmpty == false ? path : nil, plist["LastAccessedDate"] as? Date)
     }
 
-    public static func lastUsed(in derivedData: URL) -> Date? {
-        let info = derivedData.appendingPathComponent("info.plist")
-        guard let data = try? Data(contentsOf: info),
-              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
-                as? [String: Any] else { return nil }
-        return plist["LastAccessedDate"] as? Date
+    public static func sortedByRecentUse(_ entries: [ScanEntry]) -> [ScanEntry] {
+        entries.sorted { left, right in
+            let leftDate = left.lastUsedDate
+                ?? Date(timeIntervalSince1970: Double(left.stamp.modifiedSeconds))
+            let rightDate = right.lastUsedDate
+                ?? Date(timeIntervalSince1970: Double(right.stamp.modifiedSeconds))
+            return leftDate == rightDate ? left.url.path < right.url.path : leftDate > rightDate
+        }
     }
 
     public static func isProjectDirectory(_ url: URL) -> Bool {
@@ -90,10 +91,11 @@ public enum XcodeStorage {
                     if !control.isCancelled { warnings.append("Cannot read \(child.path)"); control.recordOmitted() }
                     continue
                 }
+                let metadata = projectMetadata(in: child)
                 entries.append(ScanEntry(url: child, scope: root, category: .developerCache,
                     stamp: before, estimatedBytes: metrics.bytes,
                     allocatedBytes: metrics.allocatedBytes, risk: .review,
-                    note: projectPath(in: child) ?? "", isDirectory: true,
+                    note: metadata.path ?? "", lastUsedDate: metadata.lastUsed, isDirectory: true,
                     directorySignature: metrics.digest))
             }
         }
