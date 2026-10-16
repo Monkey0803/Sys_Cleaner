@@ -28,6 +28,17 @@
 "xcodeChooseRootHelp" = "请选择位于个人目录中的 DerivedData 文件夹。";
 "xcodeNoProjects" = "没有项目构建数据";
 "xcodeNoProjectsDetail" = "可添加自定义 DerivedData 路径后重新扫描。";
+"xcodeNoMatchingProjects" = "没有匹配的项目";
+"xcodeNoMatchingProjectsDetail" = "调整搜索内容或筛选条件后重试。";
+"xcodeSearchProjects" = "搜索项目或路径";
+"xcodeProjectFilter" = "项目筛选";
+"xcodeFilterAll" = "全部项目";
+"xcodeFilterIdentified" = "已识别";
+"xcodeFilterUnknown" = "未知项目";
+"xcodeProjectSort" = "项目排序";
+"xcodeSortSize" = "大小";
+"xcodeSortRecent" = "最近活动";
+"xcodeSortName" = "项目名称";
 "xcodeUnknownProject" = "未知项目";
 "xcodeRebuildHelp" = "清理后再次构建此项目时，Xcode 将重新生成构建数据。";
 "xcodeLastModified" = "最近修改：%@";

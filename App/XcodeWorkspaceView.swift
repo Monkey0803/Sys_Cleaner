@@ -12,10 +12,66 @@ struct XcodeWorkspaceView: View {
     @State private var showingSimulatorConfirmation = false
     @State private var loadingExtras = false
     @State private var operationError: String?
+    @State private var projectQuery = ""
+    @State private var projectFilter: ProjectFilter = .all
+    @State private var projectSort: ProjectSort = .size
 
     private enum Section: String, CaseIterable, Identifiable {
         case projects, archives, simulators
         var id: Self { self }
+    }
+
+    private enum ProjectFilter: String {
+        case all, identified, unknown
+    }
+
+    private enum ProjectSort: String {
+        case size, recent, name
+    }
+
+    private var visibleProjects: [ScanEntry] {
+        let query = projectQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = store.entries.filter { entry in
+            let matchesFilter: Bool
+            switch projectFilter {
+            case .all: matchesFilter = true
+            case .identified: matchesFilter = !entry.note.isEmpty
+            case .unknown: matchesFilter = entry.note.isEmpty
+            }
+            return matchesFilter && (query.isEmpty
+                || projectName(entry).localizedStandardContains(query)
+                || entry.note.localizedStandardContains(query)
+                || entry.url.path.localizedStandardContains(query))
+        }
+        return filtered.sorted { left, right in
+            switch projectSort {
+            case .size:
+                if left.estimatedBytes != right.estimatedBytes {
+                    return left.estimatedBytes > right.estimatedBytes
+                }
+            case .recent:
+                let leftDate = XcodeStorage.lastUsed(in: left.url)
+                    ?? Date(timeIntervalSince1970: Double(left.stamp.modifiedSeconds))
+                let rightDate = XcodeStorage.lastUsed(in: right.url)
+                    ?? Date(timeIntervalSince1970: Double(right.stamp.modifiedSeconds))
+                if leftDate != rightDate { return leftDate > rightDate }
+            case .name:
+                let leftName = projectName(left)
+                let rightName = projectName(right)
+                let comparison = leftName.localizedStandardCompare(rightName)
+                if comparison != .orderedSame { return comparison == .orderedAscending }
+            }
+            return left.url.path < right.url.path
+        }
+    }
+
+    private func projectName(_ entry: ScanEntry) -> String {
+        entry.note.isEmpty ? L("xcodeUnknownProject")
+            : URL(fileURLWithPath: entry.note).deletingPathExtension().lastPathComponent
+    }
+
+    private func pruneHiddenProjectSelection() {
+        store.selectedIDs.formIntersection(Set(visibleProjects.map(\.id)))
     }
 
     var body: some View {
@@ -78,6 +134,23 @@ struct XcodeWorkspaceView: View {
                 Button("xcodeAddRoot") { chooseRoot() }
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
+            HStack {
+                TextField("xcodeSearchProjects", text: $projectQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: projectQuery) { _, _ in pruneHiddenProjectSelection() }
+                Picker("xcodeProjectFilter", selection: $projectFilter) {
+                    Text("xcodeFilterAll").tag(ProjectFilter.all)
+                    Text("xcodeFilterIdentified").tag(ProjectFilter.identified)
+                    Text("xcodeFilterUnknown").tag(ProjectFilter.unknown)
+                }
+                .onChange(of: projectFilter) { _, _ in pruneHiddenProjectSelection() }
+                Picker("xcodeProjectSort", selection: $projectSort) {
+                    Text("xcodeSortSize").tag(ProjectSort.size)
+                    Text("xcodeSortRecent").tag(ProjectSort.recent)
+                    Text("xcodeSortName").tag(ProjectSort.name)
+                }
+            }
+            .padding(.horizontal, 20).padding(.bottom, 10)
             if !preferences.derivedDataRoots.isEmpty {
                 ScrollView(.horizontal) {
                     HStack {
@@ -97,12 +170,14 @@ struct XcodeWorkspaceView: View {
             }
             if store.isScanning {
                 ProgressView("scanning").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if store.entries.isEmpty {
-                ContentUnavailableView("xcodeNoProjects", systemImage: "hammer",
-                                       description: Text("xcodeNoProjectsDetail"))
+            } else if visibleProjects.isEmpty {
+                ContentUnavailableView(store.entries.isEmpty ? "xcodeNoProjects" : "xcodeNoMatchingProjects",
+                                       systemImage: "hammer",
+                                       description: Text(store.entries.isEmpty
+                                           ? "xcodeNoProjectsDetail" : "xcodeNoMatchingProjectsDetail"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(store.entries) { entry in
+                List(visibleProjects) { entry in
                     projectRow(entry)
                 }
                 .listStyle(.inset)
@@ -135,7 +210,7 @@ struct XcodeWorkspaceView: View {
             .labelsHidden()
             .disabled(store.isDeleting || store.isScanning)
             VStack(alignment: .leading, spacing: 4) {
-                Text(path.isEmpty ? L("xcodeUnknownProject") : URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
+                Text(projectName(entry))
                     .font(.headline)
                 Text(path.isEmpty ? entry.url.path : path)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)

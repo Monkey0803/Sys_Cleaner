@@ -5,7 +5,7 @@ Native macOS 14+ file cleanup app, built with SwiftUI. English and 简体中文 
 ## Features
 
 - Space analysis with an animated pie chart and a read-only mounted-volume overview: click slices or legend entries to drill down or preview files; large-file filters and content-verified duplicates.
-- User cache and log review; project-grouped Xcode DerivedData with custom locations, read-only archive inventory, and individually confirmed shutdown-simulator deletion.
+- User cache and log review; project-grouped Xcode DerivedData with custom locations, project search, attribution filters and sorting, read-only archive inventory, and individually confirmed shutdown-simulator deletion.
 - App bundle removal plus files in exact bundle-ID paths under the user's Library; choose or drop a `.app` to review it.
 - Read-only candidates from selected user Library data folders, excluding identifiers of installed apps and their extensions, services, and login items. Verify candidates manually in Finder; Preferences and logs are excluded.
 - Scan stage, processed counts, and current path; independent scan state when switching categories.

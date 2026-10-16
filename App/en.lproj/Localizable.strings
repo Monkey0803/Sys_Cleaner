@@ -28,6 +28,17 @@
 "xcodeChooseRootHelp" = "Choose a DerivedData folder inside your home directory.";
 "xcodeNoProjects" = "No Project Build Data";
 "xcodeNoProjectsDetail" = "Add a custom DerivedData location and scan again.";
+"xcodeNoMatchingProjects" = "No Matching Projects";
+"xcodeNoMatchingProjectsDetail" = "Change the search or filter to see more projects.";
+"xcodeSearchProjects" = "Search projects or paths";
+"xcodeProjectFilter" = "Project filter";
+"xcodeFilterAll" = "All projects";
+"xcodeFilterIdentified" = "Identified";
+"xcodeFilterUnknown" = "Unknown";
+"xcodeProjectSort" = "Sort projects";
+"xcodeSortSize" = "Size";
+"xcodeSortRecent" = "Recent activity";
+"xcodeSortName" = "Project name";
 "xcodeUnknownProject" = "Unknown Project";
 "xcodeRebuildHelp" = "Xcode will regenerate this build data the next time you build the project.";
 "xcodeLastModified" = "Last modified: %@";
