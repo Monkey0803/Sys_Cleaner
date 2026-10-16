@@ -2,13 +2,18 @@ import Darwin
 import Foundation
 
 public enum FileSafety {
-    public static func stamp(at url: URL) -> FileStamp? {
+    static func metadata(at url: URL) -> (stamp: FileStamp, isDirectory: Bool)? {
         var info = stat()
         guard lstat(url.path, &info) == 0, (info.st_mode & mode_t(S_IFMT)) != mode_t(S_IFLNK) else { return nil }
-        return FileStamp(device: UInt64(info.st_dev), inode: UInt64(info.st_ino),
-                         size: Int64(info.st_size), modifiedSeconds: Int64(info.st_mtimespec.tv_sec),
-                         modifiedNanoseconds: Int64(info.st_mtimespec.tv_nsec),
-                         linkCount: UInt64(info.st_nlink))
+        let stamp = FileStamp(device: UInt64(info.st_dev), inode: UInt64(info.st_ino),
+                              size: Int64(info.st_size), modifiedSeconds: Int64(info.st_mtimespec.tv_sec),
+                              modifiedNanoseconds: Int64(info.st_mtimespec.tv_nsec),
+                              linkCount: UInt64(info.st_nlink))
+        return (stamp, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR))
+    }
+
+    public static func stamp(at url: URL) -> FileStamp? {
+        metadata(at: url)?.stamp
     }
 
     public static func isDirectory(_ url: URL) -> Bool {

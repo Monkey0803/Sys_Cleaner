@@ -154,4 +154,99 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(report.spaceItems.first(where: { $0.url.path == folder.path })?.bytes, 6)
         XCTAssertEqual(report.spaceItems.first(where: { $0.parent.path == root.path && $0.isOther })?.bytes, 4)
     }
+
+    func testDeepSpaceTotalsPropagateOnceThroughEveryParent() throws {
+        var directory = root!
+        for depth in 0..<20 {
+            directory.appendPathComponent("level\(depth)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        }
+        try Data(repeating: 7, count: 17).write(to: directory.appendingPathComponent("deep"))
+        _ = try file("top", "abc")
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        XCTAssertEqual(report.scannedFileCount, 2)
+        XCTAssertEqual(report.scannedBytes, 20)
+        for depth in 0..<20 {
+            let path = root.appendingPathComponent((0...depth).map { "level\($0)" }.joined(separator: "/"))
+            XCTAssertEqual(report.spaceItems.first(where: { $0.url == path })?.bytes, 17)
+        }
+    }
+
+    func testSpaceFoldersRemainNavigableThroughTmpAlias() throws {
+        let alias = URL(fileURLWithPath: "/private/tmp")
+        let canonical = alias.resolvingSymlinksInPath().standardizedFileURL
+        guard alias.path != canonical.path else { return }
+        let folder = alias.appendingPathComponent("SysCleanerAlias-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let nested = folder.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data([1]).write(to: nested.appendingPathComponent("file"))
+        let report = FileScanner.scan(ScanRequest(category: .space, root: folder))
+        let scannedRoot = folder.resolvingSymlinksInPath().standardizedFileURL
+        XCTAssertEqual(report.spaceItems.first(where: { $0.isFolder })?.parent.path, scannedRoot.path)
+        XCTAssertEqual(report.spaceItems.first(where: { $0.isFolder })?.bytes, 1)
+    }
+
+    func testDuplicatePrehashIsOnlyAFilter() throws {
+        let edge = Data(repeating: 1, count: 4_096)
+        let first = edge + Data(repeating: 2, count: 24_576) + edge
+        let second = edge + Data(repeating: 3, count: 24_576) + edge
+        try first.write(to: root.appendingPathComponent("a"))
+        try second.write(to: root.appendingPathComponent("b"))
+        try first.write(to: root.appendingPathComponent("c"))
+        let report = FileScanner.scan(ScanRequest(category: .duplicates, root: root))
+        XCTAssertEqual(Set(report.entries.map { $0.url.lastPathComponent }), ["a", "c"])
+        XCTAssertEqual(report.entries.filter(\.canDelete).count, 1)
+    }
+
+    func testCacheScanKeepsLargestTwoThousand() throws {
+        for index in 0..<2_010 {
+            let url = root.appendingPathComponent(String(format: "%04d", index))
+            try Data(repeating: 1, count: index + 1).write(to: url)
+        }
+        let report = FileScanner.scanCaches(category: .systemCache, locations: [root])
+        XCTAssertEqual(report.entries.count, 2_000)
+        XCTAssertEqual(report.entries.first?.estimatedBytes, 2_010)
+        XCTAssertEqual(report.entries.last?.estimatedBytes, 11)
+        XCTAssertTrue(report.warnings.contains("listLimited"))
+    }
+
+    func testCancelledCacheScanReturnsNoResults() {
+        let control = ScanControl()
+        control.cancel()
+        let report = FileScanner.scanCaches(category: .developerCache, locations: [root], control: control)
+        XCTAssertTrue(report.cancelled)
+        XCTAssertTrue(report.entries.isEmpty)
+    }
+
+    func testDirectorySignatureChangesWhenContentsChange() throws {
+        let folder = root.appendingPathComponent("bundle")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("content")
+        try Data([1]).write(to: file)
+        let before = try XCTUnwrap(FileScanner.directorySignature(folder))
+        XCTAssertEqual(before.bytes, 1)
+        try Data([1, 2]).write(to: file)
+        let after = try XCTUnwrap(FileScanner.directorySignature(folder))
+        XCTAssertEqual(after.bytes, 2)
+        XCTAssertNotEqual(before.digest, after.digest)
+    }
+
+    func testParallelSpaceScanProducesStableFolderTotals() throws {
+        for index in 0..<12 {
+            let folder = root.appendingPathComponent("branch\(index)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for child in 0..<10 {
+                try Data(repeating: 1, count: index + child + 1)
+                    .write(to: folder.appendingPathComponent("file\(child)"))
+            }
+        }
+        let snapshots = (0..<5).map { _ -> [String: Int64] in
+            let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+            XCTAssertEqual(report.scannedFileCount, 120)
+            return Dictionary(uniqueKeysWithValues: report.spaceItems.filter(\.isFolder).map { ($0.url.path, $0.bytes) })
+        }
+        XCTAssertEqual(snapshots.first?.count, 12)
+        for snapshot in snapshots.dropFirst() { XCTAssertEqual(snapshot, snapshots[0]) }
+    }
 }

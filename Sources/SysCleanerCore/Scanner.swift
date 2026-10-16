@@ -20,7 +20,7 @@ public enum FileScanner {
             return scanSpace(root: root, control: control)
         case .large:
             let oldest = Date().addingTimeInterval(-Double(request.olderThanDays) * 86_400)
-            walkFiles(under: root, control: control, warnings: &warnings) { url, stamp in
+            walkFiles(under: root, control: control, warnings: &warnings, parallel: true) { url, stamp in
                 guard stamp.size >= request.minimumBytes,
                       request.olderThanDays == 0 || Date(timeIntervalSince1970: Double(stamp.modifiedSeconds)) <= oldest
                 else { return }
@@ -29,34 +29,17 @@ public enum FileScanner {
                                          canDelete: FileSafety.isSafeLocation(url, scope: root, category: .large)))
             }
         case .duplicates:
-            var candidates: [URL] = []
+            var candidates: [(URL, FileStamp)] = []
             var limited = false
             walkFiles(under: root, control: control, warnings: &warnings) { url, stamp in
                 guard stamp.size > 0 else { return }
-                if candidates.count < 100_000 { candidates.append(url) } else { limited = true }
+                if candidates.count < 100_000 { candidates.append((url, stamp)) } else { limited = true }
             }
             if limited { appendWarning("duplicateLimit", to: &warnings) }
             entries = findDuplicates(files: candidates, root: root, control: control, warnings: &warnings)
         case .systemCache, .developerCache:
             let locations = request.category == .systemCache ? systemCacheLocations() : developerCacheLocations()
-            var eligibleCount = 0
-            for location in locations where !control.isCancelled {
-                walkFiles(under: location, control: control, warnings: &warnings, checkCloud: false) { url, stamp in
-                    eligibleCount += 1
-                    entries.append(ScanEntry(url: url, scope: location, category: request.category,
-                                             stamp: stamp, estimatedBytes: stamp.size,
-                                             note: location.lastPathComponent))
-                    if entries.count > 4_000 {
-                        entries.sort { $0.estimatedBytes > $1.estimatedBytes }
-                        entries.removeLast(entries.count - 2_000)
-                    }
-                }
-            }
-            if eligibleCount > 2_000 {
-                entries.sort { $0.estimatedBytes > $1.estimatedBytes }
-                entries = Array(entries.prefix(2_000))
-                appendWarning("listLimited", to: &warnings)
-            }
+            return scanCaches(category: request.category, locations: locations, control: control)
         case .uninstall:
             entries = scanApplications(control: control)
         }
@@ -65,55 +48,125 @@ public enum FileScanner {
     }
 
     private static func collectFiles(under root: URL, control: ScanControl, warnings: inout [String],
-                                     includeApps: Bool = false) -> [URL] {
-        var files: [URL] = []
-        walkFiles(under: root, control: control, warnings: &warnings, includeApps: includeApps) { url, _ in
-            files.append(url)
+                                     includeApps: Bool = false) -> [(URL, FileStamp)] {
+        var files: [(URL, FileStamp)] = []
+        walkFiles(under: root, control: control, warnings: &warnings, includeApps: includeApps) { url, stamp in
+            files.append((url, stamp))
         }
         return files
     }
 
+    static func scanCaches(category: ScanCategory, locations: [URL], control: ScanControl = ScanControl()) -> ScanReport {
+        precondition(category == .systemCache || category == .developerCache)
+        var warnings: [String] = []
+        var eligibleCount = 0
+        var largest = LargestEntries(limit: 2_000)
+        for location in locations where !control.isCancelled {
+            walkFiles(under: location, control: control, warnings: &warnings,
+                      checkCloud: false, parallel: true) { url, stamp in
+                eligibleCount += 1
+                largest.insert(ScanEntry(url: url, scope: location, category: category,
+                                         stamp: stamp, estimatedBytes: stamp.size,
+                                         note: location.lastPathComponent))
+            }
+        }
+        if eligibleCount > 2_000 { appendWarning("listLimited", to: &warnings) }
+        return ScanReport(entries: largest.entries.sorted { $0.estimatedBytes > $1.estimatedBytes },
+                          warnings: warnings, cancelled: control.isCancelled)
+    }
+
     private static func walkFiles(under root: URL, control: ScanControl, warnings: inout [String],
                                   includeApps: Bool = false, includeHardLinks: Bool = false,
-                                  checkCloud: Bool = true,
-                                  onFile: (URL, FileStamp) -> Void) {
-        guard FileSafety.isDirectory(root), let rootStamp = FileSafety.stamp(at: root) else {
+                                  checkCloud: Bool = true, parallel: Bool = false,
+                                  onDirectory: @escaping (URL) -> Void = { _ in },
+                                  onFile: @escaping (URL, FileStamp) -> Void) {
+        guard let rootInfo = FileSafety.metadata(at: root), rootInfo.isDirectory else {
             appendWarning("Cannot read \(root.path)", to: &warnings)
             return
         }
-        var stack = [root]
-        while let directory = stack.popLast(), !control.isCancelled {
-            let children: [URL]
-            do {
-                children = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil,
-                                                                       options: [])
-            } catch {
-                appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
-                continue
+        onDirectory(root)
+        if !parallel {
+            var stack = [root]
+            while let directory = stack.popLast(), !control.isCancelled {
+                let children: [URL]
+                do {
+                    children = try FileManager.default.contentsOfDirectory(at: directory,
+                                                                          includingPropertiesForKeys: nil)
+                } catch {
+                    appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
+                    continue
+                }
+                for child in children where !control.isCancelled {
+                    let url = directory.appendingPathComponent(child.lastPathComponent)
+                    if url.lastPathComponent == ".Trash" { continue }
+                    guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
+                    if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
+                    if info.isDirectory {
+                        if url.pathExtension == "app" && !includeApps { continue }
+                        onDirectory(url)
+                        stack.append(url)
+                    } else if info.stamp.linkCount == 1 || includeHardLinks {
+                        onFile(url, info.stamp)
+                    }
+                }
             }
-            for url in children where !control.isCancelled {
-                if url.lastPathComponent == ".Trash" { continue }
-                guard let stamp = FileSafety.stamp(at: url), stamp.device == rootStamp.device else { continue }
-                if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
-                if FileSafety.isDirectory(url) {
-                    if url.pathExtension == "app" && !includeApps { continue }
-                    stack.append(url)
-                } else if stamp.linkCount == 1 || includeHardLinks {
-                    onFile(url, stamp)
+            return
+        }
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 4
+        queue.qualityOfService = .userInitiated
+        let lock = NSLock()
+        var localWarnings: [String] = []
+
+        func enqueue(_ directory: URL) {
+            queue.addOperation {
+                guard !control.isCancelled else { return }
+                let children: [URL]
+                do {
+                    children = try FileManager().contentsOfDirectory(at: directory, includingPropertiesForKeys: nil,
+                                                                     options: [])
+                } catch {
+                    lock.lock()
+                    appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
+                    lock.unlock()
+                    return
+                }
+                for child in children where !control.isCancelled {
+                    // FileManager may return /private/tmp for a directory requested through /tmp.
+                    let url = directory.appendingPathComponent(child.lastPathComponent)
+                    if url.lastPathComponent == ".Trash" { continue }
+                    guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
+                    if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
+                    if info.isDirectory {
+                        if url.pathExtension == "app" && !includeApps { continue }
+                        lock.lock()
+                        onDirectory(url)
+                        lock.unlock()
+                        enqueue(url)
+                    } else if info.stamp.linkCount == 1 || includeHardLinks {
+                        lock.lock()
+                        onFile(url, info.stamp)
+                        lock.unlock()
+                    }
                 }
             }
         }
+        enqueue(root)
+        queue.waitUntilAllOperationsAreFinished()
+        for warning in localWarnings { appendWarning(warning, to: &warnings) }
     }
 
     private static func scanSpace(root: URL, control: ScanControl) -> ScanReport {
         var warnings: [String] = []
         var directoryTotals: [URL: Int64] = [:]
+        var directories: [URL] = []
         var otherTotals: [URL: Int64] = [:]
         var visibleFiles: [SpaceItem] = []
         var count = 0
         var total: Int64 = 0
         walkFiles(under: root, control: control, warnings: &warnings,
-                  includeApps: true, includeHardLinks: true) { url, stamp in
+                  includeApps: true, includeHardLinks: true, parallel: true,
+                  onDirectory: { directories.append($0) }) { url, stamp in
             count += 1
             total += stamp.size
             let parent = url.deletingLastPathComponent()
@@ -122,15 +175,13 @@ public enum FileScanner {
             } else {
                 otherTotals[parent, default: 0] += stamp.size
             }
-            var ancestor = parent
-            while ancestor.path == root.path || ancestor.path.hasPrefix(root.path + "/") {
-                directoryTotals[ancestor, default: 0] += stamp.size
-                if ancestor.path == root.path { break }
-                ancestor.deleteLastPathComponent()
-            }
+            directoryTotals[parent, default: 0] += stamp.size
+        }
+        for directory in directories.reversed() where directory.path != root.path {
+            directoryTotals[directory.deletingLastPathComponent(), default: 0] += directoryTotals[directory, default: 0]
         }
         let folders = directoryTotals.compactMap { url, bytes -> SpaceItem? in
-            guard url != root else { return nil }
+            guard url.path != root.path else { return nil }
             return SpaceItem(url: url, parent: url.deletingLastPathComponent(), bytes: bytes, isFolder: true)
         }
         let others = otherTotals.map { parent, bytes in
@@ -143,35 +194,70 @@ public enum FileScanner {
                           scannedFileCount: count, scannedBytes: total)
     }
 
-    private static func findDuplicates(files: [URL], root: URL, control: ScanControl,
+    private static func findDuplicates(files: [(URL, FileStamp)], root: URL, control: ScanControl,
                                        warnings: inout [String]) -> [ScanEntry] {
-        let sized = Dictionary(grouping: files.compactMap { url -> (URL, FileStamp)? in
-            guard let stamp = FileSafety.stamp(at: url), stamp.size > 0, stamp.linkCount == 1 else { return nil }
+        let sized = Dictionary(grouping: files.compactMap { url, stamp -> (URL, FileStamp)? in
+            guard stamp.size > 0, stamp.linkCount == 1 else { return nil }
             return (url, stamp)
         }, by: { $0.1.size })
         var results: [ScanEntry] = []
         for (_, peers) in sized where peers.count > 1 && !control.isCancelled {
-            var hashes: [String: [(URL, FileStamp)]] = [:]
-            for (url, stamp) in peers where !control.isCancelled {
-                if let digest = hashFile(url, control: control), FileSafety.stamp(at: url) == stamp {
-                    hashes[digest, default: []].append((url, stamp))
-                } else {
-                    appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
+            let candidateGroups: [[(URL, FileStamp)]]
+            if peers[0].1.size <= 16_384 {
+                // A full read of a small file costs less than opening it twice for a prehash.
+                candidateGroups = [peers]
+            } else {
+                var partialHashes: [String: [(URL, FileStamp)]] = [:]
+                for (url, stamp) in peers where !control.isCancelled {
+                    if let digest = partialHashFile(url, size: stamp.size, control: control),
+                       FileSafety.stamp(at: url) == stamp {
+                        partialHashes[digest, default: []].append((url, stamp))
+                    } else {
+                        appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
+                    }
                 }
+                candidateGroups = partialHashes.values.filter { $0.count > 1 }
             }
-            for (digest, group) in hashes where group.count > 1 {
-                let sorted = group.sorted { $0.0.path < $1.0.path }
-                for (index, element) in sorted.enumerated() {
-                    results.append(ScanEntry(url: element.0, scope: root, category: .duplicates,
-                                             stamp: element.1, estimatedBytes: element.1.size,
-                                             risk: .review, note: index == 0 ? "keepOriginal" : "duplicateCopy",
-                                             duplicateGroup: digest,
-                                             canDelete: index != 0 &&
-                                                FileSafety.isSafeLocation(element.0, scope: root, category: .duplicates)))
+            for groupCandidates in candidateGroups where !control.isCancelled {
+                var hashes: [String: [(URL, FileStamp)]] = [:]
+                for (url, stamp) in groupCandidates where !control.isCancelled {
+                    if let digest = hashFile(url, control: control), FileSafety.stamp(at: url) == stamp {
+                        hashes[digest, default: []].append((url, stamp))
+                    } else {
+                        appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
+                    }
+                }
+                for (digest, group) in hashes where group.count > 1 {
+                    let sorted = group.sorted { $0.0.path < $1.0.path }
+                    for (index, element) in sorted.enumerated() {
+                        results.append(ScanEntry(url: element.0, scope: root, category: .duplicates,
+                                                 stamp: element.1, estimatedBytes: element.1.size,
+                                                 risk: .review, note: index == 0 ? "keepOriginal" : "duplicateCopy",
+                                                 duplicateGroup: digest,
+                                                 canDelete: index != 0 &&
+                                                    FileSafety.isSafeLocation(element.0, scope: root, category: .duplicates)))
+                    }
                 }
             }
         }
         return results
+    }
+
+    private static func partialHashFile(_ url: URL, size: Int64, control: ScanControl) -> String? {
+        guard !control.isCancelled, let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        do {
+            var hasher = SHA256()
+            let chunk = min(Int64(4_096), size)
+            let first = try handle.read(upToCount: Int(chunk)) ?? Data()
+            guard first.count == chunk, !control.isCancelled else { return nil }
+            hasher.update(data: first)
+            try handle.seek(toOffset: UInt64(size - chunk))
+            let last = try handle.read(upToCount: Int(chunk)) ?? Data()
+            guard last.count == chunk, !control.isCancelled else { return nil }
+            hasher.update(data: last)
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        } catch { return nil }
     }
 
     private static func hashFile(_ url: URL, control: ScanControl) -> String? {
@@ -239,8 +325,8 @@ public enum FileScanner {
             + [library.appendingPathComponent("Saved Application State").appendingPathComponent(identifier + ".savedState")]
         for candidate in candidates where !control.isCancelled {
             guard FileSafety.isDirectory(candidate) else { continue }
-            for file in collectFiles(under: candidate, control: control, warnings: &warnings) {
-                guard let stamp = FileSafety.stamp(at: file), stamp.linkCount == 1 else { continue }
+            for (file, stamp) in collectFiles(under: candidate, control: control, warnings: &warnings) {
+                guard stamp.linkCount == 1 else { continue }
                 prepared.append(ScanEntry(url: file, scope: candidate, category: .uninstall,
                                           stamp: stamp, estimatedBytes: stamp.size, note: identifier))
             }
@@ -262,8 +348,7 @@ public enum FileScanner {
         guard warnings.isEmpty, !control.isCancelled else { return nil }
         var hasher = SHA256()
         var total: Int64 = 0
-        for url in files.sorted(by: { $0.path < $1.path }) {
-            guard let stamp = FileSafety.stamp(at: url) else { return nil }
+        for (url, stamp) in files.sorted(by: { $0.0.path < $1.0.path }) {
             total += stamp.size
             let part = "\(url.path.dropFirst(root.path.count))|\(stamp.device)|\(stamp.inode)|\(stamp.size)|\(stamp.modifiedSeconds)|\(stamp.modifiedNanoseconds)"
             hasher.update(data: Data(part.utf8))
@@ -273,5 +358,47 @@ public enum FileScanner {
 
     private static func appendWarning(_ message: String, to warnings: inout [String]) {
         if warnings.count < 50 { warnings.append(message) }
+    }
+}
+
+private struct LargestEntries {
+    let limit: Int
+    private(set) var entries: [ScanEntry] = []
+
+    mutating func insert(_ entry: ScanEntry) {
+        if entries.count < limit {
+            entries.append(entry)
+            siftUp(from: entries.count - 1)
+        } else if let smallest = entries.first, isSmaller(smallest, than: entry) {
+            entries[0] = entry
+            siftDown(from: 0)
+        }
+    }
+
+    private func isSmaller(_ lhs: ScanEntry, than rhs: ScanEntry) -> Bool {
+        lhs.estimatedBytes == rhs.estimatedBytes ? lhs.url.path > rhs.url.path : lhs.estimatedBytes < rhs.estimatedBytes
+    }
+
+    private mutating func siftUp(from index: Int) {
+        var child = index
+        while child > 0 {
+            let parent = (child - 1) / 2
+            guard isSmaller(entries[child], than: entries[parent]) else { break }
+            entries.swapAt(child, parent)
+            child = parent
+        }
+    }
+
+    private mutating func siftDown(from index: Int) {
+        var parent = index
+        while true {
+            let left = parent * 2 + 1
+            guard left < entries.count else { break }
+            let right = left + 1
+            let child = right < entries.count && isSmaller(entries[right], than: entries[left]) ? right : left
+            guard isSmaller(entries[child], than: entries[parent]) else { break }
+            entries.swapAt(child, parent)
+            parent = child
+        }
     }
 }
