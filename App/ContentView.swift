@@ -247,8 +247,7 @@ struct ContentView: View {
                 Label(String(format: L("itemsCount"), store.summaryCount), systemImage: "doc")
                 Label(ByteCountFormatter.string(fromByteCount: store.summaryBytes,
                                                 countStyle: .file), systemImage: "internaldrive")
-                Text(store.category == .orphans ? "knownFileSize" :
-                     store.category == .uninstall && store.reviewedApplicationName == nil ?
+                Text(store.category == .uninstall && store.reviewedApplicationName == nil ?
                      (store.summaryBytes > 0 ? "reviewedAppSizes" : "appSizesOnReview") : "estimated")
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -370,7 +369,7 @@ struct ContentView: View {
                     Button("reviewApp") { store.prepareApplication(entry) }
                         .disabled(store.isDeleting)
                 }
-                if store.category == .orphans && entry.isDirectory {
+                if !entry.sizeIsKnown {
                     Text("—").font(.callout).foregroundStyle(.secondary)
                 } else if entry.estimatedBytes > 0 || store.category != .uninstall || entry.directorySignature != nil {
                     Text(ByteCountFormatter.string(fromByteCount: entry.estimatedBytes, countStyle: .file))
@@ -553,7 +552,7 @@ struct ContentView: View {
                      "\(L("cleanupBasis")): \(reason(for: entry))"]
         if !(entry.category == .uninstall && entry.isDirectory &&
              entry.directorySignature == nil && entry.estimatedBytes == 0) {
-            let size = entry.category == .orphans && entry.isDirectory ? L("notMeasured") :
+            let size = !entry.sizeIsKnown ? L("notMeasured") :
                 ByteCountFormatter.string(fromByteCount: entry.estimatedBytes, countStyle: .file)
             lines.append("\(L("estimated")): \(size)")
         }

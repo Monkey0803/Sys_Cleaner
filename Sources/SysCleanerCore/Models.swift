@@ -35,6 +35,7 @@ public struct ScanEntry: Identifiable, Sendable {
     public let category: ScanCategory
     public let stamp: FileStamp
     public let estimatedBytes: Int64
+    public let sizeIsKnown: Bool
     public let risk: RiskLevel
     public let note: String
     public let duplicateGroup: String?
@@ -43,7 +44,8 @@ public struct ScanEntry: Identifiable, Sendable {
     public let directorySignature: String?
 
     public init(id: UUID = UUID(), url: URL, scope: URL, category: ScanCategory, stamp: FileStamp,
-                estimatedBytes: Int64, risk: RiskLevel = .review, note: String = "",
+                estimatedBytes: Int64, sizeIsKnown: Bool = true,
+                risk: RiskLevel = .review, note: String = "",
                 duplicateGroup: String? = nil, isDirectory: Bool = false,
                 canDelete: Bool = true, directorySignature: String? = nil) {
         self.id = id
@@ -52,6 +54,7 @@ public struct ScanEntry: Identifiable, Sendable {
         self.category = category
         self.stamp = stamp
         self.estimatedBytes = estimatedBytes
+        self.sizeIsKnown = sizeIsKnown
         self.risk = risk
         self.note = note
         self.duplicateGroup = duplicateGroup
@@ -62,7 +65,8 @@ public struct ScanEntry: Identifiable, Sendable {
 
     public func withEstimatedBytes(_ bytes: Int64) -> ScanEntry {
         ScanEntry(id: id, url: url, scope: scope, category: category, stamp: stamp,
-                  estimatedBytes: bytes, risk: risk, note: note, duplicateGroup: duplicateGroup,
+                  estimatedBytes: bytes, sizeIsKnown: true, risk: risk, note: note,
+                  duplicateGroup: duplicateGroup,
                   isDirectory: isDirectory, canDelete: canDelete, directorySignature: directorySignature)
     }
 }
@@ -269,9 +273,11 @@ public enum ScanSorting {
 
     private static func entryLess(_ lhs: ScanEntry, _ rhs: ScanEntry, category: ScanCategory,
                                   selection: ScanSortSelection) -> Bool {
-        if category == .uninstall && selection.field == .size {
-            let leftUnknown = lhs.isDirectory && lhs.directorySignature == nil && lhs.estimatedBytes == 0
-            let rightUnknown = rhs.isDirectory && rhs.directorySignature == nil && rhs.estimatedBytes == 0
+        if (category == .uninstall || category == .orphans) && selection.field == .size {
+            let leftUnknown = !lhs.sizeIsKnown ||
+                (category == .uninstall && lhs.isDirectory && lhs.directorySignature == nil && lhs.estimatedBytes == 0)
+            let rightUnknown = !rhs.sizeIsKnown ||
+                (category == .uninstall && rhs.isDirectory && rhs.directorySignature == nil && rhs.estimatedBytes == 0)
             if leftUnknown != rightUnknown { return !leftUnknown }
         }
         let comparison: ComparisonResult

@@ -46,7 +46,6 @@
 "anyTime" = "Any time";
 "itemsCount" = "%d items";
 "estimated" = "Estimated size";
-"knownFileSize" = "Known file sizes; folder sizes not measured";
 "notMeasured" = "Not measured";
 "appSizesOnReview" = "Size is measured when you review an app";
 "reviewedAppSizes" = "Measured app bundle sizes";

@@ -89,7 +89,7 @@ public enum FileScanner {
         case .uninstall:
             entries = scanApplications(control: control)
         case .orphans:
-            entries = scanOrphanCandidates(control: control)
+            entries = scanOrphanCandidates(control: control, warnings: &warnings)
         }
         return ScanReport(entries: entries.sorted { $0.estimatedBytes > $1.estimatedBytes },
                           warnings: warnings, cancelled: control.isCancelled)
@@ -367,7 +367,7 @@ public enum FileScanner {
         return entries
     }
 
-    private static func scanOrphanCandidates(control: ScanControl) -> [ScanEntry] {
+    private static func scanOrphanCandidates(control: ScanControl, warnings: inout [String]) -> [ScanEntry] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let appRoots = [URL(fileURLWithPath: "/Applications"),
                         URL(fileURLWithPath: "/System/Applications"),
@@ -380,7 +380,7 @@ public enum FileScanner {
                            "HTTPStorages", "WebKit", "Application Scripts",
                            "Saved Application State"]
         return scanOrphanCandidates(roots: folderNames.map { library.appendingPathComponent($0) },
-                                    installedIdentifiers: installed, control: control)
+                                    installedIdentifiers: installed, control: control, warnings: &warnings)
     }
 
     static func installedApplicationIdentifiers(in roots: [URL], control: ScanControl = ScanControl()) -> Set<String> {
@@ -436,6 +436,13 @@ public enum FileScanner {
 
     static func scanOrphanCandidates(roots: [URL], installedIdentifiers: Set<String>,
                                      control: ScanControl = ScanControl()) -> [ScanEntry] {
+        var warnings: [String] = []
+        return scanOrphanCandidates(roots: roots, installedIdentifiers: installedIdentifiers,
+                                    control: control, warnings: &warnings)
+    }
+
+    private static func scanOrphanCandidates(roots: [URL], installedIdentifiers: Set<String>,
+                                             control: ScanControl, warnings: inout [String]) -> [ScanEntry] {
         var entries: [ScanEntry] = []
         for root in roots where !control.isCancelled {
             guard let children = try? FileManager.default.contentsOfDirectory(at: root,
@@ -462,10 +469,25 @@ public enum FileScanner {
                       identifier.range(of: "^[A-Za-z][A-Za-z0-9-]*(\\.[A-Za-z0-9_-]+){2,}$",
                                        options: .regularExpression) != nil,
                       let info = FileSafety.metadata(at: child) else { continue }
-                control.visited(child, bytes: info.isDirectory ? nil : info.stamp.size)
+                let measuredBytes: Int64?
+                if info.isDirectory {
+                    var measurementWarnings: [String] = []
+                    var bytes: Int64 = 0
+                    walkFiles(under: child, control: control, warnings: &measurementWarnings,
+                              includeApps: true, includeHardLinks: true, parallel: true) { _, stamp in
+                        bytes += stamp.size
+                    }
+                    warnings.append(contentsOf: measurementWarnings)
+                    measuredBytes = measurementWarnings.isEmpty && !control.isCancelled &&
+                        FileSafety.stamp(at: child) == info.stamp ? bytes : nil
+                } else {
+                    control.visited(child, bytes: info.stamp.size)
+                    measuredBytes = info.stamp.size
+                }
                 entries.append(ScanEntry(url: child, scope: root, category: .orphans,
                                          stamp: info.stamp,
-                                         estimatedBytes: info.isDirectory ? 0 : info.stamp.size,
+                                         estimatedBytes: measuredBytes ?? 0,
+                                         sizeIsKnown: measuredBytes != nil,
                                          note: "orphanCandidate", isDirectory: info.isDirectory,
                                          canDelete: false))
             }

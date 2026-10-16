@@ -23,12 +23,14 @@ final class CoreTests: XCTestCase {
     private func sortableEntry(_ name: String, size: Int64, modified: Int64,
                                category: ScanCategory = .large, group: String? = nil,
                                note: String = "", isDirectory: Bool = false,
-                               signature: String? = nil, canDelete: Bool = true) -> ScanEntry {
+                               signature: String? = nil, canDelete: Bool = true,
+                               sizeIsKnown: Bool = true) -> ScanEntry {
         let url = root.appendingPathComponent(name)
         let stamp = FileStamp(device: 1, inode: 1, size: size, modifiedSeconds: modified,
                               modifiedNanoseconds: 0, linkCount: 1)
         return ScanEntry(url: url, scope: root, category: category, stamp: stamp,
-                         estimatedBytes: size, note: note, duplicateGroup: group,
+                         estimatedBytes: size, sizeIsKnown: sizeIsKnown, note: note,
+                         duplicateGroup: group,
                          isDirectory: isDirectory, canDelete: canDelete,
                          directorySignature: signature)
     }
@@ -139,6 +141,22 @@ final class CoreTests: XCTestCase {
             $0.id == unknown.id ? measured : $0
         }, category: .uninstall, selection: ScanSortSelection(field: .size, direction: .ascending))
             .map(\.id), [small.id, unknown.id, large.id])
+    }
+
+    func testUnknownOrphanFolderSizeSortsAfterMeasuredFolders() {
+        let unknown = sortableEntry("unknown", size: 0, modified: 1,
+                                    category: .orphans, isDirectory: true, sizeIsKnown: false)
+        let empty = sortableEntry("empty", size: 0, modified: 2,
+                                  category: .orphans, isDirectory: true)
+        let filled = sortableEntry("filled", size: 10, modified: 3,
+                                   category: .orphans, isDirectory: true)
+        for (direction, expected) in [(ScanSortDirection.ascending, [empty, filled, unknown]),
+                                      (.descending, [filled, empty, unknown])] {
+            let actual = ScanSorting.entries([unknown, filled, empty], category: .orphans,
+                                             selection: ScanSortSelection(field: .size,
+                                                                          direction: direction))
+            XCTAssertEqual(actual.map(\.id), expected.map(\.id))
+        }
     }
 
     func testSpaceItemSortingSupportsSizeAndName() {
@@ -470,6 +488,39 @@ final class CoreTests: XCTestCase {
         let cookies = FileScanner.scanOrphanCandidates(roots: [http],
                                                        installedIdentifiers: ["com.example.present"])
         XCTAssertTrue(cookies.isEmpty)
+    }
+
+    func testOrphanCandidatesMeasureFolderContentsAndEmptyFolders() throws {
+        let cache = root.appendingPathComponent("Caches")
+        let filled = cache.appendingPathComponent("com.example.filled")
+        let nested = filled.appendingPathComponent("nested")
+        let empty = cache.appendingPathComponent("com.example.empty")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 7).write(to: filled.appendingPathComponent("first"))
+        try Data(repeating: 2, count: 11).write(to: nested.appendingPathComponent("second"))
+
+        let entries = FileScanner.scanOrphanCandidates(roots: [cache], installedIdentifiers: [])
+        let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.url.lastPathComponent, $0) })
+        XCTAssertEqual(byName["com.example.filled"]?.estimatedBytes, 18)
+        XCTAssertEqual(byName["com.example.filled"]?.sizeIsKnown, true)
+        XCTAssertEqual(byName["com.example.empty"]?.estimatedBytes, 0)
+        XCTAssertEqual(byName["com.example.empty"]?.sizeIsKnown, true)
+        XCTAssertTrue(entries.allSatisfy { !$0.canDelete })
+    }
+
+    func testUnreadableOrphanFolderKeepsSizeUnknown() throws {
+        let cache = root.appendingPathComponent("Caches")
+        let candidate = cache.appendingPathComponent("com.example.blocked")
+        try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 5).write(to: candidate.appendingPathComponent("file"))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: candidate.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: candidate.path) }
+
+        let entry = try XCTUnwrap(FileScanner.scanOrphanCandidates(
+            roots: [cache], installedIdentifiers: []).first)
+        XCTAssertFalse(entry.sizeIsKnown)
+        XCTAssertEqual(entry.estimatedBytes, 0)
     }
 
     func testOrphanCandidatesExcludeInstalledAppHelpers() throws {

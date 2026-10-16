@@ -46,7 +46,6 @@
 "anyTime" = "不限时间";
 "itemsCount" = "%d 项";
 "estimated" = "估算大小";
-"knownFileSize" = "仅统计文件，未计算文件夹容量";
 "notMeasured" = "未计算";
 "appSizesOnReview" = "打开应用详情后计算容量";
 "reviewedAppSizes" = "已计算的应用包容量";
