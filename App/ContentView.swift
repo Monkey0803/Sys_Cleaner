@@ -266,9 +266,10 @@ struct ContentView: View {
             }
             if store.category != .space {
                 HStack {
-                    TextField(store.category == .uninstall && store.reviewedApplicationName == nil ?
-                              "searchApps" : "searchResults", text: $store.resultQuery)
-                        .textFieldStyle(.roundedBorder)
+                    ClearableSearchField(
+                        placeholder: L(store.category == .uninstall && store.reviewedApplicationName == nil ?
+                                       "searchApps" : "searchResults"),
+                        text: $store.resultQuery)
                         .frame(maxWidth: 360)
                     Menu {
                         Picker("filterResults", selection: $store.resultFilter) {
@@ -912,5 +913,44 @@ private struct PieRevealMask: Shape {
                     clockwise: false)
         path.closeSubpath()
         return path
+    }
+}
+
+private struct ClearableSearchField: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = placeholder
+        field.stringValue = text
+        field.sendsSearchStringImmediately = true
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searchChanged(_:))
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        field.placeholderString = placeholder
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+
+        @objc func searchChanged(_ field: NSSearchField) {
+            text.wrappedValue = field.stringValue
+        }
     }
 }
