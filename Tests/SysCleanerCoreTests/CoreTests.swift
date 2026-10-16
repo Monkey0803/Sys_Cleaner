@@ -232,6 +232,15 @@ final class CoreTests: XCTestCase {
         XCTAssertNotEqual(before.digest, after.digest)
     }
 
+    func testApplicationBundleSizeIncludesNestedFiles() throws {
+        let app = root.appendingPathComponent("Sample.app")
+        let nested = app.appendingPathComponent("Contents/Helpers/Helper.app/Contents")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 5).write(to: app.appendingPathComponent("Contents/main"))
+        try Data(repeating: 2, count: 7).write(to: nested.appendingPathComponent("helper"))
+        XCTAssertEqual(FileScanner.applicationBundleSize(app), 12)
+    }
+
     func testParallelSpaceScanProducesStableFolderTotals() throws {
         for index in 0..<12 {
             let folder = root.appendingPathComponent("branch\(index)")

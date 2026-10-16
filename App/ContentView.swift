@@ -62,7 +62,7 @@ struct ContentView: View {
                 if store.category != .space { actionBar }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .navigationTitle(store.category.title)
+            .navigationTitle(store.reviewedApplicationName ?? store.category.title)
             .toolbar {
                 ToolbarItem(placement: .automatic) {
                     Button { openSettings() } label: { Label("settings", systemImage: "gearshape") }
@@ -93,11 +93,20 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(store.category.title).font(.largeTitle.bold())
+                    if store.category == .uninstall, store.reviewedApplicationName != nil {
+                        Button { store.backFromApplication() } label: {
+                            Label("back", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.accentColor)
+                        .disabled(store.isDeleting)
+                        .padding(.bottom, 4)
+                    }
+                    Text(store.reviewedApplicationName ?? store.category.title).font(.largeTitle.bold())
                     Text(descriptionKey).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if store.hasScanned && !store.isScanning &&
+                if store.reviewedApplicationName == nil && store.hasScanned && !store.isScanning &&
                     (store.category == .space ? !store.spaceItems.isEmpty : !store.visibleEntries.isEmpty) {
                     scanButton
                 }
@@ -131,7 +140,7 @@ struct ContentView: View {
                     Spacer()
                 }
             }
-            if store.category == .uninstall {
+            if store.category == .uninstall && store.reviewedApplicationName == nil {
                 TextField("searchApps", text: $store.appQuery)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 360)
@@ -185,14 +194,15 @@ struct ContentView: View {
                 }
                 Spacer()
                 if store.category == .uninstall && entry.isDirectory && entry.directorySignature == nil {
-                    if entry.risk == .protected {
-                        EmptyView()
-                    } else {
+                    if entry.risk != .protected {
                         Button("reviewApp") { store.prepareApplication(entry) }
                     }
-                } else {
+                }
+                if entry.estimatedBytes > 0 || store.category != .uninstall || entry.directorySignature != nil {
                     Text(ByteCountFormatter.string(fromByteCount: entry.estimatedBytes, countStyle: .file))
                         .font(.callout.monospacedDigit())
+                } else {
+                    Text("—").font(.callout).foregroundStyle(.secondary)
                 }
                 Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
                     .buttonStyle(.borderless)

@@ -88,25 +88,27 @@ public enum FileScanner {
         if !parallel {
             var stack = [root]
             while let directory = stack.popLast(), !control.isCancelled {
-                let children: [URL]
-                do {
-                    children = try FileManager.default.contentsOfDirectory(at: directory,
-                                                                          includingPropertiesForKeys: nil)
-                } catch {
-                    appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
-                    continue
-                }
-                for child in children where !control.isCancelled {
-                    let url = directory.appendingPathComponent(child.lastPathComponent)
-                    if url.lastPathComponent == ".Trash" { continue }
-                    guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
-                    if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
-                    if info.isDirectory {
-                        if url.pathExtension == "app" && !includeApps { continue }
-                        onDirectory(url)
-                        stack.append(url)
-                    } else if info.stamp.linkCount == 1 || includeHardLinks {
-                        onFile(url, info.stamp)
+                autoreleasepool {
+                    let children: [URL]
+                    do {
+                        children = try FileManager.default.contentsOfDirectory(at: directory,
+                                                                              includingPropertiesForKeys: nil)
+                    } catch {
+                        appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
+                        return
+                    }
+                    for child in children where !control.isCancelled {
+                        let url = directory.appendingPathComponent(child.lastPathComponent)
+                        if url.lastPathComponent == ".Trash" { continue }
+                        guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
+                        if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
+                        if info.isDirectory {
+                            if url.pathExtension == "app" && !includeApps { continue }
+                            onDirectory(url)
+                            stack.append(url)
+                        } else if info.stamp.linkCount == 1 || includeHardLinks {
+                            onFile(url, info.stamp)
+                        }
                     }
                 }
             }
@@ -297,13 +299,25 @@ public enum FileScanner {
                       let stamp = FileSafety.stamp(at: app), FileSafety.isDirectory(app),
                       FileSafety.isSafeLocation(app, scope: root, category: .uninstall) else { continue }
                 let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == identifier }
+                let bundleBytes = applicationBundleSize(app, control: control) ?? 0
+                guard !control.isCancelled else { break }
                 entries.append(ScanEntry(url: app, scope: root, category: .uninstall, stamp: stamp,
-                                         estimatedBytes: 0, risk: running ? .protected : .review,
+                                         estimatedBytes: bundleBytes, risk: running ? .protected : .review,
                                          note: running ? "appRunning" : identifier,
                                          isDirectory: true, canDelete: false))
             }
         }
         return entries
+    }
+
+    static func applicationBundleSize(_ app: URL, control: ScanControl = ScanControl()) -> Int64? {
+        var warnings: [String] = []
+        var bytes: Int64 = 0
+        walkFiles(under: app, control: control, warnings: &warnings,
+                  includeApps: true, checkCloud: false) { _, stamp in
+            bytes += stamp.size
+        }
+        return warnings.isEmpty && !control.isCancelled ? bytes : nil
     }
 
     public static func prepareApplication(_ app: ScanEntry, control: ScanControl = ScanControl()) -> ScanReport {
