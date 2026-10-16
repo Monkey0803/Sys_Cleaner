@@ -42,7 +42,10 @@ final class CleanerStore: ObservableObject {
     @Published private(set) var restoreError: String?
     @Published var minimumMB = 100
     @Published var olderThanDays = 0
-    @Published var appQuery = "" {
+    @Published var resultQuery = "" {
+        didSet { refreshVisibleEntries() }
+    }
+    @Published var resultFilter: ScanEntryFilter = .all {
         didSet { refreshVisibleEntries() }
     }
     @Published var spaceFolder: URL? {
@@ -71,7 +74,8 @@ final class CleanerStore: ObservableObject {
         let isScanning: Bool
         let scanProgress: ScanProgress?
         let spaceFolder: URL?
-        let appQuery: String
+        let resultQuery: String
+        let resultFilter: ScanEntryFilter
 
         func removing(_ urls: Set<URL>) -> CategoryResult {
             let remaining = entries.filter { !urls.contains($0.url) }
@@ -81,7 +85,7 @@ final class CleanerStore: ObservableObject {
                 warnings: warnings, selectedIDs: selectedIDs.subtracting(
                     entries.filter { urls.contains($0.url) }.map(\.id)),
                 hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
-                spaceFolder: spaceFolder, appQuery: appQuery
+                spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter
             )
         }
 
@@ -89,12 +93,34 @@ final class CleanerStore: ObservableObject {
             CategoryResult(entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
                            summaryBytes: summaryBytes, warnings: warnings, selectedIDs: selectedIDs,
                            hasScanned: hasScanned, isScanning: isScanning, scanProgress: progress,
-                           spaceFolder: spaceFolder, appQuery: appQuery)
+                           spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter)
+        }
+
+        func updatingApplicationSize(at url: URL, bytes: Int64) -> CategoryResult {
+            let updated = entries.map { entry in
+                entry.url == url ? entry.withEstimatedBytes(bytes) : entry
+            }
+            return CategoryResult(entries: updated, spaceItems: spaceItems, summaryCount: summaryCount,
+                                  summaryBytes: updated.reduce(0) { $0 + $1.estimatedBytes },
+                                  warnings: warnings, selectedIDs: selectedIDs,
+                                  hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
+                                  spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter)
         }
     }
 
     var selectedEntries: [ScanEntry] { entries.filter { selectedIDs.contains($0.id) && $0.canDelete } }
     var estimatedSelectedBytes: Int64 { selectedEntries.reduce(0) { $0 + $1.estimatedBytes } }
+    var visibleDuplicateGroups: [[ScanEntry]] { ScanResultGrouping.duplicateGroups(visibleEntries) }
+
+    func selectDuplicateGroup(_ group: [ScanEntry]) {
+        guard category == .duplicates, !isDeleting else { return }
+        selectedIDs.formUnion(ScanResultGrouping.selectableIDs(in: group))
+    }
+
+    func clearDuplicateGroup(_ group: [ScanEntry]) {
+        guard category == .duplicates, !isDeleting else { return }
+        selectedIDs.subtract(group.map(\.id))
+    }
     func setSortField(_ field: ScanSortField) {
         guard category != .space || field != .modified else { return }
         sortSelection.field = field
@@ -110,23 +136,8 @@ final class CleanerStore: ObservableObject {
     }
 
     private func refreshVisibleEntries() {
-        let filtered: [ScanEntry]
-        if category == .uninstall && !appQuery.isEmpty {
-            let matchingIdentifiers = Set(entries.compactMap { entry -> String? in
-                guard entry.isDirectory,
-                      entry.url.pathExtension.lowercased() == "app",
-                      entry.url.lastPathComponent.localizedCaseInsensitiveContains(appQuery),
-                      entry.note != "appRunning" else { return nil }
-                return entry.note
-            })
-            filtered = entries.filter {
-                $0.url.lastPathComponent.localizedCaseInsensitiveContains(appQuery) ||
-                $0.note.localizedCaseInsensitiveContains(appQuery) ||
-                matchingIdentifiers.contains($0.note)
-            }
-        } else {
-            filtered = entries
-        }
+        let filtered = ScanResultFiltering.entries(entries, category: category,
+                                                   query: resultQuery, filter: resultFilter)
         visibleEntries = ScanSorting.entries(filtered, category: category, selection: sortSelection)
     }
 
@@ -180,7 +191,8 @@ final class CleanerStore: ObservableObject {
         if let saved = categoryResults.removeValue(forKey: newValue) {
             restore(saved)
         } else {
-            appQuery = ""
+            resultQuery = ""
+            resultFilter = .all
             entries = []
             spaceItems = []
             summaryCount = 0
@@ -243,7 +255,7 @@ final class CleanerStore: ObservableObject {
 
     func prepareApplication(_ app: ScanEntry) {
         guard category == .uninstall, app.isDirectory, app.directorySignature == nil,
-              app.risk != .protected, !isScanning else { return }
+              app.risk != .protected, !isScanning, !isDeleting else { return }
         isScanning = true
         scanProgress = nil
         let scanID = UUID()
@@ -280,7 +292,7 @@ final class CleanerStore: ObservableObject {
             warnings = ["invalidApp"]
             return
         }
-        guard !NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == identifier }) else {
+        guard !FileSafety.isApplicationRunning(app, identifier: identifier) else {
             warnings = ["appRunning"]
             return
         }
@@ -339,7 +351,8 @@ final class CleanerStore: ObservableObject {
                 summaryCount: report.scannedFileCount, summaryBytes: report.scannedBytes,
                 warnings: report.warnings, selectedIDs: [], hasScanned: !report.cancelled,
                 isScanning: false, scanProgress: nil,
-                spaceFolder: previous.spaceFolder, appQuery: previous.appQuery
+                spaceFolder: previous.spaceFolder, resultQuery: previous.resultQuery,
+                resultFilter: previous.resultFilter
             )
         }
     }
@@ -347,20 +360,27 @@ final class CleanerStore: ObservableObject {
     private func finishApplicationPreparation(_ report: ScanReport, app: ScanEntry, scanID: UUID) {
         guard runningScans[.uninstall]?.id == scanID else { return }
         runningScans.removeValue(forKey: .uninstall)
+        isScanning = false
+        scanProgress = nil
         if !report.cancelled && !report.entries.isEmpty {
-            applicationOverview = currentResult()
+            let overview = currentResult()
+            if let measuredApp = report.entries.first(where: { $0.url == app.url && $0.isDirectory }) {
+                applicationOverview = overview.updatingApplicationSize(at: app.url,
+                                                                       bytes: measuredApp.estimatedBytes)
+            } else {
+                applicationOverview = overview
+            }
             reviewedApplicationName = app.url.lastPathComponent
             entries = report.entries
             summaryCount = report.entries.count
             summaryBytes = report.entries.reduce(0) { $0 + $1.estimatedBytes }
             selectedIDs = []
-            appQuery = ""
+            resultQuery = ""
+            resultFilter = .all
             warnings = report.warnings
         } else {
             warnings.append(contentsOf: report.warnings)
         }
-        isScanning = false
-        scanProgress = nil
     }
 
     private func receiveProgress(_ progress: ScanProgress, category scannedCategory: ScanCategory, scanID: UUID) {
@@ -442,7 +462,7 @@ final class CleanerStore: ObservableObject {
             entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
             summaryBytes: summaryBytes, warnings: warnings, selectedIDs: selectedIDs,
             hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
-            spaceFolder: spaceFolder, appQuery: appQuery
+            spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter
         )
     }
 
@@ -457,7 +477,8 @@ final class CleanerStore: ObservableObject {
         isScanning = result.isScanning
         scanProgress = result.scanProgress
         spaceFolder = result.spaceFolder
-        appQuery = result.appQuery
+        resultQuery = result.resultQuery
+        resultFilter = result.resultFilter
     }
 
     func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }

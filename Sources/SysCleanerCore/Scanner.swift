@@ -345,6 +345,10 @@ public enum FileScanner {
     private static func scanApplications(control: ScanControl) -> [ScanEntry] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let roots = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
+        return scanApplications(roots: roots, control: control)
+    }
+
+    static func scanApplications(roots: [URL], control: ScanControl = ScanControl()) -> [ScanEntry] {
         var entries: [ScanEntry] = []
         for root in roots where !control.isCancelled {
             guard let apps = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { continue }
@@ -352,11 +356,10 @@ public enum FileScanner {
                 guard let identifier = Bundle(url: app)?.bundleIdentifier,
                       let stamp = FileSafety.stamp(at: app), FileSafety.isDirectory(app),
                       FileSafety.isSafeLocation(app, scope: root, category: .uninstall) else { continue }
-                let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == identifier }
-                let bundleBytes = applicationBundleSize(app, control: control) ?? 0
-                guard !control.isCancelled else { break }
+                let running = FileSafety.isApplicationRunning(app, identifier: identifier)
+                control.visited(app)
                 entries.append(ScanEntry(url: app, scope: root, category: .uninstall, stamp: stamp,
-                                         estimatedBytes: bundleBytes, risk: running ? .protected : .review,
+                                         estimatedBytes: 0, risk: running ? .protected : .review,
                                          note: running ? "appRunning" : identifier,
                                          isDirectory: true, canDelete: false))
             }
@@ -486,7 +489,7 @@ public enum FileScanner {
         guard app.category == .uninstall, app.isDirectory,
               let identifier = Bundle(url: app.url)?.bundleIdentifier,
               FileSafety.stamp(at: app.url) == app.stamp,
-              !NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == identifier }),
+              !FileSafety.isApplicationRunning(app.url, identifier: identifier),
               let signature = directorySignature(app.url, control: control) else {
             return ScanReport(entries: [], warnings: ["changedOrRunning"], cancelled: control.isCancelled)
         }

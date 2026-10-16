@@ -42,11 +42,11 @@ public struct ScanEntry: Identifiable, Sendable {
     public let canDelete: Bool
     public let directorySignature: String?
 
-    public init(url: URL, scope: URL, category: ScanCategory, stamp: FileStamp,
+    public init(id: UUID = UUID(), url: URL, scope: URL, category: ScanCategory, stamp: FileStamp,
                 estimatedBytes: Int64, risk: RiskLevel = .review, note: String = "",
                 duplicateGroup: String? = nil, isDirectory: Bool = false,
                 canDelete: Bool = true, directorySignature: String? = nil) {
-        self.id = UUID()
+        self.id = id
         self.url = url
         self.scope = scope
         self.category = category
@@ -58,6 +58,12 @@ public struct ScanEntry: Identifiable, Sendable {
         self.isDirectory = isDirectory
         self.canDelete = canDelete
         self.directorySignature = directorySignature
+    }
+
+    public func withEstimatedBytes(_ bytes: Int64) -> ScanEntry {
+        ScanEntry(id: id, url: url, scope: scope, category: category, stamp: stamp,
+                  estimatedBytes: bytes, risk: risk, note: note, duplicateGroup: duplicateGroup,
+                  isDirectory: isDirectory, canDelete: canDelete, directorySignature: directorySignature)
     }
 }
 
@@ -148,6 +154,77 @@ public struct ScanSortSelection: Equatable, Sendable {
     public init(field: ScanSortField = .size, direction: ScanSortDirection = .descending) {
         self.field = field
         self.direction = direction
+    }
+}
+
+public enum ScanEntryFilter: String, CaseIterable, Sendable {
+    case all, selectable, locked, images, videos, documents, archives, folders, other
+}
+
+public enum ScanResultFiltering {
+    public static func entries(_ entries: [ScanEntry], category: ScanCategory,
+                               query: String, filter: ScanEntryFilter) -> [ScanEntry] {
+        let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty || filter != .all else { return entries }
+
+        func matches(_ entry: ScanEntry) -> Bool {
+            let matchesSearch = search.isEmpty ||
+                entry.url.path.localizedCaseInsensitiveContains(search) ||
+                (category == .uninstall && entry.note.localizedCaseInsensitiveContains(search))
+            return matchesSearch && matchesFilter(entry, filter: filter)
+        }
+
+        if category == .duplicates {
+            let matchingGroups = Set(entries.filter(matches).map { $0.duplicateGroup ?? $0.url.path })
+            return entries.filter { matchingGroups.contains($0.duplicateGroup ?? $0.url.path) }
+        }
+        return entries.filter(matches)
+    }
+
+    private static func matchesFilter(_ entry: ScanEntry, filter: ScanEntryFilter) -> Bool {
+        switch filter {
+        case .all: return true
+        case .selectable: return entry.canDelete
+        case .locked: return !entry.canDelete
+        case .folders: return entry.isDirectory
+        case .images, .videos, .documents, .archives, .other:
+            guard !entry.isDirectory else { return false }
+            let ext = entry.url.pathExtension.lowercased()
+            let kind: ScanEntryFilter
+            if ["jpg", "jpeg", "png", "heic", "webp", "gif", "tif", "tiff", "bmp"].contains(ext) {
+                kind = .images
+            } else if ["mov", "mp4", "m4v", "mkv", "avi", "webm"].contains(ext) {
+                kind = .videos
+            } else if ["pdf", "txt", "md", "rtf", "doc", "docx", "pages", "xls", "xlsx", "numbers", "csv", "ppt", "pptx", "key"].contains(ext) {
+                kind = .documents
+            } else if ["zip", "7z", "rar", "tar", "gz", "bz2", "xz", "dmg", "pkg"].contains(ext) {
+                kind = .archives
+            } else {
+                kind = .other
+            }
+            return kind == filter
+        }
+    }
+}
+
+public enum ScanResultGrouping {
+    public static func duplicateGroups(_ entries: [ScanEntry]) -> [[ScanEntry]] {
+        var groups: [[ScanEntry]] = []
+        var positions: [String: Int] = [:]
+        for entry in entries {
+            let key = entry.duplicateGroup ?? entry.url.path
+            if let index = positions[key] {
+                groups[index].append(entry)
+            } else {
+                positions[key] = groups.count
+                groups.append([entry])
+            }
+        }
+        return groups
+    }
+
+    public static func selectableIDs(in group: [ScanEntry]) -> Set<UUID> {
+        Set(group.filter { $0.canDelete && $0.note != "keepOriginal" }.map(\.id))
     }
 }
 

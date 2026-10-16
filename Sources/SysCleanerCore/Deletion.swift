@@ -40,7 +40,7 @@ public enum FileDeletion {
         if entry.isDirectory {
             guard entry.category == .uninstall,
                   let identifier = Bundle(url: entry.url)?.bundleIdentifier,
-                  !NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == identifier }),
+                  !FileSafety.isApplicationRunning(entry.url, identifier: identifier),
                   let signature = FileScanner.directorySignature(entry.url),
                   signature.digest == entry.directorySignature else { return "changedOrRunning" }
         } else {

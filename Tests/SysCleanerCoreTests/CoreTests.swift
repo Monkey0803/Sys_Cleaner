@@ -23,13 +23,54 @@ final class CoreTests: XCTestCase {
     private func sortableEntry(_ name: String, size: Int64, modified: Int64,
                                category: ScanCategory = .large, group: String? = nil,
                                note: String = "", isDirectory: Bool = false,
-                               signature: String? = nil) -> ScanEntry {
+                               signature: String? = nil, canDelete: Bool = true) -> ScanEntry {
         let url = root.appendingPathComponent(name)
         let stamp = FileStamp(device: 1, inode: 1, size: size, modifiedSeconds: modified,
                               modifiedNanoseconds: 0, linkCount: 1)
         return ScanEntry(url: url, scope: root, category: category, stamp: stamp,
                          estimatedBytes: size, note: note, duplicateGroup: group,
-                         isDirectory: isDirectory, directorySignature: signature)
+                         isDirectory: isDirectory, canDelete: canDelete,
+                         directorySignature: signature)
+    }
+
+    func testResultSearchAndTypeFiltersKeepOriginalEntries() {
+        let photo = sortableEntry("Holiday.HEIC", size: 10, modified: 1)
+        let archive = sortableEntry("backup.zip", size: 20, modified: 1)
+        let locked = sortableEntry("protected.pdf", size: 30, modified: 1, canDelete: false)
+        let entries = [photo, archive, locked]
+
+        XCTAssertEqual(ScanResultFiltering.entries(entries, category: .large,
+                                                   query: "holiday", filter: .all).map(\.id), [photo.id])
+        XCTAssertEqual(ScanResultFiltering.entries(entries, category: .large,
+                                                   query: "", filter: .images).map(\.id), [photo.id])
+        XCTAssertEqual(ScanResultFiltering.entries(entries, category: .large,
+                                                   query: "", filter: .archives).map(\.id), [archive.id])
+        XCTAssertEqual(ScanResultFiltering.entries(entries, category: .large,
+                                                   query: "", filter: .locked).map(\.id), [locked.id])
+        XCTAssertEqual(ScanResultFiltering.entries(entries, category: .large,
+                                                   query: "", filter: .selectable).count, 2)
+        XCTAssertEqual(entries.count, 3)
+    }
+
+    func testDuplicateSearchPreservesGroupAndGroupSelectionRetainsOne() {
+        let retained = sortableEntry("original.png", size: 7, modified: 1,
+                                     category: .duplicates, group: "same", note: "keepOriginal")
+        let copy = sortableEntry("copy.png", size: 7, modified: 2,
+                                 category: .duplicates, group: "same", note: "duplicateCopy")
+        let other = sortableEntry("unrelated.pdf", size: 9, modified: 3,
+                                  category: .duplicates, group: "other", note: "keepOriginal")
+        let otherCopy = sortableEntry("another.pdf", size: 9, modified: 4,
+                                      category: .duplicates, group: "other", note: "duplicateCopy")
+        let all = [retained, copy, other, otherCopy]
+        let filtered = ScanResultFiltering.entries(all, category: .duplicates,
+                                                   query: "copy.png", filter: .all)
+        XCTAssertEqual(filtered.map(\.id), [retained.id, copy.id])
+        let groups = ScanResultGrouping.duplicateGroups(filtered)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(ScanResultGrouping.selectableIDs(in: groups[0]), Set([copy.id]))
+        XCTAssertEqual(ScanResultFiltering.entries(all, category: .duplicates,
+                                                   query: "", filter: .documents).map(\.id),
+                       [other.id, otherCopy.id])
     }
 
     func testSortEntriesBySizeNameAndModificationInBothDirections() {
@@ -91,6 +132,13 @@ final class CoreTests: XCTestCase {
                                              selection: ScanSortSelection(field: .size, direction: direction))
             XCTAssertEqual(actual.map(\.id), expected.map(\.id))
         }
+        let measured = unknown.withEstimatedBytes(5)
+        XCTAssertEqual(measured.id, unknown.id)
+        XCTAssertEqual(measured.estimatedBytes, 5)
+        XCTAssertEqual(ScanSorting.entries([unknown, large, small].map {
+            $0.id == unknown.id ? measured : $0
+        }, category: .uninstall, selection: ScanSortSelection(field: .size, direction: .ascending))
+            .map(\.id), [small.id, unknown.id, large.id])
     }
 
     func testSpaceItemSortingSupportsSizeAndName() {
@@ -117,6 +165,41 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(report.cancelled)
         XCTAssertTrue(FileScanner.scan(ScanRequest(category: .large, root: root, minimumBytes: 100,
                                                    olderThanDays: 1)).entries.isEmpty)
+    }
+
+    func testApplicationOverviewListsBundlesWithoutMeasuringContents() throws {
+        let app = root.appendingPathComponent("Sample.app")
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let info: [String: Any] = ["CFBundleIdentifier": "dev.example.SysCleanerSample",
+                                   "CFBundleName": "Sample", "CFBundlePackageType": "APPL"]
+        let plist = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try plist.write(to: contents.appendingPathComponent("Info.plist"))
+        try Data(repeating: 1, count: 4096).write(to: contents.appendingPathComponent("payload"))
+
+        let entries = FileScanner.scanApplications(roots: [root])
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].url.path, app.path)
+        XCTAssertEqual(entries[0].estimatedBytes, 0)
+        XCTAssertFalse(entries[0].canDelete)
+        XCTAssertNil(entries[0].directorySignature)
+    }
+
+    func testRunningApplicationMatchesBundlePathNotOnlyIdentifier() {
+        let installed = root.appendingPathComponent("Xcode.app")
+        let otherVersion = root.appendingPathComponent("Xcode Beta.app")
+        XCTAssertFalse(FileSafety.matchesRunningApplication(installed, identifier: "com.apple.dt.Xcode",
+                                                            runningIdentifier: "com.apple.dt.Xcode",
+                                                            runningBundle: otherVersion))
+        XCTAssertTrue(FileSafety.matchesRunningApplication(installed, identifier: "com.apple.dt.Xcode",
+                                                           runningIdentifier: "com.apple.dt.Xcode",
+                                                           runningBundle: installed))
+        XCTAssertTrue(FileSafety.matchesRunningApplication(installed, identifier: "com.apple.dt.Xcode",
+                                                           runningIdentifier: "com.apple.dt.Xcode",
+                                                           runningBundle: installed.appendingPathComponent("Contents/Helpers/Tool.app")))
+        XCTAssertFalse(FileSafety.matchesRunningApplication(installed, identifier: "com.apple.dt.Xcode",
+                                                            runningIdentifier: "another.app",
+                                                            runningBundle: installed))
     }
 
     func testDuplicatesRequireMatchingContentAndKeepOne() throws {

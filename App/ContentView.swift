@@ -64,14 +64,25 @@ struct ContentView: View {
                         scanButton
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if (store.entries.isEmpty && store.spaceItems.isEmpty) ||
-                            (store.category == .uninstall && store.visibleEntries.isEmpty) {
+                } else if store.entries.isEmpty && store.spaceItems.isEmpty {
                     ContentUnavailableView {
                         Label("noResults", systemImage: "checkmark.circle")
                     } description: {
                         Text("noResultsDetail")
                     } actions: {
                         scanButton
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if store.category != .space && store.visibleEntries.isEmpty {
+                    ContentUnavailableView {
+                        Label("noMatchingResults", systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("adjustSearchOrFilter")
+                    } actions: {
+                        Button("clearSearchAndFilter") {
+                            store.resultQuery = ""
+                            store.resultFilter = .all
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if store.category == .space {
@@ -121,7 +132,11 @@ struct ContentView: View {
             }
             .sheet(isPresented: $store.showResults) { resultsSheet }
             .sheet(isPresented: $store.showHistory) { historySheet }
-            .sheet(item: $inspectedEntry) { entry in entryInspector(entry) }
+            .alert(item: $inspectedEntry) { entry in
+                Alert(title: Text(entry.url.lastPathComponent),
+                      message: Text(inspectorMessage(for: entry)),
+                      dismissButton: .default(Text("done")))
+            }
             .quickLookPreview($previewURL)
         }
         .onChange(of: store.minimumMB) { _, _ in store.invalidateScan() }
@@ -191,21 +206,50 @@ struct ContentView: View {
                     Spacer()
                 }
             }
-            if store.category == .uninstall && store.reviewedApplicationName == nil {
+            if store.category != .space {
                 HStack {
-                    TextField("searchApps", text: $store.appQuery)
+                    TextField(store.category == .uninstall && store.reviewedApplicationName == nil ?
+                              "searchApps" : "searchResults", text: $store.resultQuery)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 360)
-                    Button("chooseApp") { store.chooseApplication() }
-                        .disabled(store.isScanning || store.isDeleting)
-                    Text("dropAppHint").font(.caption).foregroundStyle(.secondary)
+                    Menu {
+                        Picker("filterResults", selection: $store.resultFilter) {
+                            Text("filter_all").tag(ScanEntryFilter.all)
+                            if store.category != .duplicates {
+                                Text("filter_selectable").tag(ScanEntryFilter.selectable)
+                                Text("filter_locked").tag(ScanEntryFilter.locked)
+                            }
+                            Text("filter_images").tag(ScanEntryFilter.images)
+                            Text("filter_videos").tag(ScanEntryFilter.videos)
+                            Text("filter_documents").tag(ScanEntryFilter.documents)
+                            Text("filter_archives").tag(ScanEntryFilter.archives)
+                            Text("filter_folders").tag(ScanEntryFilter.folders)
+                            Text("filter_other").tag(ScanEntryFilter.other)
+                        }
+                    } label: {
+                        Label(L("filter_\(store.resultFilter.rawValue)"), systemImage: "line.3.horizontal.decrease")
+                    }
+                    .disabled(store.isScanning)
+                    if store.hasScanned && (!store.resultQuery.isEmpty || store.resultFilter != .all) {
+                        Text(String(format: L("visibleResultCount"), store.visibleEntries.count,
+                                    store.entries.count))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if store.category == .uninstall && store.reviewedApplicationName == nil {
+                        Button("chooseApp") { store.chooseApplication() }
+                            .disabled(store.isScanning || store.isDeleting)
+                        Text("dropAppHint").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             HStack(spacing: 12) {
                 Label(String(format: L("itemsCount"), store.summaryCount), systemImage: "doc")
                 Label(ByteCountFormatter.string(fromByteCount: store.summaryBytes,
                                                 countStyle: .file), systemImage: "internaldrive")
-                Text(store.category == .orphans ? "knownFileSize" : "estimated")
+                Text(store.category == .orphans ? "knownFileSize" :
+                     store.category == .uninstall && store.reviewedApplicationName == nil ?
+                     (store.summaryBytes > 0 ? "reviewedAppSizes" : "appSizesOnReview") : "estimated")
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -257,8 +301,34 @@ struct ContentView: View {
     }
 
     private var resultsContent: some View {
-        List(store.visibleEntries) { entry in
-            HStack(spacing: 12) {
+        List {
+            if store.category == .duplicates {
+                ForEach(Array(store.visibleDuplicateGroups.enumerated()), id: \.offset) { _, group in
+                    Section {
+                        ForEach(group) { entry in resultRow(entry) }
+                    } header: {
+                        HStack {
+                            Text(String(format: L("duplicateGroupSummary"), group.count,
+                                        ByteCountFormatter.string(fromByteCount: group[0].estimatedBytes,
+                                                                  countStyle: .file)))
+                            Spacer()
+                            Button("selectGroupCopies") { store.selectDuplicateGroup(group) }
+                                .disabled(ScanResultGrouping.selectableIDs(in: group)
+                                    .isSubset(of: store.selectedIDs) || store.isDeleting)
+                            Button("clearGroupSelection") { store.clearDuplicateGroup(group) }
+                                .disabled(!group.contains { store.selectedIDs.contains($0.id) } || store.isDeleting)
+                        }
+                    }
+                }
+            } else {
+                ForEach(store.visibleEntries) { entry in resultRow(entry) }
+            }
+        }
+        .listStyle(.inset)
+    }
+
+    private func resultRow(_ entry: ScanEntry) -> some View {
+        HStack(spacing: 12) {
                 if entry.canDelete {
                     Toggle("", isOn: Binding(get: { store.selectedIDs.contains(entry.id) }, set: { selected in
                         if selected { store.selectedIDs.insert(entry.id) } else { store.selectedIDs.remove(entry.id) }
@@ -266,6 +336,11 @@ struct ContentView: View {
                     .labelsHidden()
                     .disabled(store.isDeleting)
                     .accessibilityLabel(entry.url.lastPathComponent)
+                } else if store.category == .uninstall && entry.isDirectory &&
+                            entry.directorySignature == nil && entry.risk != .protected {
+                    Color.clear
+                        .frame(width: 22)
+                        .accessibilityHidden(true)
                 } else {
                     Image(systemName: "lock.fill")
                         .foregroundStyle(.secondary)
@@ -273,11 +348,15 @@ struct ContentView: View {
                         .help(L(selectionUnavailableReason(for: entry)))
                         .accessibilityLabel(L(selectionUnavailableReason(for: entry)))
                 }
-                Image(systemName: entry.isDirectory ? "app" : "doc")
+                Image(systemName: entry.isDirectory && store.category == .uninstall ? "desktopcomputer" :
+                      entry.isDirectory ? "folder" : "doc")
                     .frame(width: 24)
                     .foregroundStyle(entry.canDelete ? .primary : .secondary)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.url.lastPathComponent).fontWeight(.medium).lineLimit(1)
+                    Text(entry.url.lastPathComponent)
+                        .fontWeight(.medium)
+                        .foregroundStyle(entry.risk == .protected ? Color.secondary : Color.primary)
+                        .lineLimit(1)
                     Text(entry.url.path).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                     Text(Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds)),
@@ -286,10 +365,10 @@ struct ContentView: View {
                     Text(L(entry.note)).font(.caption).foregroundStyle(entry.canDelete ? .orange : .secondary)
                 }
                 Spacer()
-                if store.category == .uninstall && entry.isDirectory && entry.directorySignature == nil {
-                    if entry.risk != .protected {
-                        Button("reviewApp") { store.prepareApplication(entry) }
-                    }
+                if store.category == .uninstall && entry.isDirectory && entry.directorySignature == nil &&
+                    entry.risk != .protected {
+                    Button("reviewApp") { store.prepareApplication(entry) }
+                        .disabled(store.isDeleting)
                 }
                 if store.category == .orphans && entry.isDirectory {
                     Text("—").font(.callout).foregroundStyle(.secondary)
@@ -305,10 +384,8 @@ struct ContentView: View {
                 Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
                     .buttonStyle(.borderless)
                     .help(L("showInFinder"))
-            }
-            .padding(.vertical, 4)
         }
-        .listStyle(.inset)
+        .padding(.vertical, 4)
     }
 
     private var spaceContent: some View {
@@ -469,26 +546,22 @@ struct ContentView: View {
         .frame(width: 650, height: 420)
     }
 
-    private func entryInspector(_ entry: ScanEntry) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(entry.url.lastPathComponent).font(.title2.bold())
-            Text(entry.url.path).font(.callout.monospaced()).textSelection(.enabled)
-            Divider()
-            LabeledContent("cleanupBasis", value: reason(for: entry))
-            LabeledContent("estimated", value: entry.category == .orphans && entry.isDirectory ?
-                           L("notMeasured") : ByteCountFormatter.string(
-                            fromByteCount: entry.estimatedBytes, countStyle: .file))
-            LabeledContent("modifiedAt", value: Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds))
-                .formatted(date: .abbreviated, time: .shortened))
-            if !entry.note.isEmpty && entry.category == .uninstall {
-                LabeledContent("bundleIdentifier", value: entry.note)
-            }
-            Text("reviewCaveat").font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Button("done") { inspectedEntry = nil }.frame(maxWidth: .infinity, alignment: .trailing)
+    private func inspectorMessage(for entry: ScanEntry) -> String {
+        let modified = Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds))
+            .formatted(date: .abbreviated, time: .shortened)
+        var lines = [entry.url.path,
+                     "\(L("cleanupBasis")): \(reason(for: entry))"]
+        if !(entry.category == .uninstall && entry.isDirectory &&
+             entry.directorySignature == nil && entry.estimatedBytes == 0) {
+            let size = entry.category == .orphans && entry.isDirectory ? L("notMeasured") :
+                ByteCountFormatter.string(fromByteCount: entry.estimatedBytes, countStyle: .file)
+            lines.append("\(L("estimated")): \(size)")
         }
-        .padding(24)
-        .frame(width: 560, height: 320)
+        lines.append("\(L("modifiedAt")): \(modified)")
+        if entry.category == .uninstall && entry.note != "appRunning" && !entry.note.isEmpty {
+            lines.append("\(L("bundleIdentifier")): \(entry.note)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func reason(for entry: ScanEntry) -> String {

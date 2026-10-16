@@ -1,7 +1,25 @@
+import AppKit
 import Darwin
 import Foundation
 
 public enum FileSafety {
+    public static func isApplicationRunning(_ app: URL, identifier: String) -> Bool {
+        return NSWorkspace.shared.runningApplications.contains { running in
+            matchesRunningApplication(app, identifier: identifier,
+                                      runningIdentifier: running.bundleIdentifier,
+                                      runningBundle: running.bundleURL)
+        }
+    }
+
+    static func matchesRunningApplication(_ app: URL, identifier: String,
+                                          runningIdentifier: String?, runningBundle: URL?) -> Bool {
+        guard runningIdentifier == identifier else { return false }
+        guard let runningBundle else { return true }
+        let runningPath = runningBundle.resolvingSymlinksInPath().standardizedFileURL.path
+        let appPath = app.resolvingSymlinksInPath().standardizedFileURL.path
+        return runningPath == appPath || runningPath.hasPrefix(appPath + "/")
+    }
+
     static func metadata(at url: URL) -> (stamp: FileStamp, isDirectory: Bool)? {
         var info = stat()
         guard lstat(url.path, &info) == 0, (info.st_mode & mode_t(S_IFMT)) != mode_t(S_IFLNK) else { return nil }
