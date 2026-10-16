@@ -9,10 +9,12 @@
 /* Begin PBXBuildFile section */
 		22D20911B15411DE7585F70E /* FileSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */; };
 		521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */; };
+		5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706382312C541D86CE8A7B13 /* AppPreferences.swift */; };
 		645FC5F87984F5E40EC2F6ED /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 44CA5682F828CB6B5F3D9531 /* Localizable.strings */; };
 		6D804D809C0C1AA56A409310 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */; };
 		7CCE66357C97CF583DFAFE52 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FEE5B84E2DA78B3FE11FBF18 /* Cocoa.framework */; };
 		8201A730F69E8B6AD9693A32 /* SysCleanerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */; };
+		9A6FAB0A663DD86365F88360 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */; };
 		A914E1BE757716AD1051FA7F /* Deletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCAC6287E4E224CD89FB6F00 /* Deletion.swift */; };
 		AF422D85A92B8127615A8090 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011A696469615F01985B1935 /* ContentView.swift */; };
 		BD4D948DEFB37C0BBFA0857B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA30EEF2908C3F8BC514782C /* Models.swift */; };
@@ -22,11 +24,13 @@
 /* Begin PBXFileReference section */
 		011A696469615F01985B1935 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		0615ABDC2BA0388108C2EAD4 /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafety.swift; sourceTree = "<group>"; };
 		273146B4DC39873970B43C59 /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		49B61AAC3F7BCA34CBDFF63F /* Sys Cleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sys Cleaner.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Scanner.swift; sourceTree = "<group>"; };
 		6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		706382312C541D86CE8A7B13 /* AppPreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
 		81DFF62E5B5D069B3674A928 /* CleanerStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CleanerStore.swift; sourceTree = "<group>"; };
 		C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SysCleanerApp.swift; sourceTree = "<group>"; };
 		FA30EEF2908C3F8BC514782C /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -62,6 +66,8 @@
 				C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */,
 				44CA5682F828CB6B5F3D9531 /* Localizable.strings */,
 				6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */,
+				706382312C541D86CE8A7B13 /* AppPreferences.swift */,
+				15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */,
 			);
 			name = App;
 			path = App;
@@ -178,6 +184,8 @@
 				22D20911B15411DE7585F70E /* FileSafety.swift in Sources */,
 				BD4D948DEFB37C0BBFA0857B /* Models.swift in Sources */,
 				521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */,
+				5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */,
+				9A6FAB0A663DD86365F88360 /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -257,6 +265,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Sys Cleaner";
@@ -268,6 +277,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.syscleaner.SysCleaner;
 				PRODUCT_NAME = "Sys Cleaner";
 				SDKROOT = macosx;
@@ -343,6 +353,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Sys Cleaner";
@@ -354,6 +365,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.syscleaner.SysCleaner;
 				PRODUCT_NAME = "Sys Cleaner";
 				SDKROOT = macosx;

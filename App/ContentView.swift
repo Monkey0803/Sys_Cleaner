@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: CleanerStore
+    @Environment(\.openSettings) private var openSettings
     @State private var pendingMode: DeleteMode = .trash
     @State private var showingConfirmation = false
 
@@ -34,12 +35,24 @@ struct ContentView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !store.hasScanned && store.entries.isEmpty && store.spaceItems.isEmpty {
-                    ContentUnavailableView(store.category.title, systemImage: store.category.symbol,
-                                           description: Text("startPrompt"))
+                    ContentUnavailableView {
+                        Label(store.category.title, systemImage: store.category.symbol)
+                    } description: {
+                        Text("startPrompt")
+                    } actions: {
+                        scanButton
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if (store.entries.isEmpty && store.spaceItems.isEmpty) ||
                             (store.category == .uninstall && store.visibleEntries.isEmpty) {
-                    ContentUnavailableView("noResults", systemImage: "checkmark.circle",
-                                           description: Text("noResultsDetail"))
+                    ContentUnavailableView {
+                        Label("noResults", systemImage: "checkmark.circle")
+                    } description: {
+                        Text("noResultsDetail")
+                    } actions: {
+                        scanButton
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if store.category == .space {
                     spaceContent
                 } else {
@@ -48,11 +61,12 @@ struct ContentView: View {
                 if !store.warnings.isEmpty { warningsView }
                 if store.category != .space { actionBar }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle(store.category.title)
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { store.scan() } label: { Label("scan", systemImage: "magnifyingglass") }
-                        .disabled(store.isScanning || store.isDeleting)
+                ToolbarItem(placement: .automatic) {
+                    Button { openSettings() } label: { Label("settings", systemImage: "gearshape") }
+                        .help(L("settings"))
                 }
             }
             .alert(pendingMode == .trash ? L("confirmTrash") : L("confirmPermanent"),
@@ -83,6 +97,10 @@ struct ContentView: View {
                     Text(descriptionKey).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if store.hasScanned && !store.isScanning &&
+                    (store.category == .space ? !store.spaceItems.isEmpty : !store.visibleEntries.isEmpty) {
+                    scanButton
+                }
             }
             if [.space, .large, .duplicates].contains(store.category) {
                 HStack {
@@ -91,6 +109,7 @@ struct ContentView: View {
                         .font(.callout.monospaced())
                     Spacer()
                     Button("chooseFolder") { store.chooseFolder() }
+                        .focusEffectDisabled()
                 }
                 .padding(10)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
@@ -139,6 +158,12 @@ struct ContentView: View {
         case .developerCache: "developerCacheDescription"
         case .uninstall: "uninstallDescription"
         }
+    }
+
+    private var scanButton: some View {
+        Button(store.hasScanned ? L("scanAgain") : L("startScan")) { store.scan() }
+            .buttonStyle(.borderedProminent)
+            .disabled(store.isScanning || store.isDeleting)
     }
 
     private var resultsContent: some View {

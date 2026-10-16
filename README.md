@@ -9,6 +9,7 @@ Native macOS 14+ file cleanup app, built with SwiftUI. English and 简体中文 
 - App bundle removal plus files in exact bundle-ID paths under the user's Library.
 - Item-by-item selection, Trash by default, separate permanent deletion, and per-item results.
 - Persistent menu bar icon to reopen the main window after closing it, or quit the app.
+- Settings for live English/简体中文 switching, system/dark/light appearance, six selectable Dock and menu bar icons, and About information. Choices persist across launches.
 - Local scanning only. No account, telemetry, scheduled cleanup, privileged helper, or background monitor.
 
 ## Build and test

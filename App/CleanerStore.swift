@@ -131,7 +131,7 @@ final class CleanerStore: ObservableObject {
         if isScanning {
             generation += 1
             isScanning = false
-            warnings = [L("scanCancelled")]
+            warnings = ["scanCancelled"]
         }
     }
 
@@ -191,7 +191,10 @@ final class CleanerStore: ObservableObject {
     }
 }
 
-func L(_ key: String) -> String { NSLocalizedString(key, comment: "") }
+func L(_ key: String) -> String {
+    let selected = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "AppLanguage") ?? "") ?? .system
+    return selected.bundle.localizedString(forKey: key, value: key, table: nil)
+}
 
 extension ScanCategory {
     var title: String { L(rawValue) }

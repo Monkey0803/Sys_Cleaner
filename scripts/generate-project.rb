@@ -30,6 +30,8 @@ target.build_configurations.each do |configuration|
   settings = configuration.build_settings
   settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'org.syscleaner.SysCleaner'
   settings['PRODUCT_NAME'] = 'Sys Cleaner'
+  settings['MARKETING_VERSION'] = '1.0.0'
+  settings['CURRENT_PROJECT_VERSION'] = '1'
   settings['SWIFT_VERSION'] = '5.0'
   settings['MACOSX_DEPLOYMENT_TARGET'] = '14.0'
   settings['GENERATE_INFOPLIST_FILE'] = 'YES'
