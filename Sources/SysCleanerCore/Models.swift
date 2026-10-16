@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
-    case space, large, duplicates, systemCache, developerCache, uninstall
+    case space, large, duplicates, systemCache, developerCache, uninstall, orphans
     public var id: String { rawValue }
 }
 
@@ -9,7 +9,7 @@ public enum RiskLevel: String, Sendable {
     case low, review, protected
 }
 
-public struct FileStamp: Equatable, Sendable {
+public struct FileStamp: Codable, Equatable, Sendable {
     public let device: UInt64
     public let inode: UInt64
     public let size: Int64
@@ -91,6 +91,27 @@ public struct ScanReport: Sendable {
         self.scannedBytes = scannedBytes ?? entries.reduce(0) { $0 + $1.estimatedBytes }
         self.warnings = warnings
         self.cancelled = cancelled
+    }
+}
+
+public enum ScanStage: String, Sendable {
+    case discovering, measuringApps, comparing, reviewingApp
+}
+
+public struct ScanProgress: Sendable {
+    public let stage: ScanStage
+    public let processedFiles: Int
+    public let processedDirectories: Int
+    public let processedBytes: Int64
+    public let currentPath: String
+
+    public init(stage: ScanStage, processedFiles: Int, processedDirectories: Int,
+                processedBytes: Int64, currentPath: String) {
+        self.stage = stage
+        self.processedFiles = processedFiles
+        self.processedDirectories = processedDirectories
+        self.processedBytes = processedBytes
+        self.currentPath = currentPath
     }
 }
 
@@ -219,5 +240,68 @@ public struct DeleteResult: Sendable {
         self.success = success
         self.message = message
         self.trashURL = trashURL
+    }
+}
+
+public struct CleanupHistoryItem: Codable, Identifiable, Sendable {
+    public let id: UUID
+    public let path: String
+    public let estimatedBytes: Int64
+    public let success: Bool
+    public let message: String
+    public let trashPath: String?
+    public let scopePath: String?
+    public let trashStamp: FileStamp?
+    public var restoredAt: Date?
+
+    public var canRestore: Bool {
+        success && message == "movedToTrash" && trashPath != nil && scopePath != nil &&
+            trashStamp != nil && restoredAt == nil
+    }
+
+    public init(path: String, estimatedBytes: Int64, success: Bool,
+                message: String, trashPath: String?, scopePath: String? = nil,
+                trashStamp: FileStamp? = nil, restoredAt: Date? = nil) {
+        self.id = UUID()
+        self.path = path
+        self.estimatedBytes = estimatedBytes
+        self.success = success
+        self.message = message
+        self.trashPath = trashPath
+        self.scopePath = scopePath
+        self.trashStamp = trashStamp
+        self.restoredAt = restoredAt
+    }
+}
+
+public struct CleanupHistoryRecord: Codable, Identifiable, Sendable {
+    public let id: UUID
+    public let date: Date
+    public let category: String
+    public let mode: String
+    public var items: [CleanupHistoryItem]
+
+    public init(date: Date = Date(), category: String, mode: String,
+                items: [CleanupHistoryItem]) {
+        self.id = UUID()
+        self.date = date
+        self.category = category
+        self.mode = mode
+        self.items = items
+    }
+}
+
+public enum CleanupHistoryStorage {
+    public static func load(from url: URL) throws -> [CleanupHistoryRecord] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode([CleanupHistoryRecord].self, from: Data(contentsOf: url))
+    }
+
+    public static func save(_ records: [CleanupHistoryRecord], to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(Array(records.prefix(50))).write(to: url, options: .atomic)
     }
 }

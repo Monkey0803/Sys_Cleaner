@@ -44,6 +44,50 @@ struct SysCleanerApp: App {
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppPreferences.shared.applyIcon()
+        NSApp.servicesProvider = self
+    }
+
+    @objc(reviewApplication:userData:error:)
+    func reviewApplication(_ pasteboard: NSPasteboard, userData: String?,
+                           error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        let files = (pasteboard.readObjects(forClasses: [NSURL.self],
+                                            options: [.urlReadingFileURLsOnly: true]) ?? [])
+            .compactMap { $0 as? URL }
+            .filter { $0.isFileURL && $0.pathExtension.lowercased() == "app" }
+        guard files.count == 1 else {
+            error.pointee = L("finderSelectOneApp") as NSString
+            return
+        }
+        FinderReviewBridge.shared.review(files[0])
+    }
+}
+
+@MainActor
+final class FinderReviewBridge {
+    static let shared = FinderReviewBridge()
+    private weak var store: CleanerStore?
+    private var openMainWindow: (() -> Void)?
+    private var pendingApp: URL?
+
+    func connect(store: CleanerStore, openMainWindow: @escaping () -> Void) {
+        self.store = store
+        self.openMainWindow = openMainWindow
+        processPending()
+    }
+
+    func review(_ app: URL) {
+        pendingApp = app
+        openMainWindow?()
+        NSApp.activate(ignoringOtherApps: true)
+        processPending()
+    }
+
+    private func processPending() {
+        guard let app = pendingApp, let store, !store.isDeleting else { return }
+        store.changeCategory(.uninstall)
+        if store.isScanning { store.cancel() }
+        store.openApplication(app)
+        pendingApp = nil
     }
 }
 

@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 final class CleanerStore: ObservableObject {
+    private static let historyURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Sys Cleaner/cleanup-history.json")
     @Published var category: ScanCategory = .space {
         didSet { refreshVisibleEntries(); refreshSpaceChildren() }
     }
@@ -29,10 +31,15 @@ final class CleanerStore: ObservableObject {
     @Published var warnings: [String] = []
     @Published var selectedIDs: Set<UUID> = []
     @Published var isScanning = false
+    @Published private(set) var scanProgress: ScanProgress?
     @Published var isDeleting = false
     @Published var hasScanned = false
     @Published var results: [DeleteResult] = []
     @Published var showResults = false
+    @Published var showHistory = false
+    @Published private(set) var cleanupHistory = (try? CleanupHistoryStorage.load(from: CleanerStore.historyURL)) ?? []
+    @Published private(set) var historyError: String?
+    @Published private(set) var restoreError: String?
     @Published var minimumMB = 100
     @Published var olderThanDays = 0
     @Published var appQuery = "" {
@@ -62,6 +69,7 @@ final class CleanerStore: ObservableObject {
         let selectedIDs: Set<UUID>
         let hasScanned: Bool
         let isScanning: Bool
+        let scanProgress: ScanProgress?
         let spaceFolder: URL?
         let appQuery: String
 
@@ -72,9 +80,16 @@ final class CleanerStore: ObservableObject {
                 summaryBytes: remaining.reduce(0) { $0 + $1.estimatedBytes },
                 warnings: warnings, selectedIDs: selectedIDs.subtracting(
                     entries.filter { urls.contains($0.url) }.map(\.id)),
-                hasScanned: hasScanned, isScanning: isScanning,
+                hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
                 spaceFolder: spaceFolder, appQuery: appQuery
             )
+        }
+
+        func updatingProgress(_ progress: ScanProgress) -> CategoryResult {
+            CategoryResult(entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
+                           summaryBytes: summaryBytes, warnings: warnings, selectedIDs: selectedIDs,
+                           hasScanned: hasScanned, isScanning: isScanning, scanProgress: progress,
+                           spaceFolder: spaceFolder, appQuery: appQuery)
         }
     }
 
@@ -146,6 +161,7 @@ final class CleanerStore: ObservableObject {
             selectedIDs = []
             hasScanned = false
             isScanning = false
+            scanProgress = nil
             spaceFolder = root
         }
     }
@@ -173,6 +189,7 @@ final class CleanerStore: ObservableObject {
             selectedIDs = []
             hasScanned = false
             isScanning = false
+            scanProgress = nil
             spaceFolder = root
         }
     }
@@ -189,6 +206,7 @@ final class CleanerStore: ObservableObject {
         warnings = []
         selectedIDs = []
         hasScanned = false
+        scanProgress = nil
     }
 
     func scan() {
@@ -203,11 +221,16 @@ final class CleanerStore: ObservableObject {
         warnings = []
         selectedIDs = []
         hasScanned = false
+        scanProgress = nil
         spaceFolder = root
         isScanning = true
         let scannedCategory = category
         let scanID = UUID()
-        let newControl = ScanControl()
+        let newControl = ScanControl { [weak self] progress in
+            Task { @MainActor [weak self] in
+                self?.receiveProgress(progress, category: scannedCategory, scanID: scanID)
+            }
+        }
         runningScans[scannedCategory] = RunningScan(id: scanID, control: newControl,
                                                     isApplicationPreparation: false)
         let request = ScanRequest(category: category, root: root, minimumBytes: Int64(minimumMB) * 1_024 * 1_024,
@@ -222,14 +245,48 @@ final class CleanerStore: ObservableObject {
         guard category == .uninstall, app.isDirectory, app.directorySignature == nil,
               app.risk != .protected, !isScanning else { return }
         isScanning = true
+        scanProgress = nil
         let scanID = UUID()
-        let newControl = ScanControl()
+        let newControl = ScanControl { [weak self] progress in
+            Task { @MainActor [weak self] in
+                self?.receiveProgress(progress, category: .uninstall, scanID: scanID)
+            }
+        }
         runningScans[.uninstall] = RunningScan(id: scanID, control: newControl,
                                                isApplicationPreparation: true)
         Task.detached(priority: .userInitiated) { [weak self] in
             let report = FileScanner.prepareApplication(app, control: newControl)
             await self?.finishApplicationPreparation(report, app: app, scanID: scanID)
         }
+    }
+
+    func chooseApplication() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = L("chooseAppHint")
+        if panel.runModal() == .OK, let url = panel.url { openApplication(url) }
+    }
+
+    func openApplication(_ url: URL) {
+        guard category == .uninstall, !isScanning, !isDeleting else { return }
+        let app = url.standardizedFileURL
+        let scope = app.deletingLastPathComponent()
+        guard app.pathExtension.lowercased() == "app",
+              let identifier = Bundle(url: app)?.bundleIdentifier,
+              let stamp = FileSafety.stamp(at: app), FileSafety.isDirectory(app),
+              FileSafety.isSafeLocation(app, scope: scope, category: .uninstall) else {
+            warnings = ["invalidApp"]
+            return
+        }
+        guard !NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == identifier }) else {
+            warnings = ["appRunning"]
+            return
+        }
+        prepareApplication(ScanEntry(url: app, scope: scope, category: .uninstall,
+                                     stamp: stamp, estimatedBytes: 0, note: identifier,
+                                     isDirectory: true, canDelete: false))
     }
 
     func backFromApplication() {
@@ -243,6 +300,7 @@ final class CleanerStore: ObservableObject {
         runningScans.removeValue(forKey: category)?.control.cancel()
         if isScanning {
             isScanning = false
+            scanProgress = nil
             warnings = ["scanCancelled"]
         }
     }
@@ -256,9 +314,10 @@ final class CleanerStore: ObservableObject {
         let chosen = selectedEntries
         guard !chosen.isEmpty, !isDeleting else { return }
         isDeleting = true
+        let deletedCategory = category
         Task.detached(priority: .userInitiated) { [weak self] in
             let outcomes = FileDeletion.execute(chosen, mode: mode)
-            await self?.finishDelete(outcomes, selected: chosen)
+            await self?.finishDelete(outcomes, selected: chosen, category: deletedCategory, mode: mode)
         }
     }
 
@@ -272,13 +331,15 @@ final class CleanerStore: ObservableObject {
             summaryBytes = report.scannedBytes
             warnings = report.warnings
             isScanning = false
+            scanProgress = nil
             hasScanned = !report.cancelled
         } else if let previous = categoryResults[scannedCategory] {
             categoryResults[scannedCategory] = CategoryResult(
                 entries: report.entries, spaceItems: report.spaceItems,
                 summaryCount: report.scannedFileCount, summaryBytes: report.scannedBytes,
                 warnings: report.warnings, selectedIDs: [], hasScanned: !report.cancelled,
-                isScanning: false, spaceFolder: previous.spaceFolder, appQuery: previous.appQuery
+                isScanning: false, scanProgress: nil,
+                spaceFolder: previous.spaceFolder, appQuery: previous.appQuery
             )
         }
     }
@@ -299,11 +360,44 @@ final class CleanerStore: ObservableObject {
             warnings.append(contentsOf: report.warnings)
         }
         isScanning = false
+        scanProgress = nil
     }
 
-    private func finishDelete(_ outcomes: [DeleteResult], selected: [ScanEntry]) {
+    private func receiveProgress(_ progress: ScanProgress, category scannedCategory: ScanCategory, scanID: UUID) {
+        guard runningScans[scannedCategory]?.id == scanID else { return }
+        if category == scannedCategory {
+            scanProgress = progress
+        } else if let previous = categoryResults[scannedCategory] {
+            categoryResults[scannedCategory] = previous.updatingProgress(progress)
+        }
+    }
+
+    private func finishDelete(_ outcomes: [DeleteResult], selected: [ScanEntry],
+                              category deletedCategory: ScanCategory, mode: DeleteMode) {
         results = outcomes
         showResults = true
+        let sizes = selected.reduce(into: [URL: Int64]()) { sizes, entry in
+            sizes[entry.url] = entry.estimatedBytes
+        }
+        let scopes = selected.reduce(into: [URL: String]()) { scopes, entry in
+            scopes[entry.url] = entry.scope.path
+        }
+        let items = outcomes.map { result in
+            CleanupHistoryItem(path: result.url.path, estimatedBytes: sizes[result.url] ?? 0,
+                               success: result.success, message: result.message,
+                               trashPath: result.trashURL?.path, scopePath: scopes[result.url],
+                               trashStamp: result.trashURL.flatMap { FileSafety.stamp(at: $0) })
+        }
+        cleanupHistory.insert(CleanupHistoryRecord(category: deletedCategory.rawValue,
+                                                   mode: mode == .trash ? "trash" : "permanent",
+                                                   items: items), at: 0)
+        if cleanupHistory.count > 50 { cleanupHistory.removeLast(cleanupHistory.count - 50) }
+        do {
+            try CleanupHistoryStorage.save(cleanupHistory, to: Self.historyURL)
+            historyError = nil
+        } catch {
+            historyError = error.localizedDescription
+        }
         if outcomes.contains(where: \.success) {
             cancelAllScans()
             categoryResults.removeAll()
@@ -319,11 +413,35 @@ final class CleanerStore: ObservableObject {
         isDeleting = false
     }
 
+    func restoreHistoryItem(recordID: UUID, itemID: UUID) {
+        guard let recordIndex = cleanupHistory.firstIndex(where: { $0.id == recordID }),
+              let itemIndex = cleanupHistory[recordIndex].items.firstIndex(where: { $0.id == itemID }),
+              let category = ScanCategory(rawValue: cleanupHistory[recordIndex].category) else { return }
+        let item = cleanupHistory[recordIndex].items[itemIndex]
+        if let failure = FileRestoration.restore(item, category: category) {
+            restoreError = L(failure)
+            return
+        }
+        var updated = cleanupHistory
+        updated[recordIndex].items[itemIndex].restoredAt = Date()
+        cleanupHistory = updated
+        restoreError = nil
+        do {
+            try CleanupHistoryStorage.save(cleanupHistory, to: Self.historyURL)
+            historyError = nil
+        } catch {
+            historyError = error.localizedDescription
+        }
+        cancelAllScans()
+        categoryResults.removeAll()
+        invalidateScan()
+    }
+
     private func currentResult() -> CategoryResult {
         CategoryResult(
             entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
             summaryBytes: summaryBytes, warnings: warnings, selectedIDs: selectedIDs,
-            hasScanned: hasScanned, isScanning: isScanning,
+            hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
             spaceFolder: spaceFolder, appQuery: appQuery
         )
     }
@@ -337,6 +455,7 @@ final class CleanerStore: ObservableObject {
         selectedIDs = result.selectedIDs
         hasScanned = result.hasScanned
         isScanning = result.isScanning
+        scanProgress = result.scanProgress
         spaceFolder = result.spaceFolder
         appQuery = result.appQuery
     }
@@ -365,6 +484,7 @@ extension ScanCategory {
         case .systemCache: "folder.badge.gearshape"
         case .developerCache: "hammer"
         case .uninstall: "app.badge"
+        case .orphans: "questionmark.folder"
         }
     }
 }

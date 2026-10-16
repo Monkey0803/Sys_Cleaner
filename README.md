@@ -4,10 +4,13 @@ Native macOS 14+ file cleanup app, built with SwiftUI. English and 简体中文 
 
 ## Features
 
-- Space analysis with folder drill-down, large-file filters, and content-verified duplicates.
+- Space analysis with a proportional treemap: click folders to drill down or files to preview; large-file filters and content-verified duplicates.
 - User cache and log review; Xcode DerivedData, SwiftPM, and Homebrew cache review.
-- App bundle removal plus files in exact bundle-ID paths under the user's Library.
-- Item-by-item selection, Trash by default, separate permanent deletion, and per-item results.
+- App bundle removal plus files in exact bundle-ID paths under the user's Library; choose or drop a `.app` to review it.
+- Read-only candidates from selected user Library data folders, excluding identifiers of installed apps and their extensions, services, and login items. Verify candidates manually in Finder; Preferences and logs are excluded.
+- Scan stage, processed counts, and current path; independent scan state when switching categories.
+- Per-item cleanup reasons, Trash by default, separate permanent deletion, per-item results, and local cleanup history. History can restore items that this app moved to Trash when their identity is still verifiable, without overwriting an occupied original path.
+- Finder Services entry for a selected `.app`: use **Review App in Sys Cleaner** to open its App Uninstall review.
 - Persistent menu bar icon to reopen the main window after closing it, or quit the app.
 - Settings for live English/简体中文 switching, system/dark/light appearance, six selectable Dock and menu bar icons, and About information. Choices persist across launches.
 - Local scanning only. No account, telemetry, scheduled cleanup, privileged helper, or background monitor.
@@ -30,7 +33,7 @@ Choose a folder to scan in Space Analysis, Large Files, and Duplicates. Cache an
 
 Every deletion starts from a visible, manually selected result. The app checks file identity, size, modification time, path boundaries, symlink parents, cloud placeholders, and protected locations again just before removal. Caches modified within 15 minutes and files reported open by `lsof` are skipped. An app bundle is skipped if its app is running or its scanned contents changed. Failed items never trigger an automatic permanent-delete fallback.
 
-Sizes are logical file-size estimates. APFS clones, sparse files, and shared storage can make actual reclaimed space differ. Space Analysis is read-only: files smaller than 1 MB are grouped into “Other files” while still contributing to folder totals. Duplicate scanning excludes symlinks, hard links, and cloud placeholders; one copy per content hash group remains nonselectable. Cache results show the 2,000 largest files, and duplicate comparison is limited to 100,000 files with a warning when a scan exceeds that bound. In App Uninstall, choose “Review app” to calculate its size and inspect matched files before selection. Cleanup never targets system roots, snapshots, iCloud data, app archives, or simulator data.
+Sizes are logical file-size estimates. APFS clones, sparse files, and shared storage can make actual reclaimed space differ. Space Analysis is read-only: files smaller than 1 MB are grouped into “Other files” while still contributing to folder totals; the treemap shows at most 18 blocks and groups smaller items when needed. Duplicate scanning excludes symlinks, hard links, and cloud placeholders; one copy per content hash group remains nonselectable. Cache results show the 2,000 largest files, and duplicate comparison is limited to 100,000 files with a warning when a scan exceeds that bound. In App Uninstall, choose “Review app” to calculate its size and inspect matched files before selection. Old history entries, permanently deleted items, and Trash items that have changed cannot be restored through history. Cleanup never targets system roots, snapshots, iCloud data, app archives, or simulator data.
 
 ## Direct distribution
 

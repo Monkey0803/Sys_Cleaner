@@ -163,6 +163,46 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
+    func testCleanupHistoryRoundTrip() throws {
+        let url = root.appendingPathComponent("history/records.json")
+        let item = CleanupHistoryItem(path: "/Users/test/file", estimatedBytes: 42,
+                                      success: true, message: "movedToTrash",
+                                      trashPath: "/Users/test/.Trash/file")
+        let record = CleanupHistoryRecord(category: "large", mode: "trash", items: [item])
+        try CleanupHistoryStorage.save([record], to: url)
+        let loaded = try CleanupHistoryStorage.load(from: url)
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded[0].items[0].trashPath, item.trashPath)
+        XCTAssertEqual(loaded[0].items[0].estimatedBytes, 42)
+        XCTAssertFalse(loaded[0].items[0].canRestore)
+    }
+
+    func testTrashHistoryRestoresWithoutOverwriting() throws {
+        let scope = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleanerRestoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scope, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scope) }
+        let original = scope.appendingPathComponent("sample.txt")
+        try Data("original".utf8).write(to: original)
+        let entry = FileScanner.scan(ScanRequest(category: .large, root: scope, minimumBytes: 1)).entries[0]
+        let outcome = try XCTUnwrap(FileDeletion.execute([entry], mode: .trash).first)
+        XCTAssertTrue(outcome.success)
+        let trash = try XCTUnwrap(outcome.trashURL)
+        let stamp = try XCTUnwrap(FileSafety.stamp(at: trash))
+        let item = CleanupHistoryItem(path: original.path, estimatedBytes: entry.estimatedBytes,
+                                      success: true, message: outcome.message, trashPath: trash.path,
+                                      scopePath: scope.path, trashStamp: stamp)
+        XCTAssertTrue(item.canRestore)
+
+        try Data("replacement".utf8).write(to: original)
+        XCTAssertEqual(FileRestoration.restore(item, category: .large), "restoreConflict")
+        XCTAssertEqual(try Data(contentsOf: original), Data("replacement".utf8))
+        try FileManager.default.removeItem(at: original)
+        XCTAssertNil(FileRestoration.restore(item, category: .large))
+        XCTAssertEqual(try Data(contentsOf: original), Data("original".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: trash.path))
+    }
+
     func testPartialFailureKeepsOtherFiles() throws {
         let first = try file("first", "one")
         let second = try file("second", "two")
@@ -327,6 +367,72 @@ final class CoreTests: XCTestCase {
         try Data(repeating: 1, count: 5).write(to: app.appendingPathComponent("Contents/main"))
         try Data(repeating: 2, count: 7).write(to: nested.appendingPathComponent("helper"))
         XCTAssertEqual(FileScanner.applicationBundleSize(app), 12)
+    }
+
+    func testOrphanCandidatesExcludeInstalledAppsAndRemainReadOnly() throws {
+        let cache = root.appendingPathComponent("Caches")
+        try FileManager.default.createDirectory(at: cache.appendingPathComponent("com.example.gone"),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cache.appendingPathComponent("com.example.present"),
+                                                withIntermediateDirectories: true)
+        try Data("log".utf8).write(to: cache.appendingPathComponent("warp.log.old.3"))
+        let http = root.appendingPathComponent("HTTPStorages")
+        try FileManager.default.createDirectory(at: http, withIntermediateDirectories: true)
+        try Data("cookie".utf8).write(to: http.appendingPathComponent("com.example.present.binarycookies"))
+        let entries = FileScanner.scanOrphanCandidates(roots: [cache],
+                                                      installedIdentifiers: ["com.example.present"])
+        XCTAssertEqual(entries.map { $0.url.lastPathComponent }, ["com.example.gone"])
+        XCTAssertEqual(entries.first?.category, .orphans)
+        XCTAssertEqual(entries.first?.canDelete, false)
+        let cookies = FileScanner.scanOrphanCandidates(roots: [http],
+                                                       installedIdentifiers: ["com.example.present"])
+        XCTAssertTrue(cookies.isEmpty)
+    }
+
+    func testOrphanCandidatesExcludeInstalledAppHelpers() throws {
+        XCTAssertTrue(FileScanner.belongsToInstalledApp("com.example.product.ShareExtension",
+                                                       installedIdentifiers: ["com.example.product"]))
+        XCTAssertTrue(FileScanner.belongsToInstalledApp("com.example.product",
+                                                       installedIdentifiers: ["com.example.product.LoginItem"]))
+        XCTAssertFalse(FileScanner.belongsToInstalledApp("com.example.other",
+                                                        installedIdentifiers: ["com.example.product"]))
+
+        let applications = root.appendingPathComponent("Applications")
+        let app = applications.appendingPathComponent("Nested/Main.app")
+        let helper = app.appendingPathComponent("Contents/PlugIns/Share.appex")
+        try FileManager.default.createDirectory(at: helper.appendingPathComponent("Contents"),
+                                                withIntermediateDirectories: true)
+        let mainPlist: [String: Any] = ["CFBundleIdentifier": "com.example.product",
+                                       "CFBundlePackageType": "APPL"]
+        let helperPlist: [String: Any] = ["CFBundleIdentifier": "com.example.product.ShareExtension",
+                                         "CFBundlePackageType": "XPC!"]
+        try (mainPlist as NSDictionary).write(to: app.appendingPathComponent("Contents/Info.plist"))
+        try (helperPlist as NSDictionary).write(to: helper.appendingPathComponent("Contents/Info.plist"))
+        let identifiers = FileScanner.installedApplicationIdentifiers(in: [applications])
+        XCTAssertTrue(identifiers.contains("com.example.product"))
+        XCTAssertTrue(identifiers.contains("com.example.product.shareextension"))
+    }
+
+    func testTreemapCoversAreaWithoutOverlapAndGroupsRemainder() {
+        let parent = URL(fileURLWithPath: "/tmp/treemap")
+        let sizes: [Int64] = [50, 25, 15, 5, 3, 2]
+        let items = sizes.enumerated().map { index, bytes in
+            SpaceItem(url: parent.appendingPathComponent("item\(index)"), parent: parent,
+                      bytes: bytes, isFolder: index.isMultiple(of: 2))
+        }
+        let cells = SpaceTreemap.layout(items, in: CGSize(width: 600, height: 300), limit: 4)
+        XCTAssertEqual(cells.count, 4)
+        XCTAssertEqual(cells.filter(\.isRemainder).first?.bytes, 10)
+        let area = cells.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height }
+        XCTAssertEqual(area, 180_000, accuracy: 1)
+        for left in cells.indices {
+            XCTAssertTrue(CGRect(origin: .zero, size: CGSize(width: 600, height: 300))
+                .contains(cells[left].frame))
+            for right in cells.indices where left < right {
+                let overlap = cells[left].frame.intersection(cells[right].frame)
+                XCTAssertLessThan(overlap.width * overlap.height, 0.1)
+            }
+        }
     }
 
     func testParallelSpaceScanProducesStableFolderTotals() throws {

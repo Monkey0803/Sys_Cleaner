@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		22D20911B15411DE7585F70E /* FileSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */; };
+		3F4FD4CBA332D2A17F89538D /* ServicesMenu.strings in Resources */ = {isa = PBXBuildFile; fileRef = AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */; };
+		51BED6A4CBE686C9EAEA312D /* SpaceTreemap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E912A313219445FB1AD75 /* SpaceTreemap.swift */; };
 		521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */; };
 		5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706382312C541D86CE8A7B13 /* AppPreferences.swift */; };
 		645FC5F87984F5E40EC2F6ED /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 44CA5682F828CB6B5F3D9531 /* Localizable.strings */; };
@@ -27,11 +29,15 @@
 		15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafety.swift; sourceTree = "<group>"; };
 		273146B4DC39873970B43C59 /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		33DD818F0C85ADD3F05B4EAB /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/ServicesMenu.strings; sourceTree = "<group>"; };
 		49B61AAC3F7BCA34CBDFF63F /* Sys Cleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sys Cleaner.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Scanner.swift; sourceTree = "<group>"; };
 		6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		706382312C541D86CE8A7B13 /* AppPreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
 		81DFF62E5B5D069B3674A928 /* CleanerStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CleanerStore.swift; sourceTree = "<group>"; };
+		9B0E912A313219445FB1AD75 /* SpaceTreemap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpaceTreemap.swift; sourceTree = "<group>"; };
+		9BA4296D3BA0EAD5EC528653 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C0F779EB88A1A7E6B1815C4B /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/ServicesMenu.strings"; sourceTree = "<group>"; };
 		C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SysCleanerApp.swift; sourceTree = "<group>"; };
 		FA30EEF2908C3F8BC514782C /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		FCAC6287E4E224CD89FB6F00 /* Deletion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Deletion.swift; sourceTree = "<group>"; };
@@ -68,6 +74,8 @@
 				6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */,
 				706382312C541D86CE8A7B13 /* AppPreferences.swift */,
 				15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */,
+				AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */,
+				9BA4296D3BA0EAD5EC528653 /* Info.plist */,
 			);
 			name = App;
 			path = App;
@@ -96,6 +104,7 @@
 				2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */,
 				FA30EEF2908C3F8BC514782C /* Models.swift */,
 				604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */,
+				9B0E912A313219445FB1AD75 /* SpaceTreemap.swift */,
 			);
 			name = SysCleanerCore;
 			path = Sources/SysCleanerCore;
@@ -167,6 +176,7 @@
 			files = (
 				645FC5F87984F5E40EC2F6ED /* Localizable.strings in Resources */,
 				6D804D809C0C1AA56A409310 /* Assets.xcassets in Resources */,
+				3F4FD4CBA332D2A17F89538D /* ServicesMenu.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -186,6 +196,7 @@
 				521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */,
 				5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */,
 				9A6FAB0A663DD86365F88360 /* SettingsView.swift in Sources */,
+				51BED6A4CBE686C9EAEA312D /* SpaceTreemap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -199,6 +210,15 @@
 				0615ABDC2BA0388108C2EAD4 /* zh-Hans */,
 			);
 			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+		AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				33DD818F0C85ADD3F05B4EAB /* en */,
+				C0F779EB88A1A7E6B1815C4B /* zh-Hans */,
+			);
+			name = ServicesMenu.strings;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
@@ -267,7 +287,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Sys Cleaner";
 				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -355,7 +376,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Sys Cleaner";
 				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";

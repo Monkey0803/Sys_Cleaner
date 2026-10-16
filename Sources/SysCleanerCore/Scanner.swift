@@ -5,9 +5,53 @@ import Foundation
 public final class ScanControl: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
-    public init() {}
+    private let onProgress: (@Sendable (ScanProgress) -> Void)?
+    private var stage: ScanStage = .discovering
+    private var processedFiles = 0
+    private var processedDirectories = 0
+    private var processedBytes: Int64 = 0
+    private var lastPublished = 0.0
+
+    public init(onProgress: (@Sendable (ScanProgress) -> Void)? = nil) {
+        self.onProgress = onProgress
+    }
     public func cancel() { lock.lock(); stopped = true; lock.unlock() }
     public var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
+
+    public func begin(_ stage: ScanStage, path: URL) {
+        lock.lock()
+        self.stage = stage
+        processedFiles = 0
+        processedDirectories = 0
+        processedBytes = 0
+        lastPublished = ProcessInfo.processInfo.systemUptime
+        let snapshot = progress(path: path.path)
+        lock.unlock()
+        onProgress?(snapshot)
+    }
+
+    public func visited(_ path: URL, bytes: Int64? = nil) {
+        lock.lock()
+        guard !stopped else { lock.unlock(); return }
+        if let bytes {
+            processedFiles += 1
+            processedBytes += bytes
+        } else {
+            processedDirectories += 1
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        let shouldPublish = now - lastPublished >= 0.2
+        if shouldPublish { lastPublished = now }
+        let snapshot = shouldPublish ? progress(path: path.path) : nil
+        lock.unlock()
+        if let snapshot { onProgress?(snapshot) }
+    }
+
+    private func progress(path: String) -> ScanProgress {
+        ScanProgress(stage: stage, processedFiles: processedFiles,
+                     processedDirectories: processedDirectories,
+                     processedBytes: processedBytes, currentPath: path)
+    }
 }
 
 public enum FileScanner {
@@ -15,6 +59,7 @@ public enum FileScanner {
         var warnings: [String] = []
         var entries: [ScanEntry] = []
         let root = request.root.resolvingSymlinksInPath().standardizedFileURL
+        control.begin(request.category == .uninstall ? .measuringApps : .discovering, path: root)
         switch request.category {
         case .space:
             return scanSpace(root: root, control: control)
@@ -36,12 +81,15 @@ public enum FileScanner {
                 if candidates.count < 100_000 { candidates.append((url, stamp)) } else { limited = true }
             }
             if limited { appendWarning("duplicateLimit", to: &warnings) }
+            control.begin(.comparing, path: root)
             entries = findDuplicates(files: candidates, root: root, control: control, warnings: &warnings)
         case .systemCache, .developerCache:
             let locations = request.category == .systemCache ? systemCacheLocations() : developerCacheLocations()
             return scanCaches(category: request.category, locations: locations, control: control)
         case .uninstall:
             entries = scanApplications(control: control)
+        case .orphans:
+            entries = scanOrphanCandidates(control: control)
         }
         return ScanReport(entries: entries.sorted { $0.estimatedBytes > $1.estimatedBytes },
                           warnings: warnings, cancelled: control.isCancelled)
@@ -85,6 +133,7 @@ public enum FileScanner {
             return
         }
         onDirectory(root)
+        control.visited(root)
         if !parallel {
             var stack = [root]
             while let directory = stack.popLast(), !control.isCancelled {
@@ -105,9 +154,11 @@ public enum FileScanner {
                         if info.isDirectory {
                             if url.pathExtension == "app" && !includeApps { continue }
                             onDirectory(url)
+                            control.visited(url)
                             stack.append(url)
                         } else if info.stamp.linkCount == 1 || includeHardLinks {
                             onFile(url, info.stamp)
+                            control.visited(url, bytes: info.stamp.size)
                         }
                     }
                 }
@@ -143,11 +194,13 @@ public enum FileScanner {
                         if url.pathExtension == "app" && !includeApps { continue }
                         lock.lock()
                         onDirectory(url)
+                        control.visited(url)
                         lock.unlock()
                         enqueue(url)
                     } else if info.stamp.linkCount == 1 || includeHardLinks {
                         lock.lock()
                         onFile(url, info.stamp)
+                        control.visited(url, bytes: info.stamp.size)
                         lock.unlock()
                     }
                 }
@@ -228,6 +281,7 @@ public enum FileScanner {
                     } else {
                         appendWarning("Changed or unreadable: \(url.path)", to: &warnings)
                     }
+                    control.visited(url, bytes: stamp.size)
                 }
                 for (digest, group) in hashes where group.count > 1 {
                     let sorted = group.sorted { $0.0.path < $1.0.path }
@@ -310,6 +364,112 @@ public enum FileScanner {
         return entries
     }
 
+    private static func scanOrphanCandidates(control: ScanControl) -> [ScanEntry] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let appRoots = [URL(fileURLWithPath: "/Applications"),
+                        URL(fileURLWithPath: "/System/Applications"),
+                        home.appendingPathComponent("Applications")]
+        var installed = installedApplicationIdentifiers(in: appRoots, control: control)
+        installed.formUnion(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
+            .map { $0.lowercased() })
+        let library = home.appendingPathComponent("Library")
+        let folderNames = ["Application Support", "Caches", "Containers",
+                           "HTTPStorages", "WebKit", "Application Scripts",
+                           "Saved Application State"]
+        return scanOrphanCandidates(roots: folderNames.map { library.appendingPathComponent($0) },
+                                    installedIdentifiers: installed, control: control)
+    }
+
+    static func installedApplicationIdentifiers(in roots: [URL], control: ScanControl = ScanControl()) -> Set<String> {
+        var identifiers: Set<String> = []
+        var pending = roots.map { ($0, 0) }
+        while let (directory, depth) = pending.popLast(), !control.isCancelled {
+            guard let children = try? FileManager.default.contentsOfDirectory(at: directory,
+                                                                               includingPropertiesForKeys: nil) else { continue }
+            for child in children where !control.isCancelled {
+                guard FileSafety.isDirectory(child) else { continue }
+                if child.pathExtension.lowercased() == "app" {
+                    collectBundleIdentifiers(in: child, into: &identifiers, control: control)
+                } else if depth < 3 {
+                    pending.append((child, depth + 1))
+                }
+            }
+        }
+        return identifiers
+    }
+
+    private static func collectBundleIdentifiers(in app: URL, into identifiers: inout Set<String>,
+                                                 control: ScanControl) {
+        if let identifier = Bundle(url: app)?.bundleIdentifier { identifiers.insert(identifier.lowercased()) }
+        let locations = ["Contents/PlugIns", "Contents/XPCServices", "Contents/Library/LoginItems",
+                         "Contents/Helpers", "Contents/Library/Spotlight", "Contents/Library/QuickLook"]
+        let bundleExtensions: Set<String> = ["app", "appex", "xpc", "qlgenerator", "mdimporter"]
+        for location in locations where !control.isCancelled {
+            var pending = [(app.appendingPathComponent(location), 0)]
+            while let (directory, depth) = pending.popLast(), !control.isCancelled {
+                guard let children = try? FileManager.default.contentsOfDirectory(at: directory,
+                                                                                   includingPropertiesForKeys: nil) else { continue }
+                for child in children where !control.isCancelled {
+                    guard FileSafety.isDirectory(child) else { continue }
+                    if bundleExtensions.contains(child.pathExtension.lowercased()) {
+                        if let identifier = Bundle(url: child)?.bundleIdentifier {
+                            identifiers.insert(identifier.lowercased())
+                        }
+                    } else if depth < 3 {
+                        pending.append((child, depth + 1))
+                    }
+                }
+            }
+        }
+    }
+
+    static func belongsToInstalledApp(_ identifier: String, installedIdentifiers: Set<String>) -> Bool {
+        let candidate = identifier.lowercased()
+        return installedIdentifiers.contains { installed in
+            let known = installed.lowercased()
+            return candidate == known || candidate.hasPrefix(known + ".") || known.hasPrefix(candidate + ".")
+        }
+    }
+
+    static func scanOrphanCandidates(roots: [URL], installedIdentifiers: Set<String>,
+                                     control: ScanControl = ScanControl()) -> [ScanEntry] {
+        var entries: [ScanEntry] = []
+        for root in roots where !control.isCancelled {
+            guard let children = try? FileManager.default.contentsOfDirectory(at: root,
+                                                                               includingPropertiesForKeys: nil) else { continue }
+            for child in children where !control.isCancelled {
+                let name = child.lastPathComponent
+                let identifier: String
+                if root.lastPathComponent == "Preferences" {
+                    guard child.pathExtension == "plist" else { continue }
+                    identifier = child.deletingPathExtension().lastPathComponent
+                } else if root.lastPathComponent == "HTTPStorages" && name.hasSuffix(".binarycookies") {
+                    identifier = String(name.dropLast(".binarycookies".count))
+                } else if root.lastPathComponent == "Saved Application State" {
+                    guard name.hasSuffix(".savedState") else { continue }
+                    identifier = String(name.dropLast(".savedState".count))
+                } else {
+                    identifier = name
+                }
+                let pieces = identifier.split(separator: ".")
+                guard pieces.count >= 3,
+                      ["com", "org", "net", "io", "app", "dev"].contains(String(pieces[0]).lowercased()),
+                      !identifier.hasPrefix("com.apple."),
+                      !belongsToInstalledApp(identifier, installedIdentifiers: installedIdentifiers),
+                      identifier.range(of: "^[A-Za-z][A-Za-z0-9-]*(\\.[A-Za-z0-9_-]+){2,}$",
+                                       options: .regularExpression) != nil,
+                      let info = FileSafety.metadata(at: child) else { continue }
+                control.visited(child, bytes: info.isDirectory ? nil : info.stamp.size)
+                entries.append(ScanEntry(url: child, scope: root, category: .orphans,
+                                         stamp: info.stamp,
+                                         estimatedBytes: info.isDirectory ? 0 : info.stamp.size,
+                                         note: "orphanCandidate", isDirectory: info.isDirectory,
+                                         canDelete: false))
+            }
+        }
+        return entries
+    }
+
     static func applicationBundleSize(_ app: URL, control: ScanControl = ScanControl()) -> Int64? {
         var warnings: [String] = []
         var bytes: Int64 = 0
@@ -321,6 +481,7 @@ public enum FileScanner {
     }
 
     public static func prepareApplication(_ app: ScanEntry, control: ScanControl = ScanControl()) -> ScanReport {
+        control.begin(.reviewingApp, path: app.url)
         var warnings: [String] = []
         guard app.category == .uninstall, app.isDirectory,
               let identifier = Bundle(url: app.url)?.bundleIdentifier,

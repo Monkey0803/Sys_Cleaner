@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 public enum FileDeletion {
@@ -76,5 +77,46 @@ public enum FileDeletion {
         } catch {
             return true
         }
+    }
+}
+
+public enum FileRestoration {
+    /// Returns a localized message key (or a system error) on failure.
+    public static func restore(_ item: CleanupHistoryItem, category: ScanCategory) -> String? {
+        guard item.canRestore, let trashPath = item.trashPath,
+              let scopePath = item.scopePath, let expectedStamp = item.trashStamp else {
+            return "restoreUnavailable"
+        }
+        let original = URL(fileURLWithPath: item.path).standardizedFileURL
+        let trash = URL(fileURLWithPath: trashPath).standardizedFileURL
+        let scope = URL(fileURLWithPath: scopePath).standardizedFileURL
+        guard let trashRoot = trustedTrashRoot(for: trash),
+              FileSafety.isDirectory(trashRoot),
+              !FileSafety.hasSymlinkInPath(trash, through: trashRoot),
+              FileSafety.isSafeLocation(original, scope: scope, category: category),
+              FileSafety.isDirectory(scope),
+              FileSafety.isDirectory(original.deletingLastPathComponent()),
+              !FileSafety.hasSymlinkInPath(original.deletingLastPathComponent(), through: scope)
+        else { return "unsafePath" }
+        var existing = stat()
+        guard lstat(original.path, &existing) != 0 else { return "restoreConflict" }
+        guard FileSafety.stamp(at: trash) == expectedStamp else { return "restoreChanged" }
+        do {
+            try FileManager.default.moveItem(at: trash, to: original)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private static func trustedTrashRoot(for trash: URL) -> URL? {
+        let path = trash.path
+        let homeTrash = FileManager.default.homeDirectoryForCurrentUser
+            .resolvingSymlinksInPath().standardizedFileURL.appendingPathComponent(".Trash")
+        if path.hasPrefix(homeTrash.path + "/") { return homeTrash }
+        let volumePrefix = "/Volumes/"
+        let component = "/.Trashes/\(getuid())/"
+        guard path.hasPrefix(volumePrefix), let range = path.range(of: component) else { return nil }
+        return URL(fileURLWithPath: String(path[..<range.upperBound].dropLast()))
     }
 }
