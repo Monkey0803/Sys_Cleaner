@@ -15,6 +15,14 @@
 "scan" = "扫描";
 "startScan" = "开始扫描";
 "scanAgain" = "重新扫描";
+"sort" = "排序";
+"sortField" = "排序依据";
+"sortDirection" = "顺序";
+"sortSize" = "大小";
+"sortName" = "名称";
+"sortModified" = "修改时间";
+"sortAscending" = "升序";
+"sortDescending" = "降序";
 "scanning" = "正在扫描…";
 "cancel" = "取消";
 "choose" = "选择";

@@ -67,6 +67,7 @@ final class AppPreferences: ObservableObject {
     static let languageKey = "AppLanguage"
     static let themeKey = "AppTheme"
     static let logoKey = "AppLogo"
+    private static let sortKeyPrefix = "ScanSort."
 
     @Published var language: AppLanguage {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey) }
@@ -90,6 +91,21 @@ final class AppPreferences: ObservableObject {
 
     func applyIcon() {
         if let image = logo.image { NSApp.applicationIconImage = image }
+    }
+
+    func sortSelection(for category: ScanCategory) -> ScanSortSelection {
+        let key = Self.sortKeyPrefix + category.rawValue
+        let defaults = UserDefaults.standard
+        let field = ScanSortField(rawValue: defaults.string(forKey: key + ".field") ?? "") ?? .size
+        let direction = ScanSortDirection(rawValue: defaults.string(forKey: key + ".direction") ?? "") ?? .descending
+        return ScanSortSelection(field: category == .space && field == .modified ? .size : field,
+                                 direction: direction)
+    }
+
+    func setSortSelection(_ selection: ScanSortSelection, for category: ScanCategory) {
+        let key = Self.sortKeyPrefix + category.rawValue
+        UserDefaults.standard.set(selection.field.rawValue, forKey: key + ".field")
+        UserDefaults.standard.set(selection.direction.rawValue, forKey: key + ".direction")
     }
 
 }

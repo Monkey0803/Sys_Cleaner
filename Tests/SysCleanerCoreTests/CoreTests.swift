@@ -20,6 +20,94 @@ final class CoreTests: XCTestCase {
         return url
     }
 
+    private func sortableEntry(_ name: String, size: Int64, modified: Int64,
+                               category: ScanCategory = .large, group: String? = nil,
+                               note: String = "", isDirectory: Bool = false,
+                               signature: String? = nil) -> ScanEntry {
+        let url = root.appendingPathComponent(name)
+        let stamp = FileStamp(device: 1, inode: 1, size: size, modifiedSeconds: modified,
+                              modifiedNanoseconds: 0, linkCount: 1)
+        return ScanEntry(url: url, scope: root, category: category, stamp: stamp,
+                         estimatedBytes: size, note: note, duplicateGroup: group,
+                         isDirectory: isDirectory, directorySignature: signature)
+    }
+
+    func testSortEntriesBySizeNameAndModificationInBothDirections() {
+        let a = sortableEntry("alpha", size: 8, modified: 20)
+        let b = sortableEntry("Beta", size: 2, modified: 10)
+        let c = sortableEntry("beta", size: 8, modified: 30)
+        let items = [c, b, a]
+
+        func names(_ field: ScanSortField, _ direction: ScanSortDirection) -> [String] {
+            ScanSorting.entries(items, category: .large,
+                                selection: ScanSortSelection(field: field, direction: direction))
+                .map { $0.url.lastPathComponent }
+        }
+
+        XCTAssertEqual(names(.size, .ascending), ["Beta", "alpha", "beta"])
+        XCTAssertEqual(names(.size, .descending), ["alpha", "beta", "Beta"])
+        XCTAssertEqual(names(.name, .ascending), ["alpha", "Beta", "beta"])
+        XCTAssertEqual(names(.name, .descending), ["Beta", "beta", "alpha"])
+        XCTAssertEqual(names(.modified, .ascending), ["Beta", "alpha", "beta"])
+        XCTAssertEqual(names(.modified, .descending), ["beta", "alpha", "Beta"])
+    }
+
+    func testDuplicateSortingKeepsGroupsAndRetainedCopyFirst() {
+        let aRetained = sortableEntry("a-original", size: 5, modified: 20,
+                                      category: .duplicates, group: "a", note: "keepOriginal")
+        let aCopy = sortableEntry("z-copy", size: 5, modified: 10,
+                                  category: .duplicates, group: "a", note: "duplicateCopy")
+        let bRetained = sortableEntry("b-original", size: 9, modified: 30,
+                                      category: .duplicates, group: "b", note: "keepOriginal")
+        let bCopy = sortableEntry("c-copy", size: 9, modified: 40,
+                                  category: .duplicates, group: "b", note: "duplicateCopy")
+        let items = [bCopy, aCopy, bRetained, aRetained]
+
+        func names(_ field: ScanSortField, _ direction: ScanSortDirection) -> [String] {
+            ScanSorting.entries(items, category: .duplicates,
+                                selection: ScanSortSelection(field: field, direction: direction))
+                .map { $0.url.lastPathComponent }
+        }
+
+        XCTAssertEqual(names(.size, .ascending), ["a-original", "z-copy", "b-original", "c-copy"])
+        XCTAssertEqual(names(.size, .descending), ["b-original", "c-copy", "a-original", "z-copy"])
+        XCTAssertEqual(names(.name, .ascending), ["a-original", "z-copy", "b-original", "c-copy"])
+        XCTAssertEqual(names(.name, .descending), ["b-original", "c-copy", "a-original", "z-copy"])
+        XCTAssertEqual(names(.modified, .ascending), ["a-original", "z-copy", "b-original", "c-copy"])
+        XCTAssertEqual(names(.modified, .descending), ["b-original", "c-copy", "a-original", "z-copy"])
+    }
+
+    func testUnknownAppSizesAlwaysSortLast() {
+        let unknown = sortableEntry("unknown.app", size: 0, modified: 1,
+                                    category: .uninstall, isDirectory: true)
+        let small = sortableEntry("small.app", size: 1, modified: 2,
+                                  category: .uninstall, isDirectory: true)
+        let large = sortableEntry("large.app", size: 10, modified: 3,
+                                  category: .uninstall, isDirectory: true)
+        let items = [unknown, large, small]
+        for (direction, expected) in [(ScanSortDirection.ascending, [small, large, unknown]),
+                                      (.descending, [large, small, unknown])] {
+            let actual = ScanSorting.entries(items, category: .uninstall,
+                                             selection: ScanSortSelection(field: .size, direction: direction))
+            XCTAssertEqual(actual.map(\.id), expected.map(\.id))
+        }
+    }
+
+    func testSpaceItemSortingSupportsSizeAndName() {
+        let a = SpaceItem(url: root.appendingPathComponent("alpha"), parent: root,
+                          bytes: 5, isFolder: true)
+        let b = SpaceItem(url: root.appendingPathComponent("Beta"), parent: root,
+                          bytes: 10, isFolder: true)
+        let other = SpaceItem(url: root.appendingPathComponent("other"), parent: root,
+                              bytes: 10, isFolder: false, isOther: true)
+        let items = [other, b, a]
+        XCTAssertEqual(ScanSorting.spaceItems(items, selection: ScanSortSelection(), otherName: "Other")
+            .map(\.id), [b.id, other.id, a.id])
+        XCTAssertEqual(ScanSorting.spaceItems(items,
+                                             selection: ScanSortSelection(field: .name, direction: .ascending),
+                                             otherName: "Other").map(\.id), [a.id, b.id, other.id])
+    }
+
     func testLargeFilesAndAgeFilter() throws {
         _ = try file("small", "a")
         let large = try file("large", String(repeating: "b", count: 200))

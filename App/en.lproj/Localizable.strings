@@ -15,6 +15,14 @@
 "scan" = "Scan";
 "startScan" = "Start Scan";
 "scanAgain" = "Scan Again";
+"sort" = "Sort";
+"sortField" = "Sort by";
+"sortDirection" = "Order";
+"sortSize" = "Size";
+"sortName" = "Name";
+"sortModified" = "Date Modified";
+"sortAscending" = "Ascending";
+"sortDescending" = "Descending";
 "scanning" = "Scanning…";
 "cancel" = "Cancel";
 "choose" = "Choose";

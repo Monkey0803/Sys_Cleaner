@@ -3,10 +3,27 @@ import Foundation
 
 @MainActor
 final class CleanerStore: ObservableObject {
-    @Published var category: ScanCategory = .space
-    @Published var root = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().standardizedFileURL
-    @Published var entries: [ScanEntry] = []
-    @Published var spaceItems: [SpaceItem] = []
+    @Published var category: ScanCategory = .space {
+        didSet { refreshVisibleEntries(); refreshSpaceChildren() }
+    }
+    @Published var root = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().standardizedFileURL {
+        didSet { refreshSpaceChildren() }
+    }
+    @Published var entries: [ScanEntry] = [] {
+        didSet { refreshVisibleEntries() }
+    }
+    @Published var spaceItems: [SpaceItem] = [] {
+        didSet { refreshSpaceChildren() }
+    }
+    @Published private(set) var visibleEntries: [ScanEntry] = []
+    @Published private(set) var visibleSpaceChildren: [SpaceItem] = []
+    @Published private(set) var sortSelection = AppPreferences.shared.sortSelection(for: .space) {
+        didSet {
+            AppPreferences.shared.setSortSelection(sortSelection, for: category)
+            refreshVisibleEntries()
+            refreshSpaceChildren()
+        }
+    }
     @Published var summaryCount = 0
     @Published var summaryBytes: Int64 = 0
     @Published var warnings: [String] = []
@@ -18,8 +35,12 @@ final class CleanerStore: ObservableObject {
     @Published var showResults = false
     @Published var minimumMB = 100
     @Published var olderThanDays = 0
-    @Published var appQuery = ""
-    @Published var spaceFolder: URL?
+    @Published var appQuery = "" {
+        didSet { refreshVisibleEntries() }
+    }
+    @Published var spaceFolder: URL? {
+        didSet { refreshSpaceChildren() }
+    }
     @Published private(set) var reviewedApplicationName: String?
 
     private struct RunningScan {
@@ -59,20 +80,50 @@ final class CleanerStore: ObservableObject {
 
     var selectedEntries: [ScanEntry] { entries.filter { selectedIDs.contains($0.id) && $0.canDelete } }
     var estimatedSelectedBytes: Int64 { selectedEntries.reduce(0) { $0 + $1.estimatedBytes } }
-    var visibleEntries: [ScanEntry] {
-        guard category == .uninstall, !appQuery.isEmpty else { return entries }
-        let matchingIdentifiers = Set(entries.compactMap { entry -> String? in
-            guard entry.isDirectory,
-                  entry.url.pathExtension.lowercased() == "app",
-                  entry.url.lastPathComponent.localizedCaseInsensitiveContains(appQuery),
-                  entry.note != "appRunning" else { return nil }
-            return entry.note
-        })
-        return entries.filter {
-            $0.url.lastPathComponent.localizedCaseInsensitiveContains(appQuery) ||
-            $0.note.localizedCaseInsensitiveContains(appQuery) ||
-            matchingIdentifiers.contains($0.note)
+    func setSortField(_ field: ScanSortField) {
+        guard category != .space || field != .modified else { return }
+        sortSelection.field = field
+    }
+
+    func setSortDirection(_ direction: ScanSortDirection) {
+        sortSelection.direction = direction
+    }
+
+    func refreshSorting() {
+        refreshVisibleEntries()
+        refreshSpaceChildren()
+    }
+
+    private func refreshVisibleEntries() {
+        let filtered: [ScanEntry]
+        if category == .uninstall && !appQuery.isEmpty {
+            let matchingIdentifiers = Set(entries.compactMap { entry -> String? in
+                guard entry.isDirectory,
+                      entry.url.pathExtension.lowercased() == "app",
+                      entry.url.lastPathComponent.localizedCaseInsensitiveContains(appQuery),
+                      entry.note != "appRunning" else { return nil }
+                return entry.note
+            })
+            filtered = entries.filter {
+                $0.url.lastPathComponent.localizedCaseInsensitiveContains(appQuery) ||
+                $0.note.localizedCaseInsensitiveContains(appQuery) ||
+                matchingIdentifiers.contains($0.note)
+            }
+        } else {
+            filtered = entries
         }
+        visibleEntries = ScanSorting.entries(filtered, category: category, selection: sortSelection)
+    }
+
+    private func refreshSpaceChildren() {
+        guard category == .space else {
+            visibleSpaceChildren = []
+            return
+        }
+        let base = (spaceFolder ?? root).standardizedFileURL
+        visibleSpaceChildren = ScanSorting.spaceItems(
+            spaceItems.filter { $0.parent.path == base.path },
+            selection: sortSelection, otherName: L("otherFiles"))
     }
 
     func chooseFolder() {
@@ -109,6 +160,7 @@ final class CleanerStore: ObservableObject {
             categoryResults.removeValue(forKey: category)
         }
         category = newValue
+        sortSelection = AppPreferences.shared.sortSelection(for: newValue)
         if let saved = categoryResults.removeValue(forKey: newValue) {
             restore(saved)
         } else {

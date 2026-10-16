@@ -112,6 +112,101 @@ public struct SpaceItem: Identifiable, Sendable {
     }
 }
 
+public enum ScanSortField: String, CaseIterable, Sendable {
+    case size, name, modified
+}
+
+public enum ScanSortDirection: String, CaseIterable, Sendable {
+    case ascending, descending
+}
+
+public struct ScanSortSelection: Equatable, Sendable {
+    public var field: ScanSortField
+    public var direction: ScanSortDirection
+
+    public init(field: ScanSortField = .size, direction: ScanSortDirection = .descending) {
+        self.field = field
+        self.direction = direction
+    }
+}
+
+public enum ScanSorting {
+    public static func entries(_ entries: [ScanEntry], category: ScanCategory,
+                               selection: ScanSortSelection) -> [ScanEntry] {
+        guard category == .duplicates else {
+            return entries.sorted { entryLess($0, $1, category: category, selection: selection) }
+        }
+        let groups = Dictionary(grouping: entries) { $0.duplicateGroup ?? $0.url.path }
+        let orderedGroups = groups.values.sorted { lhs, rhs in
+            let left = retainedEntry(in: lhs)
+            let right = retainedEntry(in: rhs)
+            return entryLess(left, right, category: category, selection: selection)
+        }
+        return orderedGroups.flatMap { group in
+            let retained = group.filter { $0.note == "keepOriginal" }
+            let copies = group.filter { $0.note != "keepOriginal" }
+                .sorted { entryLess($0, $1, category: category, selection: selection) }
+            return retained.sorted { $0.url.path < $1.url.path } + copies
+        }
+    }
+
+    public static func spaceItems(_ items: [SpaceItem], selection: ScanSortSelection,
+                                  otherName: String) -> [SpaceItem] {
+        items.sorted { lhs, rhs in
+            let comparison: ComparisonResult
+            switch selection.field {
+            case .name:
+                comparison = (lhs.isOther ? otherName : lhs.url.lastPathComponent)
+                    .localizedCaseInsensitiveCompare(rhs.isOther ? otherName : rhs.url.lastPathComponent)
+            case .size, .modified:
+                comparison = compare(lhs.bytes, rhs.bytes)
+            }
+            return less(comparison, direction: selection.direction, leftPath: lhs.id, rightPath: rhs.id)
+        }
+    }
+
+    private static func retainedEntry(in group: [ScanEntry]) -> ScanEntry {
+        group.first { $0.note == "keepOriginal" } ?? group.min { $0.url.path < $1.url.path }!
+    }
+
+    private static func entryLess(_ lhs: ScanEntry, _ rhs: ScanEntry, category: ScanCategory,
+                                  selection: ScanSortSelection) -> Bool {
+        if category == .uninstall && selection.field == .size {
+            let leftUnknown = lhs.isDirectory && lhs.directorySignature == nil && lhs.estimatedBytes == 0
+            let rightUnknown = rhs.isDirectory && rhs.directorySignature == nil && rhs.estimatedBytes == 0
+            if leftUnknown != rightUnknown { return !leftUnknown }
+        }
+        let comparison: ComparisonResult
+        switch selection.field {
+        case .size:
+            comparison = compare(lhs.estimatedBytes, rhs.estimatedBytes)
+        case .name:
+            comparison = lhs.url.lastPathComponent.localizedCaseInsensitiveCompare(rhs.url.lastPathComponent)
+        case .modified:
+            comparison = compare(lhs.stamp.modifiedSeconds, rhs.stamp.modifiedSeconds)
+                .flatMapSame { compare(lhs.stamp.modifiedNanoseconds, rhs.stamp.modifiedNanoseconds) }
+        }
+        return less(comparison, direction: selection.direction,
+                    leftPath: lhs.url.path, rightPath: rhs.url.path)
+    }
+
+    private static func compare(_ lhs: Int64, _ rhs: Int64) -> ComparisonResult {
+        lhs == rhs ? .orderedSame : (lhs < rhs ? .orderedAscending : .orderedDescending)
+    }
+
+    private static func less(_ result: ComparisonResult, direction: ScanSortDirection,
+                             leftPath: String, rightPath: String) -> Bool {
+        if result == .orderedSame { return leftPath < rightPath }
+        return direction == .ascending ? result == .orderedAscending : result == .orderedDescending
+    }
+}
+
+private extension ComparisonResult {
+    func flatMapSame(_ other: () -> ComparisonResult) -> ComparisonResult {
+        self == .orderedSame ? other() : self
+    }
+}
+
 public enum DeleteMode: Sendable, Equatable { case trash, permanent }
 
 public struct DeleteResult: Sendable {

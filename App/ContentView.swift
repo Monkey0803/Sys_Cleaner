@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: CleanerStore
+    @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.openSettings) private var openSettings
     @State private var pendingMode: DeleteMode = .trash
     @State private var showingConfirmation = false
@@ -83,6 +84,7 @@ struct ContentView: View {
         }
         .onChange(of: store.minimumMB) { _, _ in store.invalidateScan() }
         .onChange(of: store.olderThanDays) { _, _ in store.invalidateScan() }
+        .onChange(of: preferences.language) { _, _ in store.refreshSorting() }
     }
 
     private func categoryRow(_ category: ScanCategory) -> some View {
@@ -106,6 +108,10 @@ struct ContentView: View {
                     Text(descriptionKey).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if store.hasScanned && !store.isScanning &&
+                    (store.category == .space ? !store.spaceItems.isEmpty : !store.entries.isEmpty) {
+                    sortMenu
+                }
                 if store.reviewedApplicationName == nil && store.hasScanned && !store.isScanning &&
                     (store.category == .space ? !store.spaceItems.isEmpty : !store.visibleEntries.isEmpty) {
                     scanButton
@@ -169,6 +175,29 @@ struct ContentView: View {
         }
     }
 
+    private var sortMenu: some View {
+        Menu {
+            Picker("sortField", selection: Binding(
+                get: { store.sortSelection.field }, set: { store.setSortField($0) })) {
+                    Text("sortSize").tag(ScanSortField.size)
+                    Text("sortName").tag(ScanSortField.name)
+                    if store.category != .space {
+                        Text("sortModified").tag(ScanSortField.modified)
+                    }
+                }
+            Picker("sortDirection", selection: Binding(
+                get: { store.sortSelection.direction }, set: { store.setSortDirection($0) })) {
+                    Text("sortAscending").tag(ScanSortDirection.ascending)
+                    Text("sortDescending").tag(ScanSortDirection.descending)
+                }
+        } label: {
+            Label("sort", systemImage: "arrow.up.arrow.down")
+        }
+        .menuStyle(.borderedButton)
+        .disabled(store.isDeleting)
+        .help(L("sort"))
+    }
+
     private var scanButton: some View {
         Button(store.hasScanned ? L("scanAgain") : L("startScan")) { store.scan() }
             .buttonStyle(.borderedProminent)
@@ -191,6 +220,9 @@ struct ContentView: View {
                     Text(entry.url.path).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                     Text(L(entry.note)).font(.caption).foregroundStyle(entry.canDelete ? .orange : .secondary)
+                    Text(Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds)),
+                         format: .dateTime.year().month().day().hour().minute())
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if store.category == .uninstall && entry.isDirectory && entry.directorySignature == nil {
@@ -213,11 +245,6 @@ struct ContentView: View {
         .listStyle(.inset)
     }
 
-    private var spaceChildren: [SpaceItem] {
-        let base = (store.spaceFolder ?? store.root).standardizedFileURL
-        return store.spaceItems.filter { $0.parent.path == base.path }.sorted { $0.bytes > $1.bytes }
-    }
-
     private var spaceContent: some View {
         VStack(spacing: 0) {
             HStack {
@@ -231,7 +258,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
             Divider()
-            List(spaceChildren) { child in
+            List(store.visibleSpaceChildren) { child in
                 HStack {
                     Image(systemName: child.isFolder ? "folder.fill" : child.isOther ? "ellipsis" : "doc")
                         .foregroundStyle(child.isFolder ? .blue : .secondary)
