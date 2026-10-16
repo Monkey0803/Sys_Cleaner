@@ -11,12 +11,17 @@ public final class ScanControl: @unchecked Sendable {
     private var processedDirectories = 0
     private var processedBytes: Int64 = 0
     private var lastPublished = 0.0
+    private var omitted = 0
 
     public init(onProgress: (@Sendable (ScanProgress) -> Void)? = nil) {
         self.onProgress = onProgress
     }
     public func cancel() { lock.lock(); stopped = true; lock.unlock() }
     public var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
+    public var omittedCount: Int { lock.lock(); defer { lock.unlock() }; return omitted }
+    public func recordOmitted(_ count: Int = 1) {
+        lock.lock(); omitted += max(0, count); lock.unlock()
+    }
 
     public func begin(_ stage: ScanStage, path: URL) {
         lock.lock()
@@ -62,10 +67,11 @@ public enum FileScanner {
         control.begin(request.category == .uninstall ? .measuringApps : .discovering, path: root)
         switch request.category {
         case .space:
-            return scanSpace(root: root, control: control)
+            return scanSpace(root: root, control: control, excludedPaths: request.excludedPaths)
         case .large:
             let oldest = Date().addingTimeInterval(-Double(request.olderThanDays) * 86_400)
-            walkFiles(under: root, control: control, warnings: &warnings, parallel: true) { url, stamp in
+            walkFiles(under: root, control: control, warnings: &warnings,
+                      parallel: true, excludedPaths: request.excludedPaths) { url, stamp in
                 guard stamp.size >= request.minimumBytes,
                       request.olderThanDays == 0 || Date(timeIntervalSince1970: Double(stamp.modifiedSeconds)) <= oldest
                 else { return }
@@ -76,23 +82,36 @@ public enum FileScanner {
         case .duplicates:
             var candidates: [(URL, FileStamp)] = []
             var limited = false
-            walkFiles(under: root, control: control, warnings: &warnings) { url, stamp in
+            walkFiles(under: root, control: control, warnings: &warnings,
+                      excludedPaths: request.excludedPaths) { url, stamp in
                 guard stamp.size > 0 else { return }
-                if candidates.count < 100_000 { candidates.append((url, stamp)) } else { limited = true }
+                if candidates.count < 100_000 { candidates.append((url, stamp)) }
+                else { limited = true; control.recordOmitted() }
             }
             if limited { appendWarning("duplicateLimit", to: &warnings) }
             control.begin(.comparing, path: root)
-            entries = findDuplicates(files: candidates, root: root, control: control, warnings: &warnings)
+            entries = findDuplicates(files: candidates, root: root, control: control,
+                                     warnings: &warnings)
+                .filter { entry in
+                    guard let hash = entry.duplicateGroup else { return true }
+                    return !request.ignoredDuplicateHashes.contains(hash)
+                }
         case .systemCache, .developerCache:
             let locations = request.category == .systemCache ? systemCacheLocations() : developerCacheLocations()
-            return scanCaches(category: request.category, locations: locations, control: control)
+            return scanCaches(category: request.category, locations: locations, control: control,
+                              excludedPaths: request.excludedPaths)
         case .uninstall:
-            entries = scanApplications(control: control)
+            entries = scanApplications(control: control, excludedPaths: request.excludedPaths)
         case .orphans:
-            entries = scanOrphanCandidates(control: control, warnings: &warnings)
+            entries = scanOrphanCandidates(control: control, warnings: &warnings,
+                                           excludedPaths: request.excludedPaths)
+        }
+        if control.omittedCount > 0 && warnings.isEmpty {
+            appendWarning("scanIncomplete", to: &warnings)
         }
         return ScanReport(entries: entries.sorted { $0.estimatedBytes > $1.estimatedBytes },
-                          warnings: warnings, cancelled: control.isCancelled)
+                          warnings: warnings, cancelled: control.isCancelled,
+                          omittedCount: control.omittedCount)
     }
 
     private static func collectFiles(under root: URL, control: ScanControl, warnings: inout [String],
@@ -104,32 +123,40 @@ public enum FileScanner {
         return files
     }
 
-    static func scanCaches(category: ScanCategory, locations: [URL], control: ScanControl = ScanControl()) -> ScanReport {
+    static func scanCaches(category: ScanCategory, locations: [URL], control: ScanControl = ScanControl(),
+                           excludedPaths: [String] = []) -> ScanReport {
         precondition(category == .systemCache || category == .developerCache)
         var warnings: [String] = []
         var eligibleCount = 0
         var largest = LargestEntries(limit: 2_000)
         for location in locations where !control.isCancelled {
             walkFiles(under: location, control: control, warnings: &warnings,
-                      checkCloud: false, parallel: true) { url, stamp in
+                      checkCloud: false, parallel: true, excludedPaths: excludedPaths) { url, stamp in
                 eligibleCount += 1
                 largest.insert(ScanEntry(url: url, scope: location, category: category,
                                          stamp: stamp, estimatedBytes: stamp.size,
                                          note: location.lastPathComponent))
             }
         }
-        if eligibleCount > 2_000 { appendWarning("listLimited", to: &warnings) }
+        if eligibleCount > 2_000 {
+            appendWarning("listLimited", to: &warnings)
+            control.recordOmitted(eligibleCount - 2_000)
+        }
         return ScanReport(entries: largest.entries.sorted { $0.estimatedBytes > $1.estimatedBytes },
-                          warnings: warnings, cancelled: control.isCancelled)
+                          warnings: warnings, cancelled: control.isCancelled,
+                          omittedCount: control.omittedCount)
     }
 
     private static func walkFiles(under root: URL, control: ScanControl, warnings: inout [String],
                                   includeApps: Bool = false, includeHardLinks: Bool = false,
                                   checkCloud: Bool = true, parallel: Bool = false,
+                                  excludedPaths: [String] = [],
                                   onDirectory: @escaping (URL) -> Void = { _ in },
                                   onFile: @escaping (URL, FileStamp) -> Void) {
+        guard !isExcluded(root, paths: excludedPaths) else { return }
         guard let rootInfo = FileSafety.metadata(at: root), rootInfo.isDirectory else {
             appendWarning("Cannot read \(root.path)", to: &warnings)
+            control.recordOmitted()
             return
         }
         onDirectory(root)
@@ -144,11 +171,12 @@ public enum FileScanner {
                                                                               includingPropertiesForKeys: nil)
                     } catch {
                         appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
+                        control.recordOmitted()
                         return
                     }
                     for child in children where !control.isCancelled {
                         let url = directory.appendingPathComponent(child.lastPathComponent)
-                        if url.lastPathComponent == ".Trash" { continue }
+                        if url.lastPathComponent == ".Trash" || isExcluded(url, paths: excludedPaths) { continue }
                         guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
                         if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
                         if info.isDirectory {
@@ -181,13 +209,14 @@ public enum FileScanner {
                 } catch {
                     lock.lock()
                     appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
+                    control.recordOmitted()
                     lock.unlock()
                     return
                 }
                 for child in children where !control.isCancelled {
                     // FileManager may return /private/tmp for a directory requested through /tmp.
                     let url = directory.appendingPathComponent(child.lastPathComponent)
-                    if url.lastPathComponent == ".Trash" { continue }
+                    if url.lastPathComponent == ".Trash" || isExcluded(url, paths: excludedPaths) { continue }
                     guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
                     if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
                     if info.isDirectory {
@@ -211,47 +240,66 @@ public enum FileScanner {
         for warning in localWarnings { appendWarning(warning, to: &warnings) }
     }
 
-    private static func scanSpace(root: URL, control: ScanControl) -> ScanReport {
+    private static func scanSpace(root: URL, control: ScanControl,
+                                  excludedPaths: [String]) -> ScanReport {
         var warnings: [String] = []
         var directoryTotals: [URL: Int64] = [:]
+        var directoryAllocatedTotals: [URL: Int64] = [:]
         var directories: [URL] = []
         var otherTotals: [URL: Int64] = [:]
+        var otherAllocatedTotals: [URL: Int64] = [:]
         var visibleFiles: [SpaceItem] = []
         var zeroFiles: [SpaceItem] = []
         var count = 0
         var total: Int64 = 0
+        var allocatedTotal: Int64 = 0
+        var hiddenIndividualCount = 0
         walkFiles(under: root, control: control, warnings: &warnings,
                   includeApps: true, includeHardLinks: true, parallel: true,
+                  excludedPaths: excludedPaths,
                   onDirectory: { directories.append($0) }) { url, stamp in
             count += 1
             total += stamp.size
+            allocatedTotal += stamp.allocatedBytes ?? 0
             let parent = url.deletingLastPathComponent()
             if stamp.size == 0 && zeroFiles.count < 10_000 {
-                zeroFiles.append(SpaceItem(url: url, parent: parent, bytes: 0, isFolder: false))
+                zeroFiles.append(SpaceItem(url: url, parent: parent, bytes: 0, isFolder: false,
+                                           allocatedBytes: stamp.allocatedBytes))
             } else if stamp.size >= 1_048_576 && visibleFiles.count < 10_000 {
-                visibleFiles.append(SpaceItem(url: url, parent: parent, bytes: stamp.size, isFolder: false))
+                visibleFiles.append(SpaceItem(url: url, parent: parent, bytes: stamp.size, isFolder: false,
+                                              allocatedBytes: stamp.allocatedBytes))
             } else {
                 otherTotals[parent, default: 0] += stamp.size
+                otherAllocatedTotals[parent, default: 0] += stamp.allocatedBytes ?? 0
+                if stamp.size == 0 || stamp.size >= 1_048_576 { hiddenIndividualCount += 1 }
             }
             directoryTotals[parent, default: 0] += stamp.size
+            directoryAllocatedTotals[parent, default: 0] += stamp.allocatedBytes ?? 0
         }
         for directory in directories.reversed() where directory.path != root.path {
             directoryTotals[directory.deletingLastPathComponent(), default: 0] += directoryTotals[directory, default: 0]
+            directoryAllocatedTotals[directory.deletingLastPathComponent(), default: 0] +=
+                directoryAllocatedTotals[directory, default: 0]
         }
         let folders = directories.filter { $0.path != root.path }.map { url in
             SpaceItem(url: url, parent: url.deletingLastPathComponent(),
-                      bytes: directoryTotals[url, default: 0], isFolder: true)
+                      bytes: directoryTotals[url, default: 0], isFolder: true,
+                      allocatedBytes: directoryAllocatedTotals[url, default: 0])
         }
         let others = otherTotals.filter { $0.value > 0 }.map { parent, bytes in
             SpaceItem(url: parent.appendingPathComponent("__other_files__"), parent: parent,
-                      bytes: bytes, isFolder: false, isOther: true)
+                      bytes: bytes, isFolder: false, isOther: true,
+                      allocatedBytes: otherAllocatedTotals[parent, default: 0])
         }
-        if visibleFiles.count == 10_000 || zeroFiles.count == 10_000 {
+        if hiddenIndividualCount > 0 {
             appendWarning("spaceLimit", to: &warnings)
+            control.recordOmitted(hiddenIndividualCount)
         }
         return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
                           spaceItems: folders + visibleFiles + zeroFiles + others,
-                          scannedFileCount: count, scannedBytes: total)
+                          scannedFileCount: count, scannedBytes: total,
+                          scannedAllocatedBytes: allocatedTotal,
+                          omittedCount: control.omittedCount)
     }
 
     private static func findDuplicates(files: [(URL, FileStamp)], root: URL, control: ScanControl,
@@ -347,24 +395,30 @@ public enum FileScanner {
                 home.appendingPathComponent("Library/Caches/Homebrew")]
     }
 
-    private static func scanApplications(control: ScanControl) -> [ScanEntry] {
+    private static func scanApplications(control: ScanControl, excludedPaths: [String]) -> [ScanEntry] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let roots = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
-        return scanApplications(roots: roots, control: control)
+        return scanApplications(roots: roots, control: control, excludedPaths: excludedPaths)
     }
 
-    static func scanApplications(roots: [URL], control: ScanControl = ScanControl()) -> [ScanEntry] {
+    static func scanApplications(roots: [URL], control: ScanControl = ScanControl(),
+                                 excludedPaths: [String] = []) -> [ScanEntry] {
         var entries: [ScanEntry] = []
         for root in roots where !control.isCancelled {
-            guard let apps = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { continue }
-            for app in apps where app.pathExtension.lowercased() == "app" && !control.isCancelled {
+            guard let apps = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
+                if FileManager.default.fileExists(atPath: root.path) { control.recordOmitted() }
+                continue
+            }
+            for app in apps where app.pathExtension.lowercased() == "app" && !control.isCancelled &&
+                !isExcluded(app, paths: excludedPaths) {
                 guard let identifier = Bundle(url: app)?.bundleIdentifier,
                       let stamp = FileSafety.stamp(at: app), FileSafety.isDirectory(app),
                       FileSafety.isSafeLocation(app, scope: root, category: .uninstall) else { continue }
                 let running = FileSafety.isApplicationRunning(app, identifier: identifier)
                 control.visited(app)
                 entries.append(ScanEntry(url: app, scope: root, category: .uninstall, stamp: stamp,
-                                         estimatedBytes: 0, risk: running ? .protected : .review,
+                                         estimatedBytes: 0, sizeIsKnown: false,
+                                         risk: running ? .protected : .review,
                                          note: running ? "appRunning" : identifier,
                                          isDirectory: true, canDelete: false))
             }
@@ -372,12 +426,18 @@ public enum FileScanner {
         return entries
     }
 
-    private static func scanOrphanCandidates(control: ScanControl, warnings: inout [String]) -> [ScanEntry] {
+    private static func scanOrphanCandidates(control: ScanControl, warnings: inout [String],
+                                              excludedPaths: [String]) -> [ScanEntry] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let appRoots = [URL(fileURLWithPath: "/Applications"),
                         URL(fileURLWithPath: "/System/Applications"),
                         home.appendingPathComponent("Applications")]
+        let priorOmissions = control.omittedCount
         var installed = installedApplicationIdentifiers(in: appRoots, control: control)
+        if control.omittedCount > priorOmissions {
+            appendWarning("installedAppsIncomplete", to: &warnings)
+            return []
+        }
         installed.formUnion(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
             .map { $0.lowercased() })
         let library = home.appendingPathComponent("Library")
@@ -385,7 +445,8 @@ public enum FileScanner {
                            "HTTPStorages", "WebKit", "Application Scripts",
                            "Saved Application State"]
         return scanOrphanCandidates(roots: folderNames.map { library.appendingPathComponent($0) },
-                                    installedIdentifiers: installed, control: control, warnings: &warnings)
+                                    installedIdentifiers: installed, control: control, warnings: &warnings,
+                                    excludedPaths: excludedPaths)
     }
 
     static func installedApplicationIdentifiers(in roots: [URL], control: ScanControl = ScanControl()) -> Set<String> {
@@ -393,7 +454,10 @@ public enum FileScanner {
         var pending = roots.map { ($0, 0) }
         while let (directory, depth) = pending.popLast(), !control.isCancelled {
             guard let children = try? FileManager.default.contentsOfDirectory(at: directory,
-                                                                               includingPropertiesForKeys: nil) else { continue }
+                                                                               includingPropertiesForKeys: nil) else {
+                if FileManager.default.fileExists(atPath: directory.path) { control.recordOmitted() }
+                continue
+            }
             for child in children where !control.isCancelled {
                 guard FileSafety.isDirectory(child) else { continue }
                 if child.pathExtension.lowercased() == "app" {
@@ -416,7 +480,10 @@ public enum FileScanner {
             var pending = [(app.appendingPathComponent(location), 0)]
             while let (directory, depth) = pending.popLast(), !control.isCancelled {
                 guard let children = try? FileManager.default.contentsOfDirectory(at: directory,
-                                                                                   includingPropertiesForKeys: nil) else { continue }
+                                                                                   includingPropertiesForKeys: nil) else {
+                    if FileManager.default.fileExists(atPath: directory.path) { control.recordOmitted() }
+                    continue
+                }
                 for child in children where !control.isCancelled {
                     guard FileSafety.isDirectory(child) else { continue }
                     if bundleExtensions.contains(child.pathExtension.lowercased()) {
@@ -440,19 +507,28 @@ public enum FileScanner {
     }
 
     static func scanOrphanCandidates(roots: [URL], installedIdentifiers: Set<String>,
-                                     control: ScanControl = ScanControl()) -> [ScanEntry] {
+                                     control: ScanControl = ScanControl(),
+                                     excludedPaths: [String] = []) -> [ScanEntry] {
         var warnings: [String] = []
         return scanOrphanCandidates(roots: roots, installedIdentifiers: installedIdentifiers,
-                                    control: control, warnings: &warnings)
+                                    control: control, warnings: &warnings,
+                                    excludedPaths: excludedPaths)
     }
 
     private static func scanOrphanCandidates(roots: [URL], installedIdentifiers: Set<String>,
-                                             control: ScanControl, warnings: inout [String]) -> [ScanEntry] {
+                                             control: ScanControl, warnings: inout [String],
+                                             excludedPaths: [String]) -> [ScanEntry] {
         var entries: [ScanEntry] = []
         for root in roots where !control.isCancelled {
             guard let children = try? FileManager.default.contentsOfDirectory(at: root,
-                                                                               includingPropertiesForKeys: nil) else { continue }
-            for child in children where !control.isCancelled {
+                                                                               includingPropertiesForKeys: nil) else {
+                if FileManager.default.fileExists(atPath: root.path) {
+                    appendWarning("Cannot read \(root.path)", to: &warnings)
+                    control.recordOmitted()
+                }
+                continue
+            }
+            for child in children where !control.isCancelled && !isExcluded(child, paths: excludedPaths) {
                 let name = child.lastPathComponent
                 let identifier: String
                 if root.lastPathComponent == "Preferences" {
@@ -475,23 +551,30 @@ public enum FileScanner {
                                        options: .regularExpression) != nil,
                       let info = FileSafety.metadata(at: child) else { continue }
                 let measuredBytes: Int64?
+                var measuredAllocatedBytes: Int64?
                 if info.isDirectory {
                     var measurementWarnings: [String] = []
                     var bytes: Int64 = 0
+                    var allocated: Int64 = 0
                     walkFiles(under: child, control: control, warnings: &measurementWarnings,
-                              includeApps: true, includeHardLinks: true, parallel: true) { _, stamp in
+                              includeApps: true, includeHardLinks: true, parallel: true,
+                              excludedPaths: excludedPaths) { _, stamp in
                         bytes += stamp.size
+                        allocated += stamp.allocatedBytes ?? 0
                     }
                     warnings.append(contentsOf: measurementWarnings)
                     measuredBytes = measurementWarnings.isEmpty && !control.isCancelled &&
                         FileSafety.stamp(at: child) == info.stamp ? bytes : nil
+                    measuredAllocatedBytes = measuredBytes == nil ? nil : allocated
                 } else {
                     control.visited(child, bytes: info.stamp.size)
                     measuredBytes = info.stamp.size
+                    measuredAllocatedBytes = info.stamp.allocatedBytes
                 }
                 entries.append(ScanEntry(url: child, scope: root, category: .orphans,
                                          stamp: info.stamp,
                                          estimatedBytes: measuredBytes ?? 0,
+                                         allocatedBytes: measuredAllocatedBytes,
                                          sizeIsKnown: measuredBytes != nil,
                                          note: "orphanCandidate", isDirectory: info.isDirectory,
                                          canDelete: false))
@@ -501,16 +584,24 @@ public enum FileScanner {
     }
 
     static func applicationBundleSize(_ app: URL, control: ScanControl = ScanControl()) -> Int64? {
+        applicationBundleMetrics(app, control: control)?.logicalBytes
+    }
+
+    static func applicationBundleMetrics(_ app: URL, control: ScanControl = ScanControl())
+        -> (logicalBytes: Int64, allocatedBytes: Int64)? {
         var warnings: [String] = []
         var bytes: Int64 = 0
+        var allocated: Int64 = 0
         walkFiles(under: app, control: control, warnings: &warnings,
                   includeApps: true, checkCloud: false) { _, stamp in
             bytes += stamp.size
+            allocated += stamp.allocatedBytes ?? 0
         }
-        return warnings.isEmpty && !control.isCancelled ? bytes : nil
+        return warnings.isEmpty && !control.isCancelled ? (bytes, allocated) : nil
     }
 
-    public static func prepareApplication(_ app: ScanEntry, control: ScanControl = ScanControl()) -> ScanReport {
+    public static func prepareApplication(_ app: ScanEntry, control: ScanControl = ScanControl(),
+                                          excludedPaths: [String] = []) -> ScanReport {
         control.begin(.reviewingApp, path: app.url)
         var warnings: [String] = []
         guard app.category == .uninstall, app.isDirectory,
@@ -522,13 +613,14 @@ public enum FileScanner {
         }
         var prepared = [ScanEntry(url: app.url, scope: app.scope, category: .uninstall,
                                   stamp: app.stamp, estimatedBytes: signature.bytes,
+                                  allocatedBytes: signature.allocatedBytes,
                                   note: identifier, isDirectory: true, directorySignature: signature.digest)]
         let library = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
         let candidates = ["Application Support", "Caches", "Containers", "Logs", "HTTPStorages",
                           "WebKit", "Application Scripts"]
             .map { library.appendingPathComponent($0).appendingPathComponent(identifier) }
             + [library.appendingPathComponent("Saved Application State").appendingPathComponent(identifier + ".savedState")]
-        for candidate in candidates where !control.isCancelled {
+        for candidate in candidates where !control.isCancelled && !isExcluded(candidate, paths: excludedPaths) {
             guard FileSafety.isDirectory(candidate) else { continue }
             for (file, stamp) in collectFiles(under: candidate, control: control, warnings: &warnings) {
                 guard stamp.linkCount == 1 else { continue }
@@ -539,6 +631,7 @@ public enum FileScanner {
         let exactFiles = [library.appendingPathComponent("Preferences/\(identifier).plist"),
                           library.appendingPathComponent("LaunchAgents/\(identifier).plist")]
         for file in exactFiles where !control.isCancelled {
+            if isExcluded(file, paths: excludedPaths) { continue }
             guard let stamp = FileSafety.stamp(at: file), !FileSafety.isDirectory(file), stamp.linkCount == 1 else { continue }
             prepared.append(ScanEntry(url: file, scope: file.deletingLastPathComponent(), category: .uninstall,
                                       stamp: stamp, estimatedBytes: stamp.size, note: identifier))
@@ -546,23 +639,31 @@ public enum FileScanner {
         return ScanReport(entries: prepared, warnings: warnings, cancelled: control.isCancelled)
     }
 
-    public static func directorySignature(_ root: URL, control: ScanControl = ScanControl()) -> (digest: String, bytes: Int64)? {
+    public static func directorySignature(_ root: URL, control: ScanControl = ScanControl())
+        -> (digest: String, bytes: Int64, allocatedBytes: Int64)? {
         guard FileSafety.isDirectory(root) else { return nil }
         var warnings: [String] = []
         let files = collectFiles(under: root, control: control, warnings: &warnings, includeApps: true)
         guard warnings.isEmpty, !control.isCancelled else { return nil }
         var hasher = SHA256()
         var total: Int64 = 0
+        var allocated: Int64 = 0
         for (url, stamp) in files.sorted(by: { $0.0.path < $1.0.path }) {
             total += stamp.size
+            allocated += stamp.allocatedBytes ?? 0
             let part = "\(url.path.dropFirst(root.path.count))|\(stamp.device)|\(stamp.inode)|\(stamp.size)|\(stamp.modifiedSeconds)|\(stamp.modifiedNanoseconds)"
             hasher.update(data: Data(part.utf8))
         }
-        return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), total)
+        return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), total, allocated)
     }
 
     private static func appendWarning(_ message: String, to warnings: inout [String]) {
         if warnings.count < 50 { warnings.append(message) }
+    }
+
+    private static func isExcluded(_ url: URL, paths: [String]) -> Bool {
+        let candidate = url.standardizedFileURL.path
+        return paths.contains { path in candidate == path || candidate.hasPrefix(path + "/") }
     }
 }
 

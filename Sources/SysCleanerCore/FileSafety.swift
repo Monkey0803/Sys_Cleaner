@@ -26,7 +26,8 @@ public enum FileSafety {
         let stamp = FileStamp(device: UInt64(info.st_dev), inode: UInt64(info.st_ino),
                               size: Int64(info.st_size), modifiedSeconds: Int64(info.st_mtimespec.tv_sec),
                               modifiedNanoseconds: Int64(info.st_mtimespec.tv_nsec),
-                              linkCount: UInt64(info.st_nlink))
+                              linkCount: UInt64(info.st_nlink),
+                              allocatedBytes: Int64(info.st_blocks) * 512)
         return (stamp, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR))
     }
 

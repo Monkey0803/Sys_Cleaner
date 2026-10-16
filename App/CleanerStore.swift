@@ -3,6 +3,19 @@ import Foundation
 
 @MainActor
 final class CleanerStore: ObservableObject {
+    struct VolumeSummary: Identifiable {
+        let id: String
+        let name: String
+        let totalBytes: Int64
+        let freeBytes: Int64
+        let systemReclaimableEstimate: Int64
+
+        var usedBytes: Int64 { max(0, totalBytes - freeBytes) }
+    }
+    struct ScanMetrics {
+        var allocatedBytes: Int64?
+        var omittedCount = 0
+    }
     private static let historyURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Sys Cleaner/cleanup-history.json")
     @Published var category: ScanCategory = .space {
@@ -28,6 +41,8 @@ final class CleanerStore: ObservableObject {
     }
     @Published var summaryCount = 0
     @Published var summaryBytes: Int64 = 0
+    @Published private(set) var scanMetrics = ScanMetrics()
+    @Published private(set) var volumes: [VolumeSummary] = CleanerStore.readVolumeSummaries()
     @Published var warnings: [String] = []
     @Published var selectedIDs: Set<UUID> = []
     @Published var isScanning = false
@@ -35,6 +50,7 @@ final class CleanerStore: ObservableObject {
     @Published var isDeleting = false
     @Published var hasScanned = false
     @Published var results: [DeleteResult] = []
+    @Published private(set) var lastAvailableSpaceDelta: Int64?
     @Published var showResults = false
     @Published var showHistory = false
     @Published private(set) var cleanupHistory = (try? CleanupHistoryStorage.load(from: CleanerStore.historyURL)) ?? []
@@ -60,6 +76,8 @@ final class CleanerStore: ObservableObject {
     }
 
     private var runningScans: [ScanCategory: RunningScan] = [:]
+    private var applicationSizeControl: ScanControl?
+    private var applicationSizeGeneration = UUID()
     private var categoryResults: [ScanCategory: CategoryResult] = [:]
     private var applicationOverview: CategoryResult?
 
@@ -68,6 +86,7 @@ final class CleanerStore: ObservableObject {
         let spaceItems: [SpaceItem]
         let summaryCount: Int
         let summaryBytes: Int64
+        let scanMetrics: ScanMetrics
         let warnings: [String]
         let selectedIDs: Set<UUID>
         let hasScanned: Bool
@@ -82,6 +101,10 @@ final class CleanerStore: ObservableObject {
             return CategoryResult(
                 entries: remaining, spaceItems: spaceItems, summaryCount: remaining.count,
                 summaryBytes: remaining.reduce(0) { $0 + $1.estimatedBytes },
+                scanMetrics: ScanMetrics(
+                    allocatedBytes: remaining.allSatisfy { $0.allocatedBytes != nil } ?
+                        remaining.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil,
+                    omittedCount: scanMetrics.omittedCount),
                 warnings: warnings, selectedIDs: selectedIDs.subtracting(
                     entries.filter { urls.contains($0.url) }.map(\.id)),
                 hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
@@ -91,17 +114,22 @@ final class CleanerStore: ObservableObject {
 
         func updatingProgress(_ progress: ScanProgress) -> CategoryResult {
             CategoryResult(entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
-                           summaryBytes: summaryBytes, warnings: warnings, selectedIDs: selectedIDs,
+                           summaryBytes: summaryBytes, scanMetrics: scanMetrics,
+                           warnings: warnings, selectedIDs: selectedIDs,
                            hasScanned: hasScanned, isScanning: isScanning, scanProgress: progress,
                            spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter)
         }
 
-        func updatingApplicationSize(at url: URL, bytes: Int64) -> CategoryResult {
+        func updatingApplicationSize(at url: URL, bytes: Int64, allocatedBytes: Int64?) -> CategoryResult {
             let updated = entries.map { entry in
-                entry.url == url ? entry.withEstimatedBytes(bytes) : entry
+                entry.url == url ? entry.withEstimatedBytes(bytes, allocatedBytes: allocatedBytes) : entry
             }
             return CategoryResult(entries: updated, spaceItems: spaceItems, summaryCount: summaryCount,
                                   summaryBytes: updated.reduce(0) { $0 + $1.estimatedBytes },
+                                  scanMetrics: ScanMetrics(
+                                    allocatedBytes: updated.allSatisfy { $0.allocatedBytes != nil } ?
+                                        updated.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil,
+                                    omittedCount: scanMetrics.omittedCount),
                                   warnings: warnings, selectedIDs: selectedIDs,
                                   hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
                                   spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter)
@@ -110,6 +138,39 @@ final class CleanerStore: ObservableObject {
 
     var selectedEntries: [ScanEntry] { entries.filter { selectedIDs.contains($0.id) && $0.canDelete } }
     var estimatedSelectedBytes: Int64 { selectedEntries.reduce(0) { $0 + $1.estimatedBytes } }
+    var selectedAllocatedBytes: Int64? {
+        let selected = selectedEntries
+        return selected.allSatisfy { $0.allocatedBytes != nil } ?
+            selected.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil
+    }
+    var hasPartialResults: Bool { scanMetrics.omittedCount > 0 || !warnings.isEmpty }
+
+    func refreshVolumes() { volumes = Self.readVolumeSummaries() }
+
+    private static func readVolumeSummaries() -> [VolumeSummary] {
+        let keys: Set<URLResourceKey> = [.volumeNameKey, .volumeTotalCapacityKey,
+                                         .volumeAvailableCapacityKey,
+                                         .volumeAvailableCapacityForImportantUsageKey,
+                                         .volumeIsLocalKey]
+        let roots = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: Array(keys),
+                                                           options: [.skipHiddenVolumes]) ?? []
+        return roots.compactMap { url in
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  values.volumeIsLocal != false,
+                  let total = values.volumeTotalCapacity, total > 0,
+                  let free = values.volumeAvailableCapacity else { return nil }
+            let availableForImportant = values.volumeAvailableCapacityForImportantUsage ?? Int64(free)
+            return VolumeSummary(id: url.standardizedFileURL.path,
+                                 name: values.volumeName ?? url.lastPathComponent,
+                                 totalBytes: Int64(total), freeBytes: Int64(free),
+                                 systemReclaimableEstimate: max(0, availableForImportant - Int64(free)))
+        }
+        .sorted { lhs, rhs in
+            if lhs.id == "/" { return rhs.id != "/" }
+            if rhs.id == "/" { return false }
+            return lhs.name < rhs.name
+        }
+    }
     var visibleDuplicateGroups: [[ScanEntry]] { ScanResultGrouping.duplicateGroups(visibleEntries) }
 
     func selectDuplicateGroup(_ group: [ScanEntry]) {
@@ -120,6 +181,16 @@ final class CleanerStore: ObservableObject {
     func clearDuplicateGroup(_ group: [ScanEntry]) {
         guard category == .duplicates, !isDeleting else { return }
         selectedIDs.subtract(group.map(\.id))
+    }
+    func ignoreDuplicateGroup(_ group: [ScanEntry]) {
+        guard category == .duplicates, !isDeleting, let hash = group.first?.duplicateGroup else { return }
+        AppPreferences.shared.ignoreDuplicateGroup(hash)
+        selectedIDs.subtract(group.map(\.id))
+        entries.removeAll { $0.duplicateGroup == hash }
+        summaryCount = entries.count
+        summaryBytes = entries.reduce(0) { $0 + $1.estimatedBytes }
+        scanMetrics.allocatedBytes = entries.allSatisfy { $0.allocatedBytes != nil } ?
+            entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil
     }
     func setSortField(_ field: ScanSortField) {
         guard category != .space || field != .modified else { return }
@@ -152,12 +223,13 @@ final class CleanerStore: ObservableObject {
             selection: sortSelection, otherName: L("otherFiles"))
     }
 
-    func chooseFolder() {
+    func chooseFolder(startingAt volume: URL? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = L("choose")
+        panel.directoryURL = volume
         if panel.runModal() == .OK, let url = panel.url {
             cancelAllScans()
             categoryResults.removeAll()
@@ -168,6 +240,7 @@ final class CleanerStore: ObservableObject {
             spaceItems = []
             summaryCount = 0
             summaryBytes = 0
+            scanMetrics = ScanMetrics()
             warnings = []
             selectedIDs = []
             hasScanned = false
@@ -179,6 +252,7 @@ final class CleanerStore: ObservableObject {
 
     func changeCategory(_ newValue: ScanCategory) {
         guard category != newValue, !isDeleting else { return }
+        if category == .uninstall { cancelApplicationSizeMeasurement() }
         if runningScans[category]?.isApplicationPreparation == true { cancel() }
         if category == .uninstall { backFromApplication() }
         if hasScanned || isScanning {
@@ -190,6 +264,9 @@ final class CleanerStore: ObservableObject {
         sortSelection = AppPreferences.shared.sortSelection(for: newValue)
         if let saved = categoryResults.removeValue(forKey: newValue) {
             restore(saved)
+            if newValue == .uninstall && hasScanned && reviewedApplicationName == nil {
+                beginApplicationSizeMeasurement(entries.filter { !$0.sizeIsKnown })
+            }
         } else {
             resultQuery = ""
             resultFilter = .all
@@ -197,6 +274,7 @@ final class CleanerStore: ObservableObject {
             spaceItems = []
             summaryCount = 0
             summaryBytes = 0
+            scanMetrics = ScanMetrics()
             warnings = []
             selectedIDs = []
             hasScanned = false
@@ -208,6 +286,7 @@ final class CleanerStore: ObservableObject {
 
     func invalidateScan() {
         cancel()
+        cancelApplicationSizeMeasurement()
         categoryResults.removeValue(forKey: category)
         applicationOverview = nil
         reviewedApplicationName = nil
@@ -215,6 +294,7 @@ final class CleanerStore: ObservableObject {
         spaceItems = []
         summaryCount = 0
         summaryBytes = 0
+        scanMetrics = ScanMetrics()
         warnings = []
         selectedIDs = []
         hasScanned = false
@@ -223,6 +303,7 @@ final class CleanerStore: ObservableObject {
 
     func scan() {
         cancel()
+        cancelApplicationSizeMeasurement()
         categoryResults.removeValue(forKey: category)
         applicationOverview = nil
         reviewedApplicationName = nil
@@ -230,6 +311,7 @@ final class CleanerStore: ObservableObject {
         spaceItems = []
         summaryCount = 0
         summaryBytes = 0
+        scanMetrics = ScanMetrics()
         warnings = []
         selectedIDs = []
         hasScanned = false
@@ -246,7 +328,9 @@ final class CleanerStore: ObservableObject {
         runningScans[scannedCategory] = RunningScan(id: scanID, control: newControl,
                                                     isApplicationPreparation: false)
         let request = ScanRequest(category: category, root: root, minimumBytes: Int64(minimumMB) * 1_024 * 1_024,
-                                  olderThanDays: olderThanDays)
+                                  olderThanDays: olderThanDays,
+                                  excludedPaths: AppPreferences.shared.excludedPaths,
+                                  ignoredDuplicateHashes: AppPreferences.shared.ignoredDuplicateHashes)
         Task.detached(priority: .userInitiated) { [weak self] in
             let report = FileScanner.scan(request, control: newControl)
             await self?.finishScan(report, category: scannedCategory, scanID: scanID)
@@ -266,8 +350,10 @@ final class CleanerStore: ObservableObject {
         }
         runningScans[.uninstall] = RunningScan(id: scanID, control: newControl,
                                                isApplicationPreparation: true)
+        let excludedPaths = AppPreferences.shared.excludedPaths
         Task.detached(priority: .userInitiated) { [weak self] in
-            let report = FileScanner.prepareApplication(app, control: newControl)
+            let report = FileScanner.prepareApplication(app, control: newControl,
+                                                        excludedPaths: excludedPaths)
             await self?.finishApplicationPreparation(report, app: app, scanID: scanID)
         }
     }
@@ -297,8 +383,8 @@ final class CleanerStore: ObservableObject {
             return
         }
         prepareApplication(ScanEntry(url: app, scope: scope, category: .uninstall,
-                                     stamp: stamp, estimatedBytes: 0, note: identifier,
-                                     isDirectory: true, canDelete: false))
+                                     stamp: stamp, estimatedBytes: 0, sizeIsKnown: false,
+                                     note: identifier, isDirectory: true, canDelete: false))
     }
 
     func backFromApplication() {
@@ -320,6 +406,50 @@ final class CleanerStore: ObservableObject {
     private func cancelAllScans() {
         for scan in runningScans.values { scan.control.cancel() }
         runningScans.removeAll()
+        cancelApplicationSizeMeasurement()
+    }
+
+    private func cancelApplicationSizeMeasurement() {
+        applicationSizeControl?.cancel()
+        applicationSizeControl = nil
+        applicationSizeGeneration = UUID()
+    }
+
+    private func beginApplicationSizeMeasurement(_ apps: [ScanEntry]) {
+        cancelApplicationSizeMeasurement()
+        let generation = applicationSizeGeneration
+        let control = ScanControl()
+        applicationSizeControl = control
+        Task.detached(priority: .utility) { [weak self] in
+            for app in apps where !control.isCancelled {
+                guard app.isDirectory, FileSafety.stamp(at: app.url) == app.stamp,
+                      let metrics = FileScanner.applicationBundleMetrics(app.url, control: control),
+                      FileSafety.stamp(at: app.url) == app.stamp else { continue }
+                await self?.receiveApplicationSize(app.url, logicalBytes: metrics.logicalBytes,
+                                                   allocatedBytes: metrics.allocatedBytes,
+                                                   generation: generation)
+            }
+        }
+    }
+
+    private func receiveApplicationSize(_ url: URL, logicalBytes: Int64,
+                                        allocatedBytes: Int64, generation: UUID) {
+        guard generation == applicationSizeGeneration else { return }
+        if category == .uninstall && reviewedApplicationName == nil {
+            entries = entries.map {
+                $0.url == url ? $0.withEstimatedBytes(logicalBytes, allocatedBytes: allocatedBytes) : $0
+            }
+            summaryBytes = entries.reduce(0) { $0 + $1.estimatedBytes }
+            scanMetrics.allocatedBytes = entries.allSatisfy { $0.allocatedBytes != nil } ?
+                entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil
+        } else if let saved = categoryResults[.uninstall] {
+            categoryResults[.uninstall] = saved.updatingApplicationSize(
+                at: url, bytes: logicalBytes, allocatedBytes: allocatedBytes)
+        }
+        if let overview = applicationOverview {
+            applicationOverview = overview.updatingApplicationSize(
+                at: url, bytes: logicalBytes, allocatedBytes: allocatedBytes)
+        }
     }
 
     func delete(_ mode: DeleteMode) {
@@ -328,8 +458,14 @@ final class CleanerStore: ObservableObject {
         isDeleting = true
         let deletedCategory = category
         Task.detached(priority: .userInitiated) { [weak self] in
+            let capacityURL = chosen.allSatisfy { $0.stamp.device == chosen[0].stamp.device } ?
+                chosen[0].scope : nil
+            let before = capacityURL.flatMap(observedAvailableCapacity)
             let outcomes = FileDeletion.execute(chosen, mode: mode)
-            await self?.finishDelete(outcomes, selected: chosen, category: deletedCategory, mode: mode)
+            let after = capacityURL.flatMap(observedAvailableCapacity)
+            let delta = before.flatMap { initial in after.map { $0 - initial } }
+            await self?.finishDelete(outcomes, selected: chosen, category: deletedCategory,
+                                     mode: mode, availableSpaceDelta: delta)
         }
     }
 
@@ -341,6 +477,8 @@ final class CleanerStore: ObservableObject {
             spaceItems = report.spaceItems
             summaryCount = report.scannedFileCount
             summaryBytes = report.scannedBytes
+            scanMetrics = ScanMetrics(allocatedBytes: report.scannedAllocatedBytes,
+                                      omittedCount: report.omittedCount)
             warnings = report.warnings
             isScanning = false
             scanProgress = nil
@@ -349,12 +487,18 @@ final class CleanerStore: ObservableObject {
             categoryResults[scannedCategory] = CategoryResult(
                 entries: report.entries, spaceItems: report.spaceItems,
                 summaryCount: report.scannedFileCount, summaryBytes: report.scannedBytes,
+                scanMetrics: ScanMetrics(allocatedBytes: report.scannedAllocatedBytes,
+                                         omittedCount: report.omittedCount),
                 warnings: report.warnings, selectedIDs: [], hasScanned: !report.cancelled,
                 isScanning: false, scanProgress: nil,
                 spaceFolder: previous.spaceFolder, resultQuery: previous.resultQuery,
                 resultFilter: previous.resultFilter
             )
         }
+        if scannedCategory == .uninstall && category == .uninstall && !report.cancelled {
+            beginApplicationSizeMeasurement(report.entries.filter { !$0.sizeIsKnown })
+        }
+        if scannedCategory == .space { refreshVolumes() }
     }
 
     private func finishApplicationPreparation(_ report: ScanReport, app: ScanEntry, scanID: UUID) {
@@ -366,7 +510,8 @@ final class CleanerStore: ObservableObject {
             let overview = currentResult()
             if let measuredApp = report.entries.first(where: { $0.url == app.url && $0.isDirectory }) {
                 applicationOverview = overview.updatingApplicationSize(at: app.url,
-                                                                       bytes: measuredApp.estimatedBytes)
+                                                                       bytes: measuredApp.estimatedBytes,
+                                                                       allocatedBytes: measuredApp.allocatedBytes)
             } else {
                 applicationOverview = overview
             }
@@ -374,6 +519,8 @@ final class CleanerStore: ObservableObject {
             entries = report.entries
             summaryCount = report.entries.count
             summaryBytes = report.entries.reduce(0) { $0 + $1.estimatedBytes }
+            scanMetrics = ScanMetrics(allocatedBytes: report.scannedAllocatedBytes,
+                                      omittedCount: report.omittedCount)
             selectedIDs = []
             resultQuery = ""
             resultFilter = .all
@@ -393,8 +540,10 @@ final class CleanerStore: ObservableObject {
     }
 
     private func finishDelete(_ outcomes: [DeleteResult], selected: [ScanEntry],
-                              category deletedCategory: ScanCategory, mode: DeleteMode) {
+                              category deletedCategory: ScanCategory, mode: DeleteMode,
+                              availableSpaceDelta: Int64?) {
         results = outcomes
+        lastAvailableSpaceDelta = availableSpaceDelta
         showResults = true
         let sizes = selected.reduce(into: [URL: Int64]()) { sizes, entry in
             sizes[entry.url] = entry.estimatedBytes
@@ -429,6 +578,8 @@ final class CleanerStore: ObservableObject {
         entries.removeAll { removed.contains($0.url) }
         summaryCount = entries.count
         summaryBytes = entries.reduce(0) { $0 + $1.estimatedBytes }
+        scanMetrics.allocatedBytes = entries.allSatisfy { $0.allocatedBytes != nil } ?
+            entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil
         selectedIDs.subtract(selected.map(\.id))
         isDeleting = false
     }
@@ -460,7 +611,8 @@ final class CleanerStore: ObservableObject {
     private func currentResult() -> CategoryResult {
         CategoryResult(
             entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
-            summaryBytes: summaryBytes, warnings: warnings, selectedIDs: selectedIDs,
+            summaryBytes: summaryBytes, scanMetrics: scanMetrics,
+            warnings: warnings, selectedIDs: selectedIDs,
             hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
             spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter
         )
@@ -471,6 +623,7 @@ final class CleanerStore: ObservableObject {
         spaceItems = result.spaceItems
         summaryCount = result.summaryCount
         summaryBytes = result.summaryBytes
+        scanMetrics = result.scanMetrics
         warnings = result.warnings
         selectedIDs = result.selectedIDs
         hasScanned = result.hasScanned
@@ -488,6 +641,11 @@ final class CleanerStore: ObservableObject {
             NSWorkspace.shared.open(url)
         }
     }
+}
+
+private func observedAvailableCapacity(_ url: URL) -> Int64? {
+    try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        .volumeAvailableCapacityForImportantUsage
 }
 
 func L(_ key: String) -> String {

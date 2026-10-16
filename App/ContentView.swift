@@ -13,7 +13,9 @@ struct ContentView: View {
     @State private var showingConfirmation = false
     @State private var inspectedEntry: ScanEntry?
     @State private var previewURL: URL?
+    @State private var previewSelection: UUID?
     @State private var spacePieHasAppeared = false
+    @State private var showingVolumeOverview = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -144,6 +146,9 @@ struct ContentView: View {
         .onChange(of: store.minimumMB) { _, _ in store.invalidateScan() }
         .onChange(of: store.olderThanDays) { _, _ in store.invalidateScan() }
         .onChange(of: preferences.language) { _, _ in store.refreshSorting() }
+        .onChange(of: store.hasScanned) { _, scanned in
+            if store.category == .space && scanned { showingVolumeOverview = false }
+        }
         .onAppear {
             FinderReviewBridge.shared.connect(store: store, openMainWindow: { openWindow(id: "main") })
         }
@@ -190,6 +195,49 @@ struct ContentView: View {
                 }
                 .padding(10)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            }
+            if store.category == .space && !store.volumes.isEmpty {
+                HStack {
+                    Text("volumeOverview").font(.callout.weight(.semibold))
+                    Spacer()
+                    Button(showingVolumeOverview ? "hideVolumes" : "showVolumes") {
+                        showingVolumeOverview.toggle()
+                    }
+                        .buttonStyle(.borderless)
+                }
+                if showingVolumeOverview {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(store.volumes) { volume in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(volume.name).font(.callout.weight(.medium)).lineLimit(1)
+                                    Text(String(format: L("volumeUsedValue"), fileSize(volume.usedBytes)))
+                                    Text(String(format: L("volumeFreeValue"), fileSize(volume.freeBytes)))
+                                    Text(String(format: L("volumeReclaimableValue"),
+                                                fileSize(volume.systemReclaimableEstimate)))
+                                    Button("chooseVolumeFolder") {
+                                        store.chooseFolder(startingAt: URL(fileURLWithPath: volume.id))
+                                    }
+                                    .buttonStyle(.link)
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 190, alignment: .leading)
+                                .padding(10)
+                                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    HStack {
+                        Text("volumeReclaimableHelp")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("refreshVolumes") { store.refreshVolumes() }
+                            .buttonStyle(.borderless)
+                    }
+                }
             }
             if store.category == .large {
                 HStack(spacing: 32) {
@@ -255,10 +303,24 @@ struct ContentView: View {
             }
             HStack(spacing: 12) {
                 Label(String(format: L("itemsCount"), store.summaryCount), systemImage: "doc")
-                Label(fileSize(store.summaryBytes), systemImage: "internaldrive")
-                Text(store.category == .uninstall && store.reviewedApplicationName == nil ?
-                     (store.summaryBytes > 0 ? "reviewedAppSizes" : "appSizesOnReview") : "estimated")
-                    .foregroundStyle(.secondary)
+                Label(String(format: L("logicalSizeValue"), fileSize(store.summaryBytes)),
+                      systemImage: "internaldrive")
+                if let allocated = store.scanMetrics.allocatedBytes {
+                    Text(String(format: L("allocatedSizeValue"), fileSize(allocated)))
+                        .help(L("allocatedSizeHelp"))
+                }
+                if store.category == .uninstall && store.reviewedApplicationName == nil {
+                    Text(String(format: L("measuredAppsCount"),
+                                store.entries.filter(\.sizeIsKnown).count, store.entries.count))
+                }
+                if store.hasScanned {
+                    Text(store.hasPartialResults ? "partialResults" : "completeResults")
+                        .foregroundStyle(store.hasPartialResults ? .orange : .secondary)
+                    if store.scanMetrics.omittedCount > 0 {
+                        Text(String(format: L("omittedItemsCount"), store.scanMetrics.omittedCount))
+                            .foregroundStyle(.orange)
+                    }
+                }
                 Spacer()
             }
             .font(.callout)
@@ -312,7 +374,7 @@ struct ContentView: View {
     }
 
     private var resultsContent: some View {
-        List {
+        List(selection: $previewSelection) {
             if store.category == .duplicates {
                 ForEach(Array(store.visibleDuplicateGroups.enumerated()), id: \.offset) { _, group in
                     Section {
@@ -321,13 +383,33 @@ struct ContentView: View {
                         HStack {
                             Text(String(format: L("duplicateGroupSummary"), group.count,
                                         fileSize(group[0].estimatedBytes)))
+                            Text(String(format: L("duplicateReclaimEstimate"),
+                                        fileSize(Int64(group.filter(\.canDelete).count) * group[0].estimatedBytes)))
+                                .foregroundStyle(.secondary)
+                                .help(L("duplicateRetainedRule"))
                             Spacer()
                             Button("selectGroupCopies") { store.selectDuplicateGroup(group) }
                                 .disabled(ScanResultGrouping.selectableIDs(in: group)
                                     .isSubset(of: store.selectedIDs) || store.isDeleting)
                             Button("clearGroupSelection") { store.clearDuplicateGroup(group) }
                                 .disabled(!group.contains { store.selectedIDs.contains($0.id) } || store.isDeleting)
+                            Button("ignoreDuplicateGroup") { store.ignoreDuplicateGroup(group) }
+                                .disabled(store.isDeleting)
                         }
+                    }
+                }
+            } else if store.category == .uninstall && store.reviewedApplicationName != nil {
+                Section("appBundleSection") {
+                    ForEach(store.visibleEntries.filter(\.isDirectory)) { entry in resultRow(entry) }
+                }
+                Section("appCacheSection") {
+                    ForEach(store.visibleEntries.filter { !$0.isDirectory && isApplicationCache($0) }) {
+                        entry in resultRow(entry)
+                    }
+                }
+                Section("appDataSection") {
+                    ForEach(store.visibleEntries.filter { !$0.isDirectory && !isApplicationCache($0) }) {
+                        entry in resultRow(entry)
                     }
                 }
             } else {
@@ -335,6 +417,13 @@ struct ContentView: View {
             }
         }
         .listStyle(.inset)
+        .onKeyPress(.space) {
+            guard let id = previewSelection,
+                  let entry = store.visibleEntries.first(where: { $0.id == id }),
+                  !entry.isDirectory else { return .ignored }
+            previewURL = entry.url
+            return .handled
+        }
     }
 
     private func resultRow(_ entry: ScanEntry) -> some View {
@@ -372,7 +461,9 @@ struct ContentView: View {
                     Text(Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds)),
                          format: .dateTime.year().month().day().hour().minute())
                         .font(.caption).foregroundStyle(.secondary)
-                    Text(L(entry.note)).font(.caption).foregroundStyle(entry.canDelete ? .orange : .secondary)
+                    Text(store.category == .uninstall && store.reviewedApplicationName != nil ?
+                         L(entry.isDirectory ? "appBundleBasis" : "appExactMatchBasis") : L(entry.note))
+                        .font(.caption).foregroundStyle(entry.canDelete ? .orange : .secondary)
                 }
                 Spacer()
                 if store.category == .uninstall && entry.isDirectory && entry.directorySignature == nil &&
@@ -380,22 +471,42 @@ struct ContentView: View {
                     Button("reviewApp") { store.prepareApplication(entry) }
                         .disabled(store.isDeleting)
                 }
-                if !entry.sizeIsKnown {
-                    Text("—").font(.callout).foregroundStyle(.secondary)
-                } else if entry.estimatedBytes > 0 || store.category != .uninstall || entry.directorySignature != nil {
-                    Text(fileSize(entry.estimatedBytes))
-                        .font(.callout.monospacedDigit())
-                } else {
-                    Text("—").font(.callout).foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    if entry.sizeIsKnown {
+                        Text(fileSize(entry.estimatedBytes))
+                            .font(.callout.monospacedDigit())
+                        if let allocated = entry.allocatedBytes {
+                            Text(String(format: L("allocatedSizeValue"), fileSize(allocated)))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .help(L("allocatedSizeHelp"))
+                        }
+                    } else {
+                        Text("—").font(.callout).foregroundStyle(.secondary)
+                    }
                 }
                 Button { inspectedEntry = entry } label: { Image(systemName: "info.circle") }
                     .buttonStyle(.borderless)
                     .help(L("cleanupBasis"))
+                if !entry.isDirectory {
+                    Button { previewURL = entry.url } label: { Image(systemName: "eye") }
+                        .buttonStyle(.borderless)
+                        .help(L("previewFile"))
+                }
                 Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
                     .buttonStyle(.borderless)
                     .help(L("showInFinder"))
         }
         .padding(.vertical, 4)
+        .tag(entry.id)
+        .contextMenu {
+            Button("ignorePathNextScan") { preferences.addExclusion(entry.url) }
+            Button("showInFinder") { store.reveal(entry.url) }
+        }
+    }
+
+    private func isApplicationCache(_ entry: ScanEntry) -> Bool {
+        entry.url.path.contains("/Library/Caches/") || entry.url.path.contains("/Library/Logs/")
     }
 
     private var spaceContent: some View {
@@ -426,8 +537,15 @@ struct ContentView: View {
                         .foregroundStyle(child.isFolder ? .blue : .secondary)
                     Text(child.isOther ? L("otherFiles") : child.url.lastPathComponent)
                     Spacer()
-                    Text(fileSize(child.bytes))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(fileSize(child.bytes))
+                        if let allocated = child.allocatedBytes {
+                            Text(String(format: L("allocatedSizeValue"), fileSize(allocated)))
+                                .font(.caption2)
+                                .help(L("allocatedSizeHelp"))
+                        }
+                    }
+                    .foregroundStyle(.secondary)
                     if child.isFolder {
                         Button { openSpaceItem(child) } label: { Image(systemName: "chevron.right") }
                             .buttonStyle(.borderless)
@@ -487,6 +605,11 @@ struct ContentView: View {
             Text(String(format: L("selectedSummary"), store.selectedEntries.count,
                         fileSize(store.estimatedSelectedBytes)))
                 .foregroundStyle(.secondary)
+            if let allocated = store.selectedAllocatedBytes, !store.selectedEntries.isEmpty {
+                Text(String(format: L("allocatedSizeValue"), fileSize(allocated)))
+                    .foregroundStyle(.secondary)
+                    .help(L("allocatedSizeHelp"))
+            }
             Spacer()
             Button("moveToTrash") { pendingMode = .trash; showingConfirmation = true }
                 .disabled(store.selectedEntries.isEmpty || store.isDeleting || store.isScanning)
@@ -505,6 +628,19 @@ struct ContentView: View {
             Text("operationResults").font(.title2.bold())
             Text(String(format: L("resultSummary"), store.results.filter(\.success).count,
                         store.results.filter { !$0.success }.count))
+            if let delta = store.lastAvailableSpaceDelta {
+                Text(String(format: L("observedAvailableChange"),
+                            delta >= 0 ? "+" : "-", fileSize(abs(delta))))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("observedAvailableHelp")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("observedAvailableUnavailable")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             List(store.results, id: \.url) { result in
                 HStack {
                     Image(systemName: result.success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -72,6 +73,38 @@ struct SettingsView: View {
             Text("settingsAppliesNow")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Section("settingsExclusions") {
+                ForEach(preferences.excludedPaths, id: \.self) { path in
+                    HStack {
+                        Text(path).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Button {
+                            preferences.removeExclusion(path)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .help(L("removeExclusion"))
+                    }
+                }
+                Button("addExclusion") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = true
+                    panel.canChooseDirectories = true
+                    panel.allowsMultipleSelection = true
+                    if panel.runModal() == .OK {
+                        panel.urls.forEach(preferences.addExclusion)
+                    }
+                }
+                Text("exclusionsNextScan")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !preferences.ignoredDuplicateHashes.isEmpty {
+                    Button(String(format: L("clearIgnoredDuplicateGroups"),
+                                  preferences.ignoredDuplicateHashes.count)) {
+                        preferences.clearIgnoredDuplicateGroups()
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
     }

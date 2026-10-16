@@ -46,6 +46,8 @@ add_strings(target, app_group, 'Localizable.strings')
 add_strings(target, app_group, 'ServicesMenu.strings')
 assets = app_group.files.find { |file| file.path == 'Assets.xcassets' } || app_group.new_file('Assets.xcassets')
 add_resource(target, assets)
+privacy = app_group.files.find { |file| file.path == 'PrivacyInfo.xcprivacy' } || app_group.new_file('PrivacyInfo.xcprivacy')
+add_resource(target, privacy)
 app_group.new_file('Info.plist') unless app_group.files.any? { |file| file.path == 'Info.plist' }
 
 target.build_configurations.each do |configuration|

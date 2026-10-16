@@ -68,6 +68,8 @@ final class AppPreferences: ObservableObject {
     static let themeKey = "AppTheme"
     static let logoKey = "AppLogo"
     private static let sortKeyPrefix = "ScanSort."
+    private static let excludedPathsKey = "ScanExcludedPaths"
+    private static let ignoredDuplicateHashesKey = "IgnoredDuplicateHashes"
 
     @Published var language: AppLanguage {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey) }
@@ -84,12 +86,21 @@ final class AppPreferences: ObservableObject {
             applyIcon()
         }
     }
+    @Published private(set) var excludedPaths: [String] {
+        didSet { UserDefaults.standard.set(excludedPaths, forKey: Self.excludedPathsKey) }
+    }
+    @Published private(set) var ignoredDuplicateHashes: Set<String> {
+        didSet { UserDefaults.standard.set(Array(ignoredDuplicateHashes).sorted(),
+                                           forKey: Self.ignoredDuplicateHashesKey) }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
         language = AppLanguage(rawValue: defaults.string(forKey: Self.languageKey) ?? "") ?? .system
         theme = AppTheme(rawValue: defaults.string(forKey: Self.themeKey) ?? "") ?? .system
         logo = AppLogo(rawValue: defaults.string(forKey: Self.logoKey) ?? "") ?? .orbit
+        excludedPaths = defaults.stringArray(forKey: Self.excludedPathsKey) ?? []
+        ignoredDuplicateHashes = Set(defaults.stringArray(forKey: Self.ignoredDuplicateHashesKey) ?? [])
     }
 
     func applyIcon() {
@@ -113,6 +124,25 @@ final class AppPreferences: ObservableObject {
         let key = Self.sortKeyPrefix + category.rawValue
         UserDefaults.standard.set(selection.field.rawValue, forKey: key + ".field")
         UserDefaults.standard.set(selection.direction.rawValue, forKey: key + ".direction")
+    }
+
+    func addExclusion(_ url: URL) {
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        guard path != "/", !excludedPaths.contains(path) else { return }
+        excludedPaths.append(path)
+        excludedPaths.sort()
+    }
+
+    func removeExclusion(_ path: String) {
+        excludedPaths.removeAll { $0 == path }
+    }
+
+    func ignoreDuplicateGroup(_ hash: String) {
+        ignoredDuplicateHashes.insert(hash)
+    }
+
+    func clearIgnoredDuplicateGroups() {
+        ignoredDuplicateHashes.removeAll()
     }
 
 }

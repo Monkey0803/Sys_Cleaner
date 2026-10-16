@@ -438,6 +438,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(report.entries.first?.estimatedBytes, 2_010)
         XCTAssertEqual(report.entries.last?.estimatedBytes, 11)
         XCTAssertTrue(report.warnings.contains("listLimited"))
+        XCTAssertEqual(report.omittedCount, 10)
     }
 
     func testCancelledCacheScanReturnsNoResults() {
@@ -598,5 +599,47 @@ final class CoreTests: XCTestCase {
         }
         XCTAssertEqual(snapshots.first?.count, 12)
         for snapshot in snapshots.dropFirst() { XCTAssertEqual(snapshot, snapshots[0]) }
+    }
+
+    func testScanExclusionsSkipNestedPathsWithoutRemovingOtherResults() throws {
+        let excluded = root.appendingPathComponent("excluded")
+        try FileManager.default.createDirectory(at: excluded, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 12).write(to: excluded.appendingPathComponent("hidden"))
+        try Data(repeating: 2, count: 8).write(to: root.appendingPathComponent("visible"))
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root,
+                                                   excludedPaths: [excluded.path]))
+        XCTAssertEqual(report.scannedFileCount, 1)
+        XCTAssertEqual(report.scannedBytes, 8)
+        XCTAssertFalse(report.spaceItems.contains { $0.url.path.hasPrefix(excluded.path) })
+    }
+
+    func testIgnoredDuplicateHashOmitsWholeVerifiedGroup() throws {
+        _ = try file("a", "same")
+        _ = try file("b", "same")
+        let first = FileScanner.scan(ScanRequest(category: .duplicates, root: root))
+        let hash = try XCTUnwrap(first.entries.first?.duplicateGroup)
+        let ignored = FileScanner.scan(ScanRequest(category: .duplicates, root: root,
+                                                   ignoredDuplicateHashes: [hash]))
+        XCTAssertEqual(first.entries.count, 2)
+        XCTAssertTrue(ignored.entries.isEmpty)
+    }
+
+    func testPhysicalEstimateIsSeparateFromLogicalSize() throws {
+        let url = try file("small", "x")
+        let stamp = try XCTUnwrap(FileSafety.stamp(at: url))
+        XCTAssertEqual(stamp.size, 1)
+        XCTAssertGreaterThanOrEqual(stamp.allocatedBytes ?? -1, 1)
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        XCTAssertEqual(report.scannedBytes, 1)
+        XCTAssertEqual(report.scannedAllocatedBytes, stamp.allocatedBytes)
+    }
+
+    func testOldHistoryStampDecodesWithoutAllocatedSize() throws {
+        let original = FileStamp(device: 1, inode: 2, size: 3, modifiedSeconds: 4,
+                                 modifiedNanoseconds: 5, linkCount: 1)
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(FileStamp.self, from: encoded)
+        XCTAssertEqual(decoded, original)
+        XCTAssertNil(decoded.allocatedBytes)
     }
 }

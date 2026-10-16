@@ -16,15 +16,24 @@ public struct FileStamp: Codable, Equatable, Sendable {
     public let modifiedSeconds: Int64
     public let modifiedNanoseconds: Int64
     public let linkCount: UInt64
+    /// Allocated blocks are an estimate: APFS clones can share those blocks.
+    public let allocatedBytes: Int64?
 
     public init(device: UInt64, inode: UInt64, size: Int64, modifiedSeconds: Int64,
-                modifiedNanoseconds: Int64, linkCount: UInt64) {
+                modifiedNanoseconds: Int64, linkCount: UInt64, allocatedBytes: Int64? = nil) {
         self.device = device
         self.inode = inode
         self.size = size
         self.modifiedSeconds = modifiedSeconds
         self.modifiedNanoseconds = modifiedNanoseconds
         self.linkCount = linkCount
+        self.allocatedBytes = allocatedBytes
+    }
+
+    public static func == (lhs: FileStamp, rhs: FileStamp) -> Bool {
+        lhs.device == rhs.device && lhs.inode == rhs.inode && lhs.size == rhs.size &&
+            lhs.modifiedSeconds == rhs.modifiedSeconds &&
+            lhs.modifiedNanoseconds == rhs.modifiedNanoseconds && lhs.linkCount == rhs.linkCount
     }
 }
 
@@ -35,6 +44,7 @@ public struct ScanEntry: Identifiable, Sendable {
     public let category: ScanCategory
     public let stamp: FileStamp
     public let estimatedBytes: Int64
+    public let allocatedBytes: Int64?
     public let sizeIsKnown: Bool
     public let risk: RiskLevel
     public let note: String
@@ -44,7 +54,7 @@ public struct ScanEntry: Identifiable, Sendable {
     public let directorySignature: String?
 
     public init(id: UUID = UUID(), url: URL, scope: URL, category: ScanCategory, stamp: FileStamp,
-                estimatedBytes: Int64, sizeIsKnown: Bool = true,
+                estimatedBytes: Int64, allocatedBytes: Int64? = nil, sizeIsKnown: Bool = true,
                 risk: RiskLevel = .review, note: String = "",
                 duplicateGroup: String? = nil, isDirectory: Bool = false,
                 canDelete: Bool = true, directorySignature: String? = nil) {
@@ -54,6 +64,7 @@ public struct ScanEntry: Identifiable, Sendable {
         self.category = category
         self.stamp = stamp
         self.estimatedBytes = estimatedBytes
+        self.allocatedBytes = sizeIsKnown ? (allocatedBytes ?? stamp.allocatedBytes) : nil
         self.sizeIsKnown = sizeIsKnown
         self.risk = risk
         self.note = note
@@ -63,9 +74,10 @@ public struct ScanEntry: Identifiable, Sendable {
         self.directorySignature = directorySignature
     }
 
-    public func withEstimatedBytes(_ bytes: Int64) -> ScanEntry {
+    public func withEstimatedBytes(_ bytes: Int64, allocatedBytes: Int64? = nil) -> ScanEntry {
         ScanEntry(id: id, url: url, scope: scope, category: category, stamp: stamp,
-                  estimatedBytes: bytes, sizeIsKnown: true, risk: risk, note: note,
+                  estimatedBytes: bytes, allocatedBytes: allocatedBytes,
+                  sizeIsKnown: true, risk: risk, note: note,
                   duplicateGroup: duplicateGroup,
                   isDirectory: isDirectory, canDelete: canDelete, directorySignature: directorySignature)
     }
@@ -76,13 +88,18 @@ public struct ScanRequest: Sendable {
     public let root: URL
     public let minimumBytes: Int64
     public let olderThanDays: Int
+    public let excludedPaths: [String]
+    public let ignoredDuplicateHashes: Set<String>
 
     public init(category: ScanCategory, root: URL, minimumBytes: Int64 = 100 * 1_024 * 1_024,
-                olderThanDays: Int = 0) {
+                olderThanDays: Int = 0, excludedPaths: [String] = [],
+                ignoredDuplicateHashes: Set<String> = []) {
         self.category = category
         self.root = root
         self.minimumBytes = minimumBytes
         self.olderThanDays = olderThanDays
+        self.excludedPaths = excludedPaths
+        self.ignoredDuplicateHashes = ignoredDuplicateHashes
     }
 }
 
@@ -91,14 +108,20 @@ public struct ScanReport: Sendable {
     public let spaceItems: [SpaceItem]
     public let scannedFileCount: Int
     public let scannedBytes: Int64
+    public let scannedAllocatedBytes: Int64?
+    public let omittedCount: Int
     public let warnings: [String]
     public let cancelled: Bool
     public init(entries: [ScanEntry], warnings: [String], cancelled: Bool,
-                spaceItems: [SpaceItem] = [], scannedFileCount: Int? = nil, scannedBytes: Int64? = nil) {
+                spaceItems: [SpaceItem] = [], scannedFileCount: Int? = nil, scannedBytes: Int64? = nil,
+                scannedAllocatedBytes: Int64? = nil, omittedCount: Int = 0) {
         self.entries = entries
         self.spaceItems = spaceItems
         self.scannedFileCount = scannedFileCount ?? entries.count
         self.scannedBytes = scannedBytes ?? entries.reduce(0) { $0 + $1.estimatedBytes }
+        self.scannedAllocatedBytes = scannedAllocatedBytes ??
+            (entries.allSatisfy { $0.allocatedBytes != nil } ? entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil)
+        self.omittedCount = omittedCount
         self.warnings = warnings
         self.cancelled = cancelled
     }
@@ -130,14 +153,17 @@ public struct SpaceItem: Identifiable, Sendable {
     public let url: URL
     public let parent: URL
     public let bytes: Int64
+    public let allocatedBytes: Int64?
     public let isFolder: Bool
     public let isOther: Bool
 
-    public init(url: URL, parent: URL, bytes: Int64, isFolder: Bool, isOther: Bool = false) {
+    public init(url: URL, parent: URL, bytes: Int64, isFolder: Bool, isOther: Bool = false,
+                allocatedBytes: Int64? = nil) {
         self.id = url.path + (isOther ? "#other" : "")
         self.url = url
         self.parent = parent
         self.bytes = bytes
+        self.allocatedBytes = allocatedBytes
         self.isFolder = isFolder
         self.isOther = isOther
     }
