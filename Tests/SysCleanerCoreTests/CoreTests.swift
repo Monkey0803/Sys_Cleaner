@@ -1011,8 +1011,42 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(runtimes.count, 1)
         XCTAssertEqual(runtimes[0].name, "iOS")
         XCTAssertEqual(runtimes[0].version, "27.0")
+        XCTAssertEqual(runtimes[0].runtimeIdentifier, "com.apple.CoreSimulator.SimRuntime.iOS-27-0")
         XCTAssertEqual(runtimes[0].logicalBytes, 8192)
         XCTAssertNotNil(runtimes[0].lastUsed)
+    }
+
+    func testRuntimeAssociationDoesNotAssumeWhichImageDevicesUse() throws {
+        let runtimeJSON = """
+        {
+          "image-a":{"identifier":"image-a","runtimeIdentifier":"com.apple.CoreSimulator.SimRuntime.iOS-27-0","build":"24A434"},
+          "image-b":{"identifier":"image-b","runtimeIdentifier":"com.apple.CoreSimulator.SimRuntime.iOS-27-0","build":"24A5380g"},
+          "image-c":{"identifier":"image-c","runtimeIdentifier":"com.apple.CoreSimulator.SimRuntime.iOS-27-1"},
+          "image-unknown":{"identifier":"image-unknown"}
+        }
+        """
+        let deviceJSON = """
+        {"devices":{
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-0":[
+            {"udid":"00000000-0000-0000-0000-000000000001","name":"A","state":"Shutdown"},
+            {"udid":"00000000-0000-0000-0000-000000000002","name":"B","state":"Booted"}
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-1":[
+            {"udid":"00000000-0000-0000-0000-000000000003","name":"C","state":"Shutdown"}
+          ]
+        }}
+        """
+        let runtimes = try XcodeStorage.parseRuntimeImages(Data(runtimeJSON.utf8))
+        let devices = try XcodeStorage.parseSimulators(Data(deviceJSON.utf8))
+        let shared = try XCTUnwrap(runtimes.first { $0.id == "image-a" })
+        let association = try XCTUnwrap(XcodeStorage.runtimeAssociation(
+            for: shared, among: runtimes, devices: devices))
+        XCTAssertEqual(association.deviceCount, 2)
+        XCTAssertEqual(association.bootedDeviceCount, 1)
+        XCTAssertEqual(association.matchingImageCount, 2)
+        XCTAssertNil(XcodeStorage.runtimeAssociation(
+            for: try XCTUnwrap(runtimes.first { $0.id == "image-unknown" }),
+            among: runtimes, devices: devices))
     }
 
     func testDeviceSupportInventoryMeasuresFoldersAndReportsMissingRoot() throws {

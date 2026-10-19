@@ -26,12 +26,19 @@ public struct XcodeDeviceSupport: Identifiable, Sendable {
 
 public struct XcodeSimulatorRuntime: Identifiable, Sendable {
     public let id: String
+    public let runtimeIdentifier: String?
     public let name: String
     public let version: String
     public let build: String
     public let state: String
     public let logicalBytes: Int64?
     public let lastUsed: Date?
+}
+
+public struct XcodeRuntimeAssociation: Sendable {
+    public let deviceCount: Int
+    public let bootedDeviceCount: Int
+    public let matchingImageCount: Int
 }
 
 public struct XcodeSimulator: Identifiable, Sendable {
@@ -265,11 +272,25 @@ public enum XcodeStorage {
         return try decoder.decode([String: Image].self, from: data).values.map { image in
             let platform = image.runtimeIdentifier?.components(separatedBy: ".").last?
                 .components(separatedBy: "-").first ?? "Simulator"
-            return XcodeSimulatorRuntime(id: image.identifier, name: platform,
+            return XcodeSimulatorRuntime(id: image.identifier,
+                                         runtimeIdentifier: image.runtimeIdentifier, name: platform,
                                          version: image.version ?? "", build: image.build ?? "",
                                          state: image.state ?? "", logicalBytes: image.sizeBytes,
                                          lastUsed: image.lastUsedAt)
         }.sorted { ($0.logicalBytes ?? 0) > ($1.logicalBytes ?? 0) }
+    }
+
+    public static func runtimeAssociation(
+        for runtime: XcodeSimulatorRuntime,
+        among runtimes: [XcodeSimulatorRuntime],
+        devices: [XcodeSimulator]
+    ) -> XcodeRuntimeAssociation? {
+        guard let identifier = runtime.runtimeIdentifier, !identifier.isEmpty else { return nil }
+        let matchingDevices = devices.filter { $0.runtime == identifier }
+        return XcodeRuntimeAssociation(
+            deviceCount: matchingDevices.count,
+            bootedDeviceCount: matchingDevices.filter { $0.state == "Booted" }.count,
+            matchingImageCount: runtimes.filter { $0.runtimeIdentifier == identifier }.count)
     }
 
     public static func runtimeImages() throws -> [XcodeSimulatorRuntime] {

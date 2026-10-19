@@ -199,6 +199,7 @@ struct XcodeWorkspaceView: View {
                 if !runtimes.isEmpty {
                     Text("xcodeRuntimes").font(.headline)
                     Text("xcodeRuntimesReadOnly").font(.caption).foregroundStyle(.secondary)
+                    Button("xcodeOpenXcode") { openXcode() }
                     ForEach(runtimes) { runtime in
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
@@ -207,12 +208,18 @@ struct XcodeWorkspaceView: View {
                                 if let lastUsed = runtime.lastUsed {
                                     Text(String(format: L("xcodeLastUsed"), lastUsed.formatted()))
                                         .font(.caption2).foregroundStyle(.secondary)
+                                } else {
+                                    Text("xcodeLastUsedUnknown")
+                                        .font(.caption2).foregroundStyle(.secondary)
                                 }
+                                runtimeRelationship(runtime)
                             }
                             Spacer()
-                            Text(runtime.logicalBytes.map {
-                                ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+                            Text(runtime.logicalBytes.map { bytes in
+                                String(format: L("xcodeEstimatedSize"),
+                                       ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
                             } ?? L("notMeasured"))
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         .padding(10)
                         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
@@ -253,6 +260,39 @@ struct XcodeWorkspaceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
         }
+    }
+
+    @ViewBuilder
+    private func runtimeRelationship(_ runtime: XcodeSimulatorRuntime) -> some View {
+        switch simulatorScan {
+        case .complete:
+            if let association = XcodeStorage.runtimeAssociation(
+                for: runtime, among: runtimes, devices: simulators) {
+                Text(String(format: L("xcodeRuntimeDevices"),
+                            association.deviceCount, association.bootedDeviceCount))
+                    .font(.caption).foregroundStyle(.secondary)
+                if association.matchingImageCount > 1 {
+                    Text(String(format: L("xcodeRuntimeSharedIdentifier"), association.matchingImageCount))
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            } else {
+                Text("xcodeRuntimeUnknownIdentifier")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        case .scanning:
+            Text("xcodeRuntimeCheckingDevices").font(.caption).foregroundStyle(.secondary)
+        case .notScanned, .partial, .unavailable:
+            Text("xcodeRuntimeDevicesUnavailable").font(.caption).foregroundStyle(.orange)
+        }
+    }
+
+    private func openXcode() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.dt.Xcode"),
+              NSWorkspace.shared.open(url) else {
+            operationError = L("xcodeOpenXcodeFailed")
+            return
+        }
+        operationError = nil
     }
 
     private func scanStatus(_ scan: InventoryScan) -> String {

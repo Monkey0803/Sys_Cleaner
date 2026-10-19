@@ -29,7 +29,16 @@
 "xcodeOtherArtifacts" = "其他 Xcode 数据";
 "xcodeOtherArtifactsHelp" = "测试克隆、其他缓存等数据尚未纳入清单；此概览不是 Xcode 总占用。";
 "xcodeRuntimes" = "模拟器运行时";
-"xcodeRuntimesReadOnly" = "此处只读。一个运行时可能供多台设备使用；请在 Xcode 设置 > 组件中管理。";
+"xcodeRuntimesReadOnly" = "此处只读。移除运行时后，相关系统版本的设备可能无法启动，今后可能需要重新下载。请先核对设备和项目需求，再到 Xcode 设置 > 组件中管理。";
+"xcodeOpenXcode" = "打开 Xcode";
+"xcodeOpenXcodeFailed" = "无法打开 Xcode，请手动打开 Xcode 设置 > 组件。";
+"xcodeEstimatedSize" = "估算：%@";
+"xcodeLastUsedUnknown" = "最近使用时间不可用";
+"xcodeRuntimeDevices" = "同标识设备：%d 台（运行中 %d 台）";
+"xcodeRuntimeSharedIdentifier" = "有 %d 份运行时镜像共用此标识，无法判断设备使用的是哪一构建。";
+"xcodeRuntimeUnknownIdentifier" = "缺少运行时标识，无法关联设备。";
+"xcodeRuntimeCheckingDevices" = "正在核对关联设备…";
+"xcodeRuntimeDevicesUnavailable" = "设备清单不可用，无法核对关联设备。";
 "xcodeDeviceSupport" = "iOS 设备支持文件";
 "xcodeDeviceSupportReadOnly" = "此处只读。连接真机时可能仍需这些文件，可在访达中核对。";
 "xcodeProjects" = "项目构建数据";

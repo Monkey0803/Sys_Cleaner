@@ -29,7 +29,16 @@
 "xcodeOtherArtifacts" = "Other Xcode data";
 "xcodeOtherArtifactsHelp" = "Test clones, additional caches, and other Xcode data are not inventoried here. This overview is not a total of all Xcode storage.";
 "xcodeRuntimes" = "Simulator Runtimes";
-"xcodeRuntimesReadOnly" = "Read-only. A runtime may be shared by multiple devices. Manage installed runtimes in Xcode Settings > Components.";
+"xcodeRuntimesReadOnly" = "Read-only. Removing a runtime may prevent devices for that OS from starting and require a later download. Review your devices and project needs, then manage it in Xcode Settings > Components.";
+"xcodeOpenXcode" = "Open Xcode";
+"xcodeOpenXcodeFailed" = "Could not open Xcode. Open Xcode Settings > Components manually.";
+"xcodeEstimatedSize" = "Estimated: %@";
+"xcodeLastUsedUnknown" = "Last used time unavailable";
+"xcodeRuntimeDevices" = "Devices with this identifier: %d (%d booted)";
+"xcodeRuntimeSharedIdentifier" = "%d runtime images share this identifier; the device list cannot identify which build each uses.";
+"xcodeRuntimeUnknownIdentifier" = "No runtime identifier; devices cannot be matched.";
+"xcodeRuntimeCheckingDevices" = "Checking related devices…";
+"xcodeRuntimeDevicesUnavailable" = "Device inventory unavailable; related devices cannot be checked.";
 "xcodeDeviceSupport" = "iOS Device Support";
 "xcodeDeviceSupportReadOnly" = "Read-only. These files may be needed when connecting physical devices; review them in Finder.";
 "xcodeProjects" = "Project Build Data";
