@@ -55,6 +55,7 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .focusEffectDisabled()
+        .hoverHighlight()
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -84,6 +85,7 @@ struct SettingsView: View {
                             Image(systemName: "minus.circle")
                         }
                         .help(L("removeExclusion"))
+                        .hoverHighlight()
                     }
                 }
                 Button("addExclusion") {
@@ -95,6 +97,7 @@ struct SettingsView: View {
                         panel.urls.forEach(preferences.addExclusion)
                     }
                 }
+                .hoverHighlight()
                 Text("exclusionsNextScan")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -103,6 +106,7 @@ struct SettingsView: View {
                                   preferences.ignoredDuplicateHashes.count)) {
                         preferences.clearIgnoredDuplicateGroups()
                     }
+                    .hoverHighlight()
                 }
             }
         }
@@ -135,6 +139,7 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverHighlight()
                     .accessibilityLabel(Text(L("logo_\(logo.rawValue)")))
                     .accessibilityAddTraits(preferences.logo == logo ? .isSelected : [])
                 }

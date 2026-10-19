@@ -66,6 +66,7 @@ struct ContentView: View {
                                 .frame(maxWidth: 440)
                         }
                         Button("cancel") { store.cancel() }
+                            .hoverHighlight()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !store.hasScanned && store.entries.isEmpty && !store.hasSpaceResults {
@@ -96,6 +97,7 @@ struct ContentView: View {
                             store.resultQuery = ""
                             store.resultFilter = .all
                         }
+                        .hoverHighlight()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if store.category == .space {
@@ -128,10 +130,12 @@ struct ContentView: View {
                         Label("cleanupHistory", systemImage: "clock.arrow.circlepath")
                     }
                     .help(L("cleanupHistory"))
+                    .hoverHighlight()
                 }
                 ToolbarItem(placement: .automatic) {
                     Button { openSettings() } label: { Label("settings", systemImage: "gearshape") }
                         .help(L("settings"))
+                        .hoverHighlight()
                 }
             }
             .alert(pendingMode == .trash ? L("confirmTrash") : L("confirmPermanent"),
@@ -189,6 +193,7 @@ struct ContentView: View {
                         .foregroundStyle(Color.accentColor)
                         .disabled(store.isDeleting)
                         .padding(.bottom, 4)
+                        .hoverHighlight()
                     }
                     Text(store.reviewedApplicationName ?? store.category.title).font(.largeTitle.bold())
                     Text(descriptionKey).foregroundStyle(.secondary)
@@ -211,6 +216,7 @@ struct ContentView: View {
                     Spacer()
                     Button("chooseFolder") { store.chooseFolder() }
                         .focusEffectDisabled()
+                        .hoverHighlight()
                 }
                 .padding(10)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
@@ -226,6 +232,7 @@ struct ContentView: View {
                         showingVolumeOverview.toggle()
                     }
                         .buttonStyle(.borderless)
+                        .hoverHighlight()
                 }
                 if showingVolumeOverview {
                     ScrollView(.vertical) {
@@ -250,6 +257,7 @@ struct ContentView: View {
                         }
                         Button("refreshVolumes") { store.refreshVolumes() }
                             .buttonStyle(.borderless)
+                            .hoverHighlight()
                     }
                 }
             }
@@ -303,6 +311,7 @@ struct ContentView: View {
                         Label(L("filter_\(store.resultFilter.rawValue)"), systemImage: "line.3.horizontal.decrease")
                     }
                     .disabled(store.isScanning)
+                    .hoverHighlight()
                     if store.hasScanned && (!store.resultQuery.isEmpty || store.resultFilter != .all) {
                         Text(String(format: L("visibleResultCount"), store.visibleEntries.count,
                                     store.entries.count))
@@ -312,6 +321,7 @@ struct ContentView: View {
                     if store.category == .uninstall && store.reviewedApplicationName == nil {
                         Button("chooseApp") { store.chooseApplication() }
                             .disabled(store.isScanning || store.isDeleting)
+                            .hoverHighlight()
                         Text("dropAppHint").font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -399,6 +409,7 @@ struct ContentView: View {
         }
             .buttonStyle(.borderedProminent)
             .disabled(store.isScanning || store.isDeleting)
+            .hoverHighlight()
     }
 
     private var sortMenu: some View {
@@ -422,6 +433,7 @@ struct ContentView: View {
         .menuStyle(.borderedButton)
         .disabled(store.isDeleting)
         .help(L("sort"))
+        .hoverHighlight()
     }
 
     private var resultsContent: some View {
@@ -445,10 +457,13 @@ struct ContentView: View {
                             Button("selectGroupCopies") { store.selectDuplicateGroup(group) }
                                 .disabled(ScanResultGrouping.selectableIDs(in: group)
                                     .isSubset(of: store.selectedIDs) || store.isDeleting)
+                                .hoverHighlight()
                             Button("clearGroupSelection") { store.clearDuplicateGroup(group) }
                                 .disabled(!group.contains { store.selectedIDs.contains($0.id) } || store.isDeleting)
+                                .hoverHighlight()
                             Button("ignoreDuplicateGroup") { store.ignoreDuplicateGroup(group) }
                                 .disabled(store.isDeleting)
+                                .hoverHighlight()
                         }
                     }
                 }
@@ -486,6 +501,7 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     Button("previousPage") { duplicateGroupPage -= 1 }
                         .disabled(duplicateGroupPage == 0)
+                        .hoverHighlight()
                     Text(String(format: L("duplicatePageSummary"), duplicateGroupPage + 1, pageCount,
                                 duplicateGroupPage * duplicateGroupsPerPage + 1,
                                 min((duplicateGroupPage + 1) * duplicateGroupsPerPage, groupCount)))
@@ -499,8 +515,10 @@ struct ContentView: View {
                             }
                         }
                     }
+                    .hoverHighlight()
                     Button("nextPage") { duplicateGroupPage += 1 }
                         .disabled(duplicateGroupPage + 1 >= pageCount)
+                        .hoverHighlight()
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
@@ -553,6 +571,7 @@ struct ContentView: View {
                     entry.risk != .protected {
                     Button("reviewApp") { store.prepareApplication(entry) }
                         .disabled(store.isDeleting)
+                        .hoverHighlight()
                 }
                 VStack(alignment: .trailing, spacing: 2) {
                     if entry.sizeIsKnown {
@@ -571,14 +590,17 @@ struct ContentView: View {
                 Button { inspectedEntry = entry } label: { Image(systemName: "info.circle") }
                     .buttonStyle(.borderless)
                     .help(L("cleanupBasis"))
+                    .hoverHighlight()
                 if !entry.isDirectory {
                     Button { previewURL = entry.url } label: { Image(systemName: "eye") }
                         .buttonStyle(.borderless)
                         .help(L("previewFile"))
+                        .hoverHighlight()
                 }
                 Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
                     .buttonStyle(.borderless)
                     .help(L("showInFinder"))
+                    .hoverHighlight()
         }
         .padding(.vertical, 4)
         .tag(entry.id)
@@ -603,6 +625,7 @@ struct ContentView: View {
                     Label("back", systemImage: "chevron.left")
                 }
                 .disabled(store.spaceFolder == nil || store.spaceFolder?.path == store.root.path)
+                .hoverHighlight()
                 Text((store.spaceFolder ?? store.root).path).font(.callout.monospaced())
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
@@ -632,12 +655,15 @@ struct ContentView: View {
                     if child.isFolder {
                         Button { openSpaceItem(child) } label: { Image(systemName: "chevron.right") }
                             .buttonStyle(.borderless)
+                            .hoverHighlight()
                     } else if !child.isOther {
                         Button { previewURL = child.url } label: { Image(systemName: "eye") }
                             .buttonStyle(.borderless)
                             .help(L("previewFile"))
+                            .hoverHighlight()
                         Button { store.reveal(child.url) } label: { Image(systemName: "folder") }
                             .buttonStyle(.borderless)
+                            .hoverHighlight()
                     }
                 }
             }
@@ -663,6 +689,7 @@ struct ContentView: View {
                         Text(localizedWarning(warning)).font(.caption).textSelection(.enabled)
                     }
                     Button("fullDiskAccess") { store.openFullDiskAccess() }
+                        .hoverHighlight()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -699,17 +726,20 @@ struct ContentView: View {
                     store.resultFilter = .all
                 }
                 .buttonStyle(.link)
+                .hoverHighlight()
             }
             Spacer()
             Button("moveToTrash") { pendingMode = .trash; showingConfirmation = true }
                 .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
                           store.isDeleting || store.isScanning)
+                .hoverHighlight()
             Button("deletePermanently", role: .destructive) {
                 pendingMode = .permanent
                 showingConfirmation = true
             }
             .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
                       store.isDeleting || store.isScanning)
+            .hoverHighlight()
         }
         .padding(16)
         .background(.bar)
@@ -747,6 +777,7 @@ struct ContentView: View {
             }
             Button("done") { store.showResults = false }
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .hoverHighlight()
         }
         .padding(20)
         .frame(width: 650, height: 420)
@@ -829,6 +860,7 @@ struct ContentView: View {
                                         }
                                         .disabled(!item.canRestore)
                                         .help(L(item.canRestore ? "restoreHelp" : "restoreUnavailable"))
+                                        .hoverHighlight()
                                     }
                                 }
                             }
@@ -838,6 +870,7 @@ struct ContentView: View {
             }
             Button("done") { store.showHistory = false }
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .hoverHighlight()
         }
         .padding(20)
         .frame(width: 700, height: 480)
@@ -975,6 +1008,7 @@ private struct SpacePieChartView: View {
                             }
                             .buttonStyle(.plain)
                             .contentShape(Rectangle())
+                            .hoverHighlight()
                             .onHover { setHovered($0 ? slice.id : nil) }
                             .help("\(label) · \(size) · \(percentage)")
                         } else {

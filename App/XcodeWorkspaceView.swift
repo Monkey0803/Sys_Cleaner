@@ -116,6 +116,7 @@ struct XcodeWorkspaceView: View {
                 Spacer()
                 Button("scanAgain") { refresh() }
                     .disabled(store.isDeleting)
+                    .hoverHighlight()
             }
             .padding(20)
             Picker("xcodeSection", selection: $section) {
@@ -200,6 +201,7 @@ struct XcodeWorkspaceView: View {
                     Text("xcodeRuntimes").font(.headline)
                     Text("xcodeRuntimesReadOnly").font(.caption).foregroundStyle(.secondary)
                     Button("xcodeOpenXcode") { openXcode() }
+                        .hoverHighlight()
                     ForEach(runtimes) { runtime in
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
@@ -239,6 +241,7 @@ struct XcodeWorkspaceView: View {
                             Text(ByteCountFormatter.string(fromByteCount: item.logicalBytes, countStyle: .file))
                             Button { store.reveal(item.url) } label: { Image(systemName: "folder") }
                                 .help(L("showInFinder"))
+                                .hoverHighlight()
                         }
                         .padding(10)
                         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
@@ -334,6 +337,7 @@ struct XcodeWorkspaceView: View {
                 Text("xcodeDerivedDataHelp").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("xcodeAddRoot") { chooseRoot() }
+                    .hoverHighlight()
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
             HStack {
@@ -363,6 +367,7 @@ struct XcodeWorkspaceView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help(L("xcodeRemoveRoot"))
+                                .hoverHighlight()
                             }
                             .padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                         }
@@ -385,6 +390,7 @@ struct XcodeWorkspaceView: View {
                             .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
                     }
                     Button("cancel") { store.cancel() }
+                        .hoverHighlight()
                 }
                 .font(.caption).foregroundStyle(.secondary)
                 .padding(20).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -443,6 +449,7 @@ struct XcodeWorkspaceView: View {
                 Spacer()
                 Button("moveToTrash") { showingTrashConfirmation = true }
                     .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
+                    .hoverHighlight()
             }
             .padding(16)
             .background(.bar)
@@ -519,6 +526,7 @@ struct XcodeWorkspaceView: View {
             }
             Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
                 .help(L("showInFinder"))
+                .hoverHighlight()
         }
         .padding(.vertical, 6)
     }
@@ -550,6 +558,7 @@ struct XcodeWorkspaceView: View {
                         Text(ByteCountFormatter.string(fromByteCount: archive.logicalBytes, countStyle: .file))
                         Button { store.reveal(archive.url) } label: { Image(systemName: "folder") }
                             .help(L("showInFinder"))
+                            .hoverHighlight()
                     }.padding(.vertical, 6)
                 }
             }
@@ -593,6 +602,7 @@ struct XcodeWorkspaceView: View {
                 Spacer()
                 Button("xcodeDeleteDevices", role: .destructive) { showingSimulatorConfirmation = true }
                     .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning)
+                    .hoverHighlight()
             }.padding(16).background(.bar)
         }
     }

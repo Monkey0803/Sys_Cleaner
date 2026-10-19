@@ -25,12 +25,14 @@
 		A7AF79197E65F79F9C2ACC04 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A0057F6D52D821DF08CC602F /* PrivacyInfo.xcprivacy */; };
 		A914E1BE757716AD1051FA7F /* Deletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCAC6287E4E224CD89FB6F00 /* Deletion.swift */; };
 		AF422D85A92B8127615A8090 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011A696469615F01985B1935 /* ContentView.swift */; };
+		AF422D85A92B8127615A8091 /* HoverHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011A696469615F01985B1936 /* HoverHighlight.swift */; };
 		BD4D948DEFB37C0BBFA0857B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA30EEF2908C3F8BC514782C /* Models.swift */; };
 		F2BD4EE8D1BA6B2736E3AA38 /* CleanerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81DFF62E5B5D069B3674A928 /* CleanerStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		011A696469615F01985B1935 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		011A696469615F01985B1936 /* HoverHighlight.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HoverHighlight.swift; sourceTree = "<group>"; };
 		0615ABDC2BA0388108C2EAD4 /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XcodeStorage.swift; sourceTree = "<group>"; };
 		122FBD249CFF274AD501630D /* XcodeWorkspaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XcodeWorkspaceView.swift; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 			children = (
 				81DFF62E5B5D069B3674A928 /* CleanerStore.swift */,
 				011A696469615F01985B1935 /* ContentView.swift */,
+				011A696469615F01985B1936 /* HoverHighlight.swift */,
 				C6C2D5D40A0B3FD9526169CB /* SysCleanerApp.swift */,
 				44CA5682F828CB6B5F3D9531 /* Localizable.strings */,
 				D4285D6F8EBB45A49282921B /* InfoPlist.strings */,
@@ -210,6 +213,7 @@
 			files = (
 				F2BD4EE8D1BA6B2736E3AA38 /* CleanerStore.swift in Sources */,
 				AF422D85A92B8127615A8090 /* ContentView.swift in Sources */,
+				AF422D85A92B8127615A8091 /* HoverHighlight.swift in Sources */,
 				8201A730F69E8B6AD9693A32 /* SysCleanerApp.swift in Sources */,
 				A914E1BE757716AD1051FA7F /* Deletion.swift in Sources */,
 				22D20911B15411DE7585F70E /* FileSafety.swift in Sources */,
