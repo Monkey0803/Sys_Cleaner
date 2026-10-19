@@ -50,14 +50,16 @@ public final class ScanControl: @unchecked Sendable {
     }
 
     public func visited(_ path: URL, bytes: Int64? = nil) {
+        visitedBatch(path: path, files: bytes == nil ? 0 : 1,
+                     directories: bytes == nil ? 1 : 0, bytes: bytes ?? 0)
+    }
+
+    func visitedBatch(path: URL, files: Int, directories: Int, bytes: Int64) {
         lock.lock()
         guard !stopped else { lock.unlock(); return }
-        if let bytes {
-            processedFiles += 1
-            processedBytes += bytes
-        } else {
-            processedDirectories += 1
-        }
+        processedFiles += files
+        processedDirectories += directories
+        processedBytes += bytes
         let now = ProcessInfo.processInfo.systemUptime
         let shouldPublish = now - lastPublished >= 0.2
         if shouldPublish { lastPublished = now }
@@ -74,17 +76,22 @@ public final class ScanControl: @unchecked Sendable {
 }
 
 private final class DirectoryWorkQueue: @unchecked Sendable {
+    struct Item {
+        let url: URL
+        let index: Int
+    }
+
     private let condition = NSCondition()
-    private var pending: [URL]
+    private var pending: [Item]
     private var outstanding = 1
     private let control: ScanControl
 
-    init(root: URL, control: ScanControl) {
-        pending = [root]
+    init(root: URL, index: Int, control: ScanControl) {
+        pending = [Item(url: root, index: index)]
         self.control = control
     }
 
-    func next() -> URL? {
+    func next() -> Item? {
         condition.lock()
         defer { condition.unlock() }
         while pending.isEmpty && outstanding > 0 && !control.isCancelled {
@@ -93,9 +100,9 @@ private final class DirectoryWorkQueue: @unchecked Sendable {
         return control.isCancelled ? nil : pending.popLast()
     }
 
-    func add(_ directory: URL) {
+    func add(_ directory: URL, index: Int) {
         condition.lock()
-        pending.append(directory)
+        pending.append(Item(url: directory, index: index))
         outstanding += 1
         condition.signal()
         condition.unlock()
@@ -110,7 +117,8 @@ private final class DirectoryWorkQueue: @unchecked Sendable {
 }
 
 private struct SpaceDirectoryUsage {
-    var index = -1
+    let name: String
+    let parentIndex: Int
     var logical: Int64 = 0
     var allocated: Int64 = 0
     var otherLogical: Int64 = 0
@@ -132,12 +140,6 @@ private struct SpaceDirectoryUsage {
         remainingChildren -= 1
     }
 
-    mutating func mergeAlias(_ alias: SpaceDirectoryUsage) {
-        logical += alias.logical
-        allocated += alias.allocated
-        otherLogical += alias.otherLogical
-        otherAllocated += alias.otherAllocated
-    }
 }
 
 public enum FileScanner {
@@ -154,7 +156,7 @@ public enum FileScanner {
             let oldest = Date().addingTimeInterval(-Double(request.olderThanDays) * 86_400)
             walkFiles(under: root, control: control, warnings: &warnings,
                       parallel: true, excludedPaths: request.excludedPaths,
-                      minimumFileBytes: request.minimumBytes) { url, stamp in
+                      minimumFileBytes: request.minimumBytes) { url, _, _, stamp in
                 guard stamp.size >= request.minimumBytes,
                       request.olderThanDays == 0 || Date(timeIntervalSince1970: Double(stamp.modifiedSeconds)) <= oldest
                 else { return }
@@ -166,7 +168,7 @@ public enum FileScanner {
             var candidates: [(URL, FileStamp)] = []
             var limited = false
             walkFiles(under: root, control: control, warnings: &warnings,
-                      parallel: true, excludedPaths: request.excludedPaths) { url, stamp in
+                      parallel: true, excludedPaths: request.excludedPaths) { url, _, _, stamp in
                 guard stamp.size > 0 else { return }
                 if candidates.count < 100_000 { candidates.append((url, stamp)) }
                 else { limited = true; control.recordOmitted() }
@@ -203,7 +205,7 @@ public enum FileScanner {
     private static func collectFiles(under root: URL, control: ScanControl, warnings: inout [String],
                                      includeApps: Bool = false) -> [(URL, FileStamp)] {
         var files: [(URL, FileStamp)] = []
-        walkFiles(under: root, control: control, warnings: &warnings, includeApps: includeApps) { url, stamp in
+        walkFiles(under: root, control: control, warnings: &warnings, includeApps: includeApps) { url, _, _, stamp in
             files.append((url, stamp))
         }
         return files
@@ -217,7 +219,7 @@ public enum FileScanner {
         var largest = LargestEntries(limit: 2_000)
         for location in locations where !control.isCancelled {
             walkFiles(under: location, control: control, warnings: &warnings,
-                      checkCloud: false, parallel: true, excludedPaths: excludedPaths) { url, stamp in
+                      checkCloud: false, parallel: true, excludedPaths: excludedPaths) { url, _, _, stamp in
                 eligibleCount += 1
                 largest.insert(ScanEntry(url: url, scope: location, category: category,
                                          stamp: stamp, estimatedBytes: stamp.size,
@@ -239,20 +241,22 @@ public enum FileScanner {
                                   workers: Int = 4,
                                   excludedPaths: [String] = [],
                                   minimumFileBytes: Int64 = 0,
-                                  onDirectory: @escaping (URL) -> Void = { _ in },
-                                  onFile: @escaping (URL, FileStamp) -> Void) {
+                                  coalescedProgress: Bool = false,
+                                  onDirectory: @escaping (URL, Int?) -> Int = { _, _ in 0 },
+                                  onFile: @escaping (URL, URL, Int, FileStamp) -> Void) {
         guard !isExcluded(root, paths: excludedPaths) else { return }
         guard let rootInfo = FileSafety.metadata(at: root), rootInfo.isDirectory else {
             appendWarning("Cannot read \(root.path)", to: &warnings)
             control.recordOmitted()
             return
         }
-        onDirectory(root)
+        let rootIndex = onDirectory(root, nil)
         control.visited(root)
         if !parallel {
-            var stack = [root]
-            while let directory = stack.popLast(), !control.isCancelled {
+            var stack = [DirectoryWorkQueue.Item(url: root, index: rootIndex)]
+            while let item = stack.popLast(), !control.isCancelled {
                 autoreleasepool {
+                    let directory = item.url
                     let children: [URL]
                     do {
                         children = try FileManager.default.contentsOfDirectory(at: directory,
@@ -282,11 +286,11 @@ public enum FileScanner {
                         if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
                         if info.isDirectory {
                             if url.pathExtension == "app" && !includeApps { continue }
-                            onDirectory(url)
+                            let index = onDirectory(url, item.index)
                             control.visited(url)
-                            stack.append(url)
+                            stack.append(DirectoryWorkQueue.Item(url: url, index: index))
                         } else if info.stamp.linkCount == 1 || includeHardLinks {
-                            onFile(url, info.stamp)
+                            onFile(url, directory, item.index, info.stamp)
                             control.visited(url, bytes: info.stamp.size)
                         }
                     }
@@ -294,13 +298,14 @@ public enum FileScanner {
             }
             return
         }
-        let work = DirectoryWorkQueue(root: root, control: control)
+        let work = DirectoryWorkQueue(root: root, index: rootIndex, control: control)
         let lock = NSLock()
         var localWarnings: [String] = []
         DispatchQueue.concurrentPerform(iterations: workers) { _ in
             let manager = FileManager()
-            while let directory = work.next() {
+            while let item = work.next() {
                 autoreleasepool {
+                    let directory = item.url
                     defer { work.finished() }
                     let children: [URL]
                     do {
@@ -318,6 +323,28 @@ public enum FileScanner {
                     let usesRequestedPath = children.first.map {
                         $0.deletingLastPathComponent().path == directory.path
                     } ?? true
+                    var progressFiles = 0
+                    var progressDirectories = 0
+                    var progressBytes: Int64 = 0
+                    func reportProgress(_ path: URL, bytes: Int64?) {
+                        guard coalescedProgress else {
+                            control.visited(path, bytes: bytes)
+                            return
+                        }
+                        if let bytes {
+                            progressFiles += 1
+                            progressBytes += bytes
+                        } else {
+                            progressDirectories += 1
+                        }
+                        if progressFiles + progressDirectories >= 256 {
+                            control.visitedBatch(path: path, files: progressFiles,
+                                                 directories: progressDirectories, bytes: progressBytes)
+                            progressFiles = 0
+                            progressDirectories = 0
+                            progressBytes = 0
+                        }
+                    }
                     for child in children where !control.isCancelled {
                         // FileManager may return /private/tmp for a directory requested through /tmp.
                         let candidate = usesRequestedPath ? child :
@@ -329,23 +356,27 @@ public enum FileScanner {
                             ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
                         if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
                             && info.stamp.size < minimumFileBytes {
-                            control.visited(url, bytes: info.stamp.size)
+                            reportProgress(url, bytes: info.stamp.size)
                             continue
                         }
                         if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
                         if info.isDirectory {
                             if url.pathExtension == "app" && !includeApps { continue }
                             lock.lock()
-                            onDirectory(url)
-                            control.visited(url)
+                            let index = onDirectory(url, item.index)
                             lock.unlock()
-                            work.add(url)
+                            reportProgress(url, bytes: nil)
+                            work.add(url, index: index)
                         } else if info.stamp.linkCount == 1 || includeHardLinks {
                             lock.lock()
-                            onFile(url, info.stamp)
-                            control.visited(url, bytes: info.stamp.size)
+                            onFile(url, directory, item.index, info.stamp)
                             lock.unlock()
+                            reportProgress(url, bytes: info.stamp.size)
                         }
+                    }
+                    if progressFiles + progressDirectories > 0 {
+                        control.visitedBatch(path: directory, files: progressFiles,
+                                             directories: progressDirectories, bytes: progressBytes)
                     }
                 }
             }
@@ -357,33 +388,44 @@ public enum FileScanner {
                                   excludedPaths: [String], useRust: Bool,
                                   helperURL: URL?) -> ScanReport {
         var warnings: [String] = []
-        var usage: [URL: SpaceDirectoryUsage] = [:]
-        var directories: [URL] = []
+        // Traversal carries each directory index to its children, so the scan
+        // retains only compact records instead of every full directory URL.
+        var directories: [SpaceDirectoryUsage] = []
         var visibleFiles: [SpaceItem] = []
+        var visibleFileParents: [Int] = []
         var zeroFiles: [SpaceItem] = []
+        var zeroFileParents: [Int] = []
         var count = 0
         var total: Int64 = 0
         var allocatedTotal: Int64 = 0
         var hiddenIndividualCount = 0
-        let recordFile: (URL, Int64, Int64?) -> Void = { url, bytes, allocatedBytes in
+        let recordDirectory: (URL, Int?) -> Int = { url, parentIndex in
+            let index = directories.count
+            directories.append(SpaceDirectoryUsage(name: url.lastPathComponent,
+                                                   parentIndex: parentIndex ?? 0))
+            if let parentIndex { directories[parentIndex].remainingChildren += 1 }
+            return index
+        }
+        let recordFile: (URL, URL, Int, Int64, Int64?) -> Void = { url, parent, parentIndex, bytes, allocatedBytes in
             count += 1
             total += bytes
             allocatedTotal += allocatedBytes ?? 0
-            let parent = url.deletingLastPathComponent()
             let isOther: Bool
             if bytes == 0 && zeroFiles.count < 10_000 {
                 zeroFiles.append(SpaceItem(url: url, parent: parent, bytes: 0, isFolder: false,
                                            allocatedBytes: allocatedBytes))
+                zeroFileParents.append(parentIndex)
                 isOther = false
             } else if bytes >= 1_048_576 && visibleFiles.count < 10_000 {
                 visibleFiles.append(SpaceItem(url: url, parent: parent, bytes: bytes, isFolder: false,
                                               allocatedBytes: allocatedBytes))
+                visibleFileParents.append(parentIndex)
                 isOther = false
             } else {
                 isOther = true
                 if bytes == 0 || bytes >= 1_048_576 { hiddenIndividualCount += 1 }
             }
-            usage[parent, default: SpaceDirectoryUsage()].addFile(
+            directories[parentIndex].addFile(
                 logical: bytes, allocated: allocatedBytes ?? 0, isOther: isOther)
         }
         var usedRust = false
@@ -393,6 +435,7 @@ public enum FileScanner {
             case .completed(let listing):
                 usedRust = true
                 var cloudDirectories: [String] = []
+                var directoryIndexes: [String: Int] = [:]
                 for path in listing.directories.sorted(by: { $0.split(separator: "/").count < $1.split(separator: "/").count })
                     where !control.isCancelled {
                     guard let url = listing.path(path, rebasedTo: root, isDirectory: true) else { continue }
@@ -401,8 +444,14 @@ public enum FileScanner {
                         cloudDirectories.append(path)
                         continue
                     }
-                    directories.append(url)
-                    usage[url, default: SpaceDirectoryUsage()].index = directories.count - 1
+                    let parentIndex: Int?
+                    if path == listing.root {
+                        parentIndex = nil
+                    } else {
+                        parentIndex = directoryIndexes[URL(fileURLWithPath: path).deletingLastPathComponent().path]
+                        guard parentIndex != nil else { continue }
+                    }
+                    directoryIndexes[path] = recordDirectory(url, parentIndex)
                     control.visited(url)
                 }
                 let blockedDirectories = cloudDirectories
@@ -424,7 +473,12 @@ public enum FileScanner {
                     acceptedLock.unlock()
                 }
                 for (url, file) in acceptedFiles where !control.isCancelled {
-                    recordFile(url, file.logical, file.allocated)
+                    let parent = url.deletingLastPathComponent()
+                    guard let parentIndex = directoryIndexes[parent.path] else {
+                        control.recordOmitted()
+                        continue
+                    }
+                    recordFile(url, parent, parentIndex, file.logical, file.allocated)
                     control.visited(url, bytes: file.logical)
                 }
                 for path in listing.omitted where !control.isCancelled {
@@ -443,61 +497,33 @@ public enum FileScanner {
                       includeApps: true, includeHardLinks: true, parallel: true,
                       workers: 6,
                       excludedPaths: excludedPaths,
-                      onDirectory: { directory in
-                          directories.append(directory)
-                          usage[directory, default: SpaceDirectoryUsage()].index = directories.count - 1
-                      }) { url, stamp in
-                recordFile(url, stamp.size, stamp.allocatedBytes)
+                      coalescedProgress: true,
+                      onDirectory: recordDirectory) { url, parent, parentIndex, stamp in
+                recordFile(url, parent, parentIndex, stamp.size, stamp.allocatedBytes)
             }
         }
-        // Some FileManager paths differ only in URL directory metadata (notably /tmp aliases).
-        // Fold such file totals into the discovered directory before propagating upward.
-        let aliases = usage.filter { $0.value.index < 0 }
-        if !aliases.isEmpty {
-            var byPath: [String: Int] = [:]
-            if aliases.count > 8 {
-                for (index, directory) in directories.enumerated() {
-                    byPath[directory.path] = index
-                }
-            }
-            for (url, alias) in aliases {
-                let canonical = url.resolvingSymlinksInPath().path
-                let index = aliases.count > 8 ? byPath[url.path] ?? byPath[canonical] :
-                    directories.firstIndex(where: { $0.path == url.path || $0.path == canonical })
-                if let index {
-                    usage[directories[index], default: SpaceDirectoryUsage()].mergeAlias(alias)
-                    usage.removeValue(forKey: url)
-                }
-            }
+        guard !directories.isEmpty else {
+            return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
+                              omittedCount: control.omittedCount)
         }
         // Workers discover siblings in an arbitrary order. Propagate totals only after
         // every child directory has contributed to its parent.
-        for directory in directories where directory != root {
-            usage[directory.deletingLastPathComponent(), default: SpaceDirectoryUsage()].remainingChildren += 1
+        var ready = directories.indices.filter { directories[$0].remainingChildren == 0 }
+        while let index = ready.popLast() {
+            guard index != 0 else { continue }
+            let parentIndex = directories[index].parentIndex
+            let child = directories[index]
+            directories[parentIndex].addChild(child)
+            if directories[parentIndex].remainingChildren == 0 { ready.append(parentIndex) }
         }
-        var ready = directories.filter { usage[$0]?.remainingChildren == 0 }
-        while let directory = ready.popLast() {
-            guard directory != root else { continue }
-            let parent = directory.deletingLastPathComponent()
-            let child = usage[directory, default: SpaceDirectoryUsage()]
-            usage[parent, default: SpaceDirectoryUsage()].addChild(child)
-            if usage[parent]?.remainingChildren == 0 { ready.append(parent) }
-        }
-        func directoryIndex(for url: URL) -> Int {
-            if let index = usage[url]?.index, index >= 0 { return index }
-            if url.path == root.path || url.resolvingSymlinksInPath().path == root.path { return 0 }
-            return directories.firstIndex(where: { $0.path == url.path }) ?? 0
-        }
-        let nodes = directories.enumerated().map { index, url in
-            let size = usage[url, default: SpaceDirectoryUsage()]
-            let parentIndex = index == 0 ? 0 : directoryIndex(for: url.deletingLastPathComponent())
-            return SpaceTree.Directory(name: url.lastPathComponent, parentIndex: parentIndex,
-                                       bytes: size.logical, allocatedBytes: size.allocated,
-                                       otherBytes: size.otherLogical,
-                                       otherAllocatedBytes: size.otherAllocated)
+        let nodes = directories.map { directory in
+            SpaceTree.Directory(name: directory.name, parentIndex: directory.parentIndex,
+                                bytes: directory.logical, allocatedBytes: directory.allocated,
+                                otherBytes: directory.otherLogical,
+                                otherAllocatedBytes: directory.otherAllocated)
         }
         let files = visibleFiles + zeroFiles
-        let fileParents = files.map { directoryIndex(for: $0.parent) }
+        let fileParents = visibleFileParents + zeroFileParents
         let tree = SpaceTree(root: root, directories: nodes, files: files, fileParents: fileParents)
         if hiddenIndividualCount > 0 {
             appendWarning("spaceLimit", to: &warnings)
@@ -801,7 +827,7 @@ public enum FileScanner {
                     var allocated: Int64 = 0
                     walkFiles(under: child, control: control, warnings: &measurementWarnings,
                               includeApps: true, includeHardLinks: true, parallel: true,
-                              excludedPaths: excludedPaths) { _, stamp in
+                              excludedPaths: excludedPaths) { _, _, _, stamp in
                         bytes += stamp.size
                         allocated += stamp.allocatedBytes ?? 0
                     }
@@ -836,7 +862,7 @@ public enum FileScanner {
         var bytes: Int64 = 0
         var allocated: Int64 = 0
         walkFiles(under: app, control: control, warnings: &warnings,
-                  includeApps: true, checkCloud: false) { _, stamp in
+                  includeApps: true, checkCloud: false) { _, _, _, stamp in
             bytes += stamp.size
             allocated += stamp.allocatedBytes ?? 0
         }

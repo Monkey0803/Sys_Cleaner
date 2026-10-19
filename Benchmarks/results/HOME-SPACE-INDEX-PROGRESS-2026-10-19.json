@@ -1,0 +1,184 @@
+{
+  "command": "/usr/bin/time -l <binary> production <root> 6",
+  "home_root": "/Users/huxiaohui",
+  "home_runs": [
+    {
+      "version": "before",
+      "seconds": 60.19,
+      "peak_rss_bytes": 1201356800,
+      "files": 2103031,
+      "directories": 512999,
+      "logical": 327887762036,
+      "allocated": 332832985088,
+      "omitted": 49685
+    },
+    {
+      "version": "after",
+      "seconds": 51.67,
+      "peak_rss_bytes": 736149504,
+      "files": 2102329,
+      "directories": 512921,
+      "logical": 327992837580,
+      "allocated": 332867690496,
+      "omitted": 49694
+    },
+    {
+      "version": "before",
+      "seconds": 65.59,
+      "peak_rss_bytes": 1052901376,
+      "files": 2102334,
+      "directories": 512924,
+      "logical": 327998098559,
+      "allocated": 332872433664,
+      "omitted": 49694
+    },
+    {
+      "version": "after",
+      "seconds": 48.92,
+      "peak_rss_bytes": 682557440,
+      "files": 2102346,
+      "directories": 512922,
+      "logical": 328006492259,
+      "allocated": 332877426688,
+      "omitted": 49693
+    }
+  ],
+  "git_root": "/Users/huxiaohui/Documents/YostarWork/Git",
+  "git_runs": [
+    {
+      "version": "old",
+      "seconds": 1.19,
+      "peak_rss_bytes": 59080704,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "new",
+      "seconds": 1.41,
+      "peak_rss_bytes": 40321024,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "old",
+      "seconds": 1.88,
+      "peak_rss_bytes": 48922624,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "new",
+      "seconds": 1.2,
+      "peak_rss_bytes": 43155456,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "old",
+      "seconds": 1.25,
+      "peak_rss_bytes": 47333376,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "new",
+      "seconds": 1.08,
+      "peak_rss_bytes": 40861696,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "old",
+      "seconds": 1.21,
+      "peak_rss_bytes": 49741824,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "new",
+      "seconds": 1.01,
+      "peak_rss_bytes": 42319872,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "old",
+      "seconds": 1.79,
+      "peak_rss_bytes": 49397760,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    },
+    {
+      "version": "new",
+      "seconds": 1.25,
+      "peak_rss_bytes": 40255488,
+      "stats": {
+        "allocated": 11649576960,
+        "cancelled": false,
+        "directories": 6747,
+        "files": 59590,
+        "logical": 11480318753,
+        "omitted": 0
+      }
+    }
+  ],
+  "notes": [
+    "All runs are warm-or-unknown cache state; no strict cold-cache claim.",
+    "Home and Git roots changed during measurement; file counts are not exact snapshots.",
+    "Before binary is the clean dc567b3 build copied to /tmp/syscleaner-baseline-benchmark; after binary includes compact directory index and coalesced progress updates."
+  ]
+}
