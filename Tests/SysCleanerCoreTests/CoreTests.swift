@@ -617,6 +617,26 @@ final class CoreTests: XCTestCase {
         for snapshot in snapshots.dropFirst() { XCTAssertEqual(snapshot, snapshots[0]) }
     }
 
+    func testParallelSpaceScanAggregatesNestedBranchesRegardlessOfDiscoveryOrder() throws {
+        for branch in 0..<24 {
+            let parent = root.appendingPathComponent("branch\(branch)")
+            let child = parent.appendingPathComponent("nested")
+            try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+            try Data(repeating: 1, count: branch + 1)
+                .write(to: child.appendingPathComponent("data"))
+        }
+        for _ in 0..<5 {
+            let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+            let totals = Dictionary(uniqueKeysWithValues: report.spaceItems.filter(\.isFolder)
+                .map { ($0.url.path, $0.bytes) })
+            for branch in 0..<24 {
+                let parent = root.appendingPathComponent("branch\(branch)")
+                XCTAssertEqual(totals[parent.path], Int64(branch + 1))
+                XCTAssertEqual(totals[parent.appendingPathComponent("nested").path], Int64(branch + 1))
+            }
+        }
+    }
+
     func testScanExclusionsSkipNestedPathsWithoutRemovingOtherResults() throws {
         let excluded = root.appendingPathComponent("excluded")
         try FileManager.default.createDirectory(at: excluded, withIntermediateDirectories: true)

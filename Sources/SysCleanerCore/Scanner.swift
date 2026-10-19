@@ -59,6 +59,42 @@ public final class ScanControl: @unchecked Sendable {
     }
 }
 
+private final class DirectoryWorkQueue: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var pending: [URL]
+    private var outstanding = 1
+    private let control: ScanControl
+
+    init(root: URL, control: ScanControl) {
+        pending = [root]
+        self.control = control
+    }
+
+    func next() -> URL? {
+        condition.lock()
+        defer { condition.unlock() }
+        while pending.isEmpty && outstanding > 0 && !control.isCancelled {
+            condition.wait(until: Date().addingTimeInterval(0.05))
+        }
+        return control.isCancelled ? nil : pending.popLast()
+    }
+
+    func add(_ directory: URL) {
+        condition.lock()
+        pending.append(directory)
+        outstanding += 1
+        condition.signal()
+        condition.unlock()
+    }
+
+    func finished() {
+        condition.lock()
+        outstanding -= 1
+        if outstanding == 0 { condition.broadcast() }
+        condition.unlock()
+    }
+}
+
 public enum FileScanner {
     public static func scan(_ request: ScanRequest, control: ScanControl = ScanControl()) -> ScanReport {
         var warnings: [String] = []
@@ -71,7 +107,8 @@ public enum FileScanner {
         case .large:
             let oldest = Date().addingTimeInterval(-Double(request.olderThanDays) * 86_400)
             walkFiles(under: root, control: control, warnings: &warnings,
-                      parallel: true, excludedPaths: request.excludedPaths) { url, stamp in
+                      parallel: true, excludedPaths: request.excludedPaths,
+                      minimumFileBytes: request.minimumBytes) { url, stamp in
                 guard stamp.size >= request.minimumBytes,
                       request.olderThanDays == 0 || Date(timeIntervalSince1970: Double(stamp.modifiedSeconds)) <= oldest
                 else { return }
@@ -154,6 +191,7 @@ public enum FileScanner {
                                   includeApps: Bool = false, includeHardLinks: Bool = false,
                                   checkCloud: Bool = true, parallel: Bool = false,
                                   excludedPaths: [String] = [],
+                                  minimumFileBytes: Int64 = 0,
                                   onDirectory: @escaping (URL) -> Void = { _ in },
                                   onFile: @escaping (URL, FileStamp) -> Void) {
         guard !isExcluded(root, paths: excludedPaths) else { return }
@@ -181,6 +219,11 @@ public enum FileScanner {
                         let url = directory.appendingPathComponent(child.lastPathComponent)
                         if url.lastPathComponent == ".Trash" || isExcluded(url, paths: excludedPaths) { continue }
                         guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
+                        if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
+                            && info.stamp.size < minimumFileBytes {
+                            control.visited(url, bytes: info.stamp.size)
+                            continue
+                        }
                         if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
                         if info.isDirectory {
                             if url.pathExtension == "app" && !includeApps { continue }
@@ -196,50 +239,54 @@ public enum FileScanner {
             }
             return
         }
-        let queue = OperationQueue()
-        queue.maxConcurrentOperationCount = 4
-        queue.qualityOfService = .userInitiated
+        let work = DirectoryWorkQueue(root: root, control: control)
         let lock = NSLock()
         var localWarnings: [String] = []
-
-        func enqueue(_ directory: URL) {
-            queue.addOperation {
-                guard !control.isCancelled else { return }
-                let children: [URL]
-                do {
-                    children = try FileManager().contentsOfDirectory(at: directory, includingPropertiesForKeys: nil,
-                                                                     options: [])
-                } catch {
-                    lock.lock()
-                    appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
-                    control.recordOmitted()
-                    lock.unlock()
-                    return
-                }
-                for child in children where !control.isCancelled {
-                    // FileManager may return /private/tmp for a directory requested through /tmp.
-                    let url = directory.appendingPathComponent(child.lastPathComponent)
-                    if url.lastPathComponent == ".Trash" || isExcluded(url, paths: excludedPaths) { continue }
-                    guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
-                    if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
-                    if info.isDirectory {
-                        if url.pathExtension == "app" && !includeApps { continue }
+        DispatchQueue.concurrentPerform(iterations: 4) { _ in
+            let manager = FileManager()
+            while let directory = work.next() {
+                autoreleasepool {
+                    defer { work.finished() }
+                    let children: [URL]
+                    do {
+                        children = try manager.contentsOfDirectory(at: directory,
+                                                                   includingPropertiesForKeys: nil)
+                    } catch {
                         lock.lock()
-                        onDirectory(url)
-                        control.visited(url)
+                        appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
+                        control.recordOmitted()
                         lock.unlock()
-                        enqueue(url)
-                    } else if info.stamp.linkCount == 1 || includeHardLinks {
-                        lock.lock()
-                        onFile(url, info.stamp)
-                        control.visited(url, bytes: info.stamp.size)
-                        lock.unlock()
+                        return
+                    }
+                    for child in children where !control.isCancelled {
+                        // FileManager may return /private/tmp for a directory requested through /tmp.
+                        let url = directory.appendingPathComponent(child.lastPathComponent)
+                        if url.lastPathComponent == ".Trash" || isExcluded(url, paths: excludedPaths) { continue }
+                        guard let info = FileSafety.metadata(at: url),
+                              info.stamp.device == rootInfo.stamp.device else { continue }
+                        if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
+                            && info.stamp.size < minimumFileBytes {
+                            control.visited(url, bytes: info.stamp.size)
+                            continue
+                        }
+                        if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
+                        if info.isDirectory {
+                            if url.pathExtension == "app" && !includeApps { continue }
+                            lock.lock()
+                            onDirectory(url)
+                            control.visited(url)
+                            lock.unlock()
+                            work.add(url)
+                        } else if info.stamp.linkCount == 1 || includeHardLinks {
+                            lock.lock()
+                            onFile(url, info.stamp)
+                            control.visited(url, bytes: info.stamp.size)
+                            lock.unlock()
+                        }
                     }
                 }
             }
         }
-        enqueue(root)
-        queue.waitUntilAllOperationsAreFinished()
         for warning in localWarnings { appendWarning(warning, to: &warnings) }
     }
 
@@ -279,10 +326,20 @@ public enum FileScanner {
             directoryTotals[parent, default: 0] += stamp.size
             directoryAllocatedTotals[parent, default: 0] += stamp.allocatedBytes ?? 0
         }
-        for directory in directories.reversed() where directory.path != root.path {
-            directoryTotals[directory.deletingLastPathComponent(), default: 0] += directoryTotals[directory, default: 0]
-            directoryAllocatedTotals[directory.deletingLastPathComponent(), default: 0] +=
-                directoryAllocatedTotals[directory, default: 0]
+        // Workers discover siblings in an arbitrary order. Propagate totals only after
+        // every child directory has contributed to its parent.
+        var remainingChildren: [URL: Int] = [:]
+        for directory in directories where directory != root {
+            remainingChildren[directory.deletingLastPathComponent(), default: 0] += 1
+        }
+        var ready = directories.filter { remainingChildren[$0, default: 0] == 0 }
+        while let directory = ready.popLast() {
+            guard directory != root else { continue }
+            let parent = directory.deletingLastPathComponent()
+            directoryTotals[parent, default: 0] += directoryTotals[directory, default: 0]
+            directoryAllocatedTotals[parent, default: 0] += directoryAllocatedTotals[directory, default: 0]
+            remainingChildren[parent, default: 0] -= 1
+            if remainingChildren[parent] == 0 { ready.append(parent) }
         }
         let folders = directories.filter { $0.path != root.path }.map { url in
             SpaceItem(url: url, parent: url.deletingLastPathComponent(),

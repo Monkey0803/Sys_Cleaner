@@ -77,8 +77,9 @@ public enum FileSafety {
     }
 
     public static func isCloudPlaceholder(_ url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
-              values.isUbiquitousItem == true else { return false }
-        return values.ubiquitousItemDownloadingStatus != URLUbiquitousItemDownloadingStatus.current
+        guard let ubiquitous = try? url.resourceValues(forKeys: [.isUbiquitousItemKey]),
+              ubiquitous.isUbiquitousItem == true else { return false }
+        let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+        return status?.ubiquitousItemDownloadingStatus != URLUbiquitousItemDownloadingStatus.current
     }
 }
