@@ -13,11 +13,14 @@ struct XcodeWorkspaceView: View {
     @State private var deviceSupportWarnings: [String] = []
     @State private var runtimeError: String?
     @State private var simulatorInventoryError: String?
-    @State private var extrasLoaded = false
+    @State private var archiveScan: InventoryScan = .notScanned
+    @State private var simulatorScan: InventoryScan = .notScanned
+    @State private var runtimeScan: InventoryScan = .notScanned
+    @State private var deviceSupportScan: InventoryScan = .notScanned
+    @State private var extraRefreshID = UUID()
     @State private var selectedSimulatorIDs = Set<String>()
     @State private var showingTrashConfirmation = false
     @State private var showingSimulatorConfirmation = false
-    @State private var loadingExtras = false
     @State private var operationError: String?
     @State private var projectQuery = ""
     @State private var projectFilter: ProjectFilter = .all
@@ -28,13 +31,21 @@ struct XcodeWorkspaceView: View {
         var id: Self { self }
     }
 
-    private struct ExtraInventory: Sendable {
-        let archives: XcodeStorageInventory<XcodeArchive>
-        let simulators: [XcodeSimulator]
-        let runtimes: [XcodeSimulatorRuntime]
-        let deviceSupport: XcodeStorageInventory<XcodeDeviceSupport>
-        let simulatorError: String?
-        let runtimeError: String?
+    private enum InventoryScan {
+        case notScanned, scanning
+        case complete(TimeInterval), partial(TimeInterval), unavailable(TimeInterval)
+
+        var isScanning: Bool {
+            if case .scanning = self { return true }
+            return false
+        }
+    }
+
+    private enum ExtraInventoryResult: Sendable {
+        case archives(XcodeStorageInventory<XcodeArchive>, TimeInterval)
+        case simulators([XcodeSimulator], String?, TimeInterval)
+        case runtimes([XcodeSimulatorRuntime], String?, TimeInterval)
+        case deviceSupport(XcodeStorageInventory<XcodeDeviceSupport>, TimeInterval)
     }
 
     private enum ProjectFilter: String {
@@ -104,7 +115,7 @@ struct XcodeWorkspaceView: View {
                 }
                 Spacer()
                 Button("scanAgain") { refresh() }
-                    .disabled(store.isDeleting || loadingExtras)
+                    .disabled(store.isDeleting)
             }
             .padding(20)
             Picker("xcodeSection", selection: $section) {
@@ -156,31 +167,26 @@ struct XcodeWorkspaceView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("xcodeOverviewExplain")
                     .font(.caption).foregroundStyle(.secondary)
-                if store.isScanning || loadingExtras { ProgressView("scanning") }
+                if store.isScanning { ProgressView("scanning") }
                 overviewRow("xcodeProjects", count: store.entries.count,
                             bytes: store.entries.reduce(0) { $0 + $1.estimatedBytes },
                             status: store.isScanning ? L("scanning") : store.hasScanned
                                 ? L(store.hasPartialResults ? "partialResults" : "completeResults")
-                                : L("xcodeNotScanned"))
+                                : L("xcodeNotScanned"), isScanning: store.isScanning)
                 overviewRow("xcodeArchives", count: archives.count,
                             bytes: archives.reduce(0) { $0 + $1.logicalBytes },
-                            status: extrasLoaded ? L(archiveWarnings.isEmpty ? "completeResults" : "partialResults")
-                                : L("xcodeNotScanned"))
+                            status: scanStatus(archiveScan), isScanning: archiveScan.isScanning)
                 overviewRow("xcodeSimulators", count: simulators.count,
                             bytes: simulators.allSatisfy { $0.dataBytes != nil }
                                 ? simulators.reduce(0) { $0 + ($1.dataBytes ?? 0) } : nil,
-                            status: extrasLoaded ? L(simulatorInventoryError == nil ? "completeResults" : "xcodeUnavailable")
-                                : L("xcodeNotScanned"))
+                            status: scanStatus(simulatorScan), isScanning: simulatorScan.isScanning)
                 overviewRow("xcodeRuntimes", count: runtimes.count,
                             bytes: runtimes.allSatisfy { $0.logicalBytes != nil }
                                 ? runtimes.reduce(0) { $0 + ($1.logicalBytes ?? 0) } : nil,
-                            status: extrasLoaded ? L(runtimeError == nil ? "completeResults" : "xcodeUnavailable")
-                                : L("xcodeNotScanned"))
+                            status: scanStatus(runtimeScan), isScanning: runtimeScan.isScanning)
                 overviewRow("xcodeDeviceSupport", count: deviceSupport.count,
                             bytes: deviceSupport.reduce(0) { $0 + $1.logicalBytes },
-                            status: extrasLoaded
-                                ? L(deviceSupportWarnings.isEmpty ? "completeResults" : "partialResults")
-                                : L("xcodeNotScanned"))
+                            status: scanStatus(deviceSupportScan), isScanning: deviceSupportScan.isScanning)
                 HStack {
                     Text("xcodeOtherArtifacts")
                     Spacer()
@@ -239,13 +245,28 @@ struct XcodeWorkspaceView: View {
                     Text(runtimeError).font(.caption).foregroundStyle(.orange)
                         .textSelection(.enabled)
                 }
+                if let simulatorInventoryError {
+                    Text(simulatorInventoryError).font(.caption).foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
         }
     }
 
-    private func overviewRow(_ title: LocalizedStringKey, count: Int, bytes: Int64?, status: String) -> some View {
+    private func scanStatus(_ scan: InventoryScan) -> String {
+        switch scan {
+        case .notScanned: L("xcodeNotScanned")
+        case .scanning: L("scanning")
+        case .complete(let seconds): String(format: L("xcodeScanDuration"), L("completeResults"), seconds)
+        case .partial(let seconds): String(format: L("xcodeScanDuration"), L("partialResults"), seconds)
+        case .unavailable(let seconds): String(format: L("xcodeScanDuration"), L("xcodeUnavailable"), seconds)
+        }
+    }
+
+    private func overviewRow(_ title: LocalizedStringKey, count: Int, bytes: Int64?,
+                             status: String, isScanning: Bool) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.callout.weight(.semibold))
@@ -254,7 +275,10 @@ struct XcodeWorkspaceView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Text(status).font(.caption)
+                HStack(spacing: 5) {
+                    if isScanning { ProgressView().controlSize(.mini) }
+                    Text(status)
+                }.font(.caption)
                 Text(bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
                      ?? L("notMeasured"))
                     .font(.caption).foregroundStyle(.secondary)
@@ -463,7 +487,14 @@ struct XcodeWorkspaceView: View {
         VStack(spacing: 0) {
             Text("xcodeArchivesReadOnly").font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(16)
-            if archives.isEmpty {
+            ForEach(archiveWarnings, id: \.self) { warning in
+                Text(localizedWarning(warning)).font(.caption).foregroundStyle(.orange)
+                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+            }
+            if archiveScan.isScanning {
+                ProgressView("scanning").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if archives.isEmpty {
                 ContentUnavailableView("xcodeNoArchives", systemImage: "archivebox")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -489,7 +520,13 @@ struct XcodeWorkspaceView: View {
         VStack(spacing: 0) {
             Text("xcodeSimulatorHelp").font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(16)
-            if simulators.isEmpty {
+            if simulatorScan.isScanning {
+                ProgressView("scanning").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let simulatorInventoryError {
+                ContentUnavailableView("xcodeUnavailable", systemImage: "iphone.slash",
+                                       description: Text(simulatorInventoryError))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if simulators.isEmpty {
                 ContentUnavailableView("xcodeNoSimulators", systemImage: "iphone")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -515,7 +552,7 @@ struct XcodeWorkspaceView: View {
             HStack {
                 Spacer()
                 Button("xcodeDeleteDevices", role: .destructive) { showingSimulatorConfirmation = true }
-                    .disabled(selectedSimulatorIDs.isEmpty)
+                    .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning)
             }.padding(16).background(.bar)
         }
     }
@@ -544,44 +581,76 @@ struct XcodeWorkspaceView: View {
     }
 
     private func refreshExtras() async {
-        loadingExtras = true
-        let result = await Task.detached(priority: .utility) { () -> ExtraInventory in
-            let archives = XcodeStorage.archiveInventory()
-            let support = XcodeStorage.deviceSupportInventory()
-            let simulators: [XcodeSimulator]
-            let simulatorError: String?
-            do {
-                simulators = try XcodeStorage.simulators()
-                simulatorError = nil
-            } catch {
-                simulators = []
-                simulatorError = error.localizedDescription
+        let refreshID = UUID()
+        extraRefreshID = refreshID
+        archiveScan = .scanning
+        simulatorScan = .scanning
+        runtimeScan = .scanning
+        deviceSupportScan = .scanning
+        archives = []
+        simulators = []
+        runtimes = []
+        deviceSupport = []
+        archiveWarnings = []
+        deviceSupportWarnings = []
+        simulatorInventoryError = nil
+        runtimeError = nil
+        operationError = nil
+        selectedSimulatorIDs.removeAll()
+
+        await withTaskGroup(of: ExtraInventoryResult.self) { group in
+            group.addTask(priority: .utility) {
+                let start = ProcessInfo.processInfo.systemUptime
+                let inventory = XcodeStorage.archiveInventory()
+                return .archives(inventory, ProcessInfo.processInfo.systemUptime - start)
             }
-            let runtimes: [XcodeSimulatorRuntime]
-            let runtimeError: String?
-            do {
-                runtimes = try XcodeStorage.runtimeImages()
-                runtimeError = nil
-            } catch {
-                runtimes = []
-                runtimeError = error.localizedDescription
+            group.addTask(priority: .utility) {
+                let start = ProcessInfo.processInfo.systemUptime
+                let inventory = XcodeStorage.deviceSupportInventory()
+                return .deviceSupport(inventory, ProcessInfo.processInfo.systemUptime - start)
             }
-            return ExtraInventory(archives: archives, simulators: simulators,
-                                  runtimes: runtimes, deviceSupport: support,
-                                  simulatorError: simulatorError, runtimeError: runtimeError)
-        }.value
-        archives = result.archives.items
-        archiveWarnings = result.archives.warnings
-        simulators = result.simulators
-        runtimes = result.runtimes
-        deviceSupport = result.deviceSupport.items
-        deviceSupportWarnings = result.deviceSupport.warnings
-        simulatorInventoryError = result.simulatorError
-        operationError = result.simulatorError
-        runtimeError = result.runtimeError
-        extrasLoaded = true
-        selectedSimulatorIDs.formIntersection(Set(simulators.filter(\.canDelete).map(\.id)))
-        loadingExtras = false
+            group.addTask(priority: .utility) {
+                let start = ProcessInfo.processInfo.systemUptime
+                do {
+                    let items = try XcodeStorage.simulators()
+                    return .simulators(items, nil, ProcessInfo.processInfo.systemUptime - start)
+                } catch {
+                    return .simulators([], error.localizedDescription,
+                                       ProcessInfo.processInfo.systemUptime - start)
+                }
+            }
+            group.addTask(priority: .utility) {
+                let start = ProcessInfo.processInfo.systemUptime
+                do {
+                    let items = try XcodeStorage.runtimeImages()
+                    return .runtimes(items, nil, ProcessInfo.processInfo.systemUptime - start)
+                } catch {
+                    return .runtimes([], error.localizedDescription,
+                                     ProcessInfo.processInfo.systemUptime - start)
+                }
+            }
+            for await result in group {
+                guard extraRefreshID == refreshID, !Task.isCancelled else { continue }
+                switch result {
+                case .archives(let inventory, let seconds):
+                    archives = inventory.items
+                    archiveWarnings = inventory.warnings
+                    archiveScan = inventory.isComplete ? .complete(seconds) : .partial(seconds)
+                case .simulators(let items, let error, let seconds):
+                    simulators = items
+                    simulatorInventoryError = error
+                    simulatorScan = error == nil ? .complete(seconds) : .unavailable(seconds)
+                case .runtimes(let items, let error, let seconds):
+                    runtimes = items
+                    runtimeError = error
+                    runtimeScan = error == nil ? .complete(seconds) : .unavailable(seconds)
+                case .deviceSupport(let inventory, let seconds):
+                    deviceSupport = inventory.items
+                    deviceSupportWarnings = inventory.warnings
+                    deviceSupportScan = inventory.isComplete ? .complete(seconds) : .partial(seconds)
+                }
+            }
+        }
     }
 
     private func deleteSelectedSimulators() {

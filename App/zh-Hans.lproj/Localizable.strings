@@ -22,6 +22,7 @@
 "xcodeOverview" = "概览";
 "xcodeOverviewExplain" = "按类别查看 Xcode 相关空间的覆盖状态和估算大小。项目扫描完成不代表已扫描全部 Xcode 数据。";
 "xcodeOverviewCount" = "%d 项";
+"xcodeScanDuration" = "%1$@ · %2$.2f 秒";
 "xcodeNotScanned" = "未扫描";
 "xcodeUnavailable" = "无法读取";
 "xcodeNotCovered" = "未覆盖";

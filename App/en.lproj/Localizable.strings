@@ -22,6 +22,7 @@
 "xcodeOverview" = "Overview";
 "xcodeOverviewExplain" = "Coverage and sizes for Xcode-related storage. Categories below are independent; a complete project scan does not mean every Xcode location was scanned.";
 "xcodeOverviewCount" = "%d items";
+"xcodeScanDuration" = "%1$@ · %2$.2f s";
 "xcodeNotScanned" = "Not scanned";
 "xcodeUnavailable" = "Unavailable";
 "xcodeNotCovered" = "Not covered";
