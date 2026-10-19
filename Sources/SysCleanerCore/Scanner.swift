@@ -226,14 +226,22 @@ public enum FileScanner {
                         children = try FileManager.default.contentsOfDirectory(at: directory,
                                                                               includingPropertiesForKeys: nil)
                     } catch {
-                        appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
+                        if warnings.count < 50 {
+                            appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
+                        }
                         control.recordOmitted()
                         return
                     }
+                    let usesRequestedPath = children.first.map {
+                        $0.deletingLastPathComponent().path == directory.path
+                    } ?? true
                     for child in children where !control.isCancelled {
-                        let url = directory.appendingPathComponent(child.lastPathComponent)
-                        if url.lastPathComponent == ".Trash" || isExcluded(url, paths: excludedPaths) { continue }
-                        guard let info = FileSafety.metadata(at: url), info.stamp.device == rootInfo.stamp.device else { continue }
+                        let candidate = usesRequestedPath ? child :
+                            directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
+                        if candidate.lastPathComponent == ".Trash" || isExcluded(candidate, paths: excludedPaths) { continue }
+                        guard let info = FileSafety.metadata(at: candidate), info.stamp.device == rootInfo.stamp.device else { continue }
+                        let url = info.isDirectory
+                            ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
                         if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
                             && info.stamp.size < minimumFileBytes {
                             control.visited(url, bytes: info.stamp.size)
@@ -268,17 +276,25 @@ public enum FileScanner {
                                                                    includingPropertiesForKeys: nil)
                     } catch {
                         lock.lock()
-                        appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
+                        if localWarnings.count < 50 {
+                            appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
+                        }
                         control.recordOmitted()
                         lock.unlock()
                         return
                     }
+                    let usesRequestedPath = children.first.map {
+                        $0.deletingLastPathComponent().path == directory.path
+                    } ?? true
                     for child in children where !control.isCancelled {
                         // FileManager may return /private/tmp for a directory requested through /tmp.
-                        let url = directory.appendingPathComponent(child.lastPathComponent)
-                        if url.lastPathComponent == ".Trash" || isExcluded(url, paths: excludedPaths) { continue }
-                        guard let info = FileSafety.metadata(at: url),
+                        let candidate = usesRequestedPath ? child :
+                            directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
+                        if candidate.lastPathComponent == ".Trash" || isExcluded(candidate, paths: excludedPaths) { continue }
+                        guard let info = FileSafety.metadata(at: candidate),
                               info.stamp.device == rootInfo.stamp.device else { continue }
+                        let url = info.isDirectory
+                            ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
                         if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
                             && info.stamp.size < minimumFileBytes {
                             control.visited(url, bytes: info.stamp.size)
@@ -419,7 +435,7 @@ public enum FileScanner {
                       allocatedBytes: directoryAllocatedTotals[url, default: 0])
         }
         let others = otherTotals.filter { $0.value > 0 }.map { parent, bytes in
-            SpaceItem(url: parent.appendingPathComponent("__other_files__"), parent: parent,
+            SpaceItem(url: parent.appendingPathComponent("__other_files__", isDirectory: false), parent: parent,
                       bytes: bytes, isFolder: false, isOther: true,
                       allocatedBytes: otherAllocatedTotals[parent, default: 0])
         }
@@ -831,6 +847,7 @@ public enum FileScanner {
     }
 
     private static func isExcluded(_ url: URL, paths: [String]) -> Bool {
+        guard !paths.isEmpty else { return false }
         let candidate = url.standardizedFileURL.path
         return paths.contains { path in candidate == path || candidate.hasPrefix(path + "/") }
     }
