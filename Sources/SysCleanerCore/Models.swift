@@ -158,7 +158,7 @@ public struct ScanProgress: Sendable {
 }
 
 public struct SpaceItem: Identifiable, Sendable {
-    public let id: String
+    public var id: String { url.path + (isOther ? "#other" : "") }
     public let url: URL
     public let parent: URL
     public let bytes: Int64
@@ -168,7 +168,6 @@ public struct SpaceItem: Identifiable, Sendable {
 
     public init(url: URL, parent: URL, bytes: Int64, isFolder: Bool, isOther: Bool = false,
                 allocatedBytes: Int64? = nil) {
-        self.id = url.path + (isOther ? "#other" : "")
         self.url = url
         self.parent = parent
         self.bytes = bytes

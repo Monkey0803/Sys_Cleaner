@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -124,7 +125,10 @@ fn visit(
     visited: &AtomicUsize,
     cancel_after: Option<usize>,
 ) {
-    if path.file_name().is_some_and(|name| name == ".Trash") { return; }
+    // FileManager.contentsOfDirectory suppresses AppleDouble sidecar files.
+    if path.file_name().is_some_and(|name| name == ".Trash" || name.as_bytes().starts_with(b"._")) {
+        return;
+    }
     if excluded.is_some_and(|excluded| path.starts_with(excluded)) { return; }
     let metadata = match metadata {
         Ok(metadata) => metadata,
@@ -227,7 +231,7 @@ fn escape_json(value: &str) -> String {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 4 || !["shared", "local"].contains(&args[1].as_str()) {
-        eprintln!("usage: sys-cleaner-traversal-bench shared|local ROOT 1|4|8 [--manifest] [--cancel-after N]");
+        eprintln!("usage: sys-cleaner-traversal-bench shared|local ROOT 1|4|8 [--manifest] [--no-totals] [--cancel-after N]");
         std::process::exit(2);
     }
     let workers: usize = args[3].parse().unwrap_or(0);
@@ -239,9 +243,14 @@ fn main() {
         .and_then(|index| args.get(index + 1))
         .map(|path| fs::canonicalize(path).expect("excluded path does not exist"));
     let manifest = args.iter().any(|arg| arg == "--manifest");
+    let calculate_totals = !args.iter().any(|arg| arg == "--no-totals");
+    if manifest && !calculate_totals {
+        eprintln!("--manifest requires directory totals");
+        std::process::exit(2);
+    }
     let (stats, cancelled) = walk(root, workers, args[1] == "local", cancel_after,
                                   excluded.as_deref());
-    let (stats, folders) = stats.folder_totals();
+    let (stats, folders) = if calculate_totals { stats.folder_totals() } else { (stats, Vec::new()) };
     print!("{{\"files\":{},\"directories\":{},\"logical\":{},\"allocated\":{},\"omitted\":{},\"cancelled\":{}",
            stats.files, stats.directories, stats.logical, stats.allocated, stats.omitted, cancelled);
     if manifest {

@@ -50,8 +50,29 @@ private func metadata(_ url: URL) -> stat? {
     return lstat(url.path, &info) == 0 ? info : nil
 }
 
+private func isCloudPlaceholderUsingFileManager(_ url: URL, manager: FileManager) -> Bool {
+    guard manager.isUbiquitousItem(at: url) else { return false }
+    let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+    return status?.ubiquitousItemDownloadingStatus != URLUbiquitousItemDownloadingStatus.current
+}
+
+private func isCloudPlaceholderUsingNSURL(_ url: URL) -> Bool {
+    var value: AnyObject?
+    do {
+        try (url as NSURL).getResourceValue(&value, forKey: .isUbiquitousItemKey)
+    } catch {
+        return false
+    }
+    guard (value as? NSNumber)?.boolValue == true else { return false }
+    let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+    return status?.ubiquitousItemDownloadingStatus != URLUbiquitousItemDownloadingStatus.current
+}
+
 private func scanMatched(root: URL, workers: Int, cancelAfter: Int?, manifest: Bool,
-                         excluded: String?) -> Output {
+                         excluded: String?, local: Bool = false,
+                         calculateTotals: Bool = true, checkCloud: Bool = false,
+                         prefetchCloud: Bool = false, useFileManagerCloudCheck: Bool = false,
+                         useNSURLCloudCheck: Bool = false) -> Output {
     guard let rootInfo = metadata(root), (rootInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else {
         return Output(omitted: 1)
     }
@@ -59,62 +80,127 @@ private func scanMatched(root: URL, workers: Int, cancelAfter: Int?, manifest: B
     let lock = NSLock()
     var result = Output(directories: 1)
     var directoryTotals: [String: Totals] = [root.path: Totals()]
+    var visitedFiles = 0
     DispatchQueue.concurrentPerform(iterations: workers) { _ in
         let manager = FileManager()
+        var partial = Output()
+        var partialTotals: [String: Totals] = [:]
         while let directory = queue.next() {
             autoreleasepool {
                 defer { queue.finished() }
                 let children: [URL]
                 do {
-                    children = try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                    children = try manager.contentsOfDirectory(
+                        at: directory,
+                        includingPropertiesForKeys: prefetchCloud ? [.isUbiquitousItemKey] : nil)
                 } catch {
-                    lock.lock(); result.omitted += 1; lock.unlock()
+                    if local { partial.omitted += 1 }
+                    else { lock.lock(); result.omitted += 1; lock.unlock() }
                     return
                 }
+                let usesRequestedPath = children.first.map {
+                    $0.deletingLastPathComponent().path == directory.path
+                } ?? true
                 for child in children where !queue.cancelled {
-                    let url = directory.appendingPathComponent(child.lastPathComponent)
-                    if url.lastPathComponent == ".Trash" { continue }
-                    if let excluded, url.path == excluded || url.path.hasPrefix(excluded + "/") { continue }
-                    guard let info = metadata(url) else {
-                        lock.lock(); result.omitted += 1; lock.unlock()
+                    let candidate = usesRequestedPath ? child : directory.appendingPathComponent(
+                        child.lastPathComponent, isDirectory: false)
+                    if candidate.lastPathComponent == ".Trash" { continue }
+                    if let excluded, candidate.path == excluded || candidate.path.hasPrefix(excluded + "/") { continue }
+                    guard let info = metadata(candidate) else {
+                        if local { partial.omitted += 1 }
+                        else { lock.lock(); result.omitted += 1; lock.unlock() }
                         continue
                     }
                     if info.st_dev != rootInfo.st_dev ||
                         (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK) { continue }
-                    if (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) {
-                        lock.lock()
-                        result.directories += 1
-                        directoryTotals[url.path] = Totals()
-                        lock.unlock()
+                    let isDirectory = (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR)
+                    let url = isDirectory
+                        ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true)
+                        : candidate
+                    if checkCloud {
+                        let checkURL = usesRequestedPath ? child : url
+                        let placeholder: Bool
+                        if useFileManagerCloudCheck {
+                            placeholder = isCloudPlaceholderUsingFileManager(checkURL, manager: manager)
+                        } else if useNSURLCloudCheck {
+                            placeholder = isCloudPlaceholderUsingNSURL(checkURL)
+                        } else {
+                            placeholder = FileSafety.isCloudPlaceholder(checkURL)
+                        }
+                        if placeholder { continue }
+                    }
+                    if isDirectory {
+                        if local {
+                            partial.directories += 1
+                            partialTotals[url.path] = Totals()
+                        } else {
+                            lock.lock()
+                            result.directories += 1
+                            directoryTotals[url.path] = Totals()
+                            lock.unlock()
+                        }
                         queue.add(url)
                     } else {
                         let size = Int64(info.st_size)
                         let allocated = Int64(info.st_blocks) * 512
-                        lock.lock()
-                        result.files += 1
-                        result.logical += size
-                        result.allocated += allocated
-                        directoryTotals[directory.path, default: Totals()].logical += size
-                        directoryTotals[directory.path, default: Totals()].allocated += allocated
-                        let shouldCancel = cancelAfter.map { result.files >= $0 } ?? false
-                        lock.unlock()
+                        let shouldCancel: Bool
+                        if local {
+                            partial.files += 1
+                            partial.logical += size
+                            partial.allocated += allocated
+                            partialTotals[directory.path, default: Totals()].logical += size
+                            partialTotals[directory.path, default: Totals()].allocated += allocated
+                            if let cancelAfter {
+                                lock.lock()
+                                visitedFiles += 1
+                                shouldCancel = visitedFiles >= cancelAfter
+                                lock.unlock()
+                            } else { shouldCancel = false }
+                        } else {
+                            lock.lock()
+                            result.files += 1
+                            result.logical += size
+                            result.allocated += allocated
+                            directoryTotals[directory.path, default: Totals()].logical += size
+                            directoryTotals[directory.path, default: Totals()].allocated += allocated
+                            shouldCancel = cancelAfter.map { result.files >= $0 } ?? false
+                            lock.unlock()
+                        }
                         if shouldCancel { queue.cancel() }
                     }
                 }
             }
         }
+        if local {
+            lock.lock()
+            result.files += partial.files
+            result.directories += partial.directories
+            result.logical += partial.logical
+            result.allocated += partial.allocated
+            result.omitted += partial.omitted
+            for (path, bytes) in partialTotals {
+                directoryTotals[path, default: Totals()].logical += bytes.logical
+                directoryTotals[path, default: Totals()].allocated += bytes.allocated
+            }
+            lock.unlock()
+        }
     }
     result.cancelled = queue.cancelled
-    let directories = directoryTotals.keys.sorted {
-        let left = $0.split(separator: "/").count
-        let right = $1.split(separator: "/").count
-        return left == right ? $0 < $1 : left > right
+    if !calculateTotals { return result }
+    var remainingChildren: [String: Int] = [:]
+    for directory in directoryTotals.keys where directory != root.path {
+        let parent = URL(fileURLWithPath: directory, isDirectory: true).deletingLastPathComponent().path
+        remainingChildren[parent, default: 0] += 1
     }
-    for directory in directories where directory != root.path {
-        let parent = URL(fileURLWithPath: directory).deletingLastPathComponent().path
+    var ready = directoryTotals.keys.filter { remainingChildren[$0, default: 0] == 0 }
+    while let directory = ready.popLast() {
+        guard directory != root.path else { continue }
+        let parent = URL(fileURLWithPath: directory, isDirectory: true).deletingLastPathComponent().path
         let child = directoryTotals[directory] ?? Totals()
         directoryTotals[parent, default: Totals()].logical += child.logical
         directoryTotals[parent, default: Totals()].allocated += child.allocated
+        remainingChildren[parent, default: 0] -= 1
+        if remainingChildren[parent] == 0 { ready.append(parent) }
     }
     if manifest { result.folders = directoryTotals }
     return result
@@ -138,13 +224,46 @@ private func scanProduction(root: URL, manifest: Bool, excluded: String?,
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 4, let workers = Int(arguments[3]), [1, 4, 8].contains(workers),
-      ["matched", "production", "production-rust"].contains(arguments[1]) else {
-    fputs("usage: ScanBenchmark matched|production|production-rust ROOT 1|4|8 [--manifest] [--exclude PATH] [--helper PATH]\n", stderr)
+guard arguments.count >= 4, let workers = Int(arguments[3]), [1, 4, 6, 8].contains(workers),
+      ["matched", "matched-local", "production", "production-rust"].contains(arguments[1]) else {
+    fputs("usage: ScanBenchmark matched|matched-local|production|production-rust ROOT 1|4|6|8 [--manifest] [--no-totals] [--check-cloud] [--prefetch-cloud] [--filemanager-cloud] [--nsurl-cloud] [--exclude PATH] [--helper PATH]\n", stderr)
     exit(2)
 }
 let root = URL(fileURLWithPath: arguments[2]).resolvingSymlinksInPath().standardizedFileURL
 let manifest = arguments.contains("--manifest")
+let calculateTotals = !arguments.contains("--no-totals")
+let checkCloud = arguments.contains("--check-cloud")
+let prefetchCloud = arguments.contains("--prefetch-cloud")
+let useFileManagerCloudCheck = arguments.contains("--filemanager-cloud")
+let useNSURLCloudCheck = arguments.contains("--nsurl-cloud")
+if manifest && !calculateTotals {
+    fputs("--manifest requires directory totals\n", stderr)
+    exit(2)
+}
+if !calculateTotals && ["production", "production-rust"].contains(arguments[1]) {
+    fputs("--no-totals is only available for matched traversals\n", stderr)
+    exit(2)
+}
+if checkCloud && ["production", "production-rust"].contains(arguments[1]) {
+    fputs("--check-cloud is only available for matched traversals\n", stderr)
+    exit(2)
+}
+if prefetchCloud && !checkCloud {
+    fputs("--prefetch-cloud requires --check-cloud\n", stderr)
+    exit(2)
+}
+if useFileManagerCloudCheck && !checkCloud {
+    fputs("--filemanager-cloud requires --check-cloud\n", stderr)
+    exit(2)
+}
+if useNSURLCloudCheck && !checkCloud {
+    fputs("--nsurl-cloud requires --check-cloud\n", stderr)
+    exit(2)
+}
+if useFileManagerCloudCheck && useNSURLCloudCheck {
+    fputs("choose one cloud-check implementation\n", stderr)
+    exit(2)
+}
 let cancelAfter = arguments.firstIndex(of: "--cancel-after").flatMap { index in
     arguments.indices.contains(index + 1) ? Int(arguments[index + 1]) : nil
 }
@@ -154,11 +273,14 @@ let excluded = arguments.firstIndex(of: "--exclude").flatMap { index in
 let helper = arguments.firstIndex(of: "--helper").flatMap { index in
     arguments.indices.contains(index + 1) ? URL(fileURLWithPath: arguments[index + 1]) : nil
 }
-private let output = arguments[1] != "matched" ?
+private let output = ["production", "production-rust"].contains(arguments[1]) ?
     scanProduction(root: root, manifest: manifest, excluded: excluded,
                    useRust: arguments[1] == "production-rust", helper: helper) :
     scanMatched(root: root, workers: workers, cancelAfter: cancelAfter, manifest: manifest,
-                excluded: excluded)
+                excluded: excluded, local: arguments[1] == "matched-local",
+                calculateTotals: calculateTotals, checkCloud: checkCloud,
+                prefetchCloud: prefetchCloud, useFileManagerCloudCheck: useFileManagerCloudCheck,
+                useNSURLCloudCheck: useNSURLCloudCheck)
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.sortedKeys]
 do {

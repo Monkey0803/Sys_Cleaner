@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-19",
+  "root": "/Users/huxiaohui",
+  "command": ".build/release/ScanBenchmark production /Users/huxiaohui 6",
+  "records": [
+    {
+      "version": "original",
+      "seconds": 60.33,
+      "max_rss_bytes": 2112372736,
+      "summary": {
+        "allocated": 335064133632,
+        "cancelled": false,
+        "directories": 537001,
+        "files": 2121034,
+        "logical": 370051142011,
+        "omitted": 49875
+      }
+    },
+    {
+      "version": "merged_directory_usage",
+      "seconds": 55.59,
+      "max_rss_bytes": 1973338112,
+      "summary": {
+        "allocated": 335068762112,
+        "cancelled": false,
+        "directories": 537001,
+        "files": 2121036,
+        "logical": 370059957922,
+        "omitted": 49877
+      }
+    },
+    {
+      "version": "computed_space_item_id_1",
+      "seconds": 60.06,
+      "max_rss_bytes": 1652293632,
+      "summary": {
+        "allocated": 335061213184,
+        "cancelled": false,
+        "directories": 537001,
+        "files": 2121035,
+        "logical": 370060987159,
+        "omitted": 49880
+      }
+    },
+    {
+      "version": "computed_space_item_id_2",
+      "seconds": 54.05,
+      "max_rss_bytes": 1585152000,
+      "summary": {
+        "allocated": 335084019712,
+        "cancelled": false,
+        "directories": 537002,
+        "files": 2121042,
+        "logical": 370066985796,
+        "omitted": 49876
+      }
+    }
+  ]
+}

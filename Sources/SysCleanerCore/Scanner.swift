@@ -109,6 +109,29 @@ private final class DirectoryWorkQueue: @unchecked Sendable {
     }
 }
 
+private struct SpaceDirectoryUsage {
+    var logical: Int64 = 0
+    var allocated: Int64 = 0
+    var otherLogical: Int64 = 0
+    var otherAllocated: Int64 = 0
+    var remainingChildren = 0
+
+    mutating func addFile(logical: Int64, allocated: Int64, isOther: Bool) {
+        self.logical += logical
+        self.allocated += allocated
+        if isOther {
+            otherLogical += logical
+            otherAllocated += allocated
+        }
+    }
+
+    mutating func addChild(_ child: SpaceDirectoryUsage) {
+        logical += child.logical
+        allocated += child.allocated
+        remainingChildren -= 1
+    }
+}
+
 public enum FileScanner {
     public static func scan(_ request: ScanRequest, control: ScanControl = ScanControl()) -> ScanReport {
         var warnings: [String] = []
@@ -205,6 +228,7 @@ public enum FileScanner {
     private static func walkFiles(under root: URL, control: ScanControl, warnings: inout [String],
                                   includeApps: Bool = false, includeHardLinks: Bool = false,
                                   checkCloud: Bool = true, parallel: Bool = false,
+                                  workers: Int = 4,
                                   excludedPaths: [String] = [],
                                   minimumFileBytes: Int64 = 0,
                                   onDirectory: @escaping (URL) -> Void = { _ in },
@@ -265,7 +289,7 @@ public enum FileScanner {
         let work = DirectoryWorkQueue(root: root, control: control)
         let lock = NSLock()
         var localWarnings: [String] = []
-        DispatchQueue.concurrentPerform(iterations: 4) { _ in
+        DispatchQueue.concurrentPerform(iterations: workers) { _ in
             let manager = FileManager()
             while let directory = work.next() {
                 autoreleasepool {
@@ -325,11 +349,8 @@ public enum FileScanner {
                                   excludedPaths: [String], useRust: Bool,
                                   helperURL: URL?) -> ScanReport {
         var warnings: [String] = []
-        var directoryTotals: [URL: Int64] = [:]
-        var directoryAllocatedTotals: [URL: Int64] = [:]
+        var usage: [URL: SpaceDirectoryUsage] = [:]
         var directories: [URL] = []
-        var otherTotals: [URL: Int64] = [:]
-        var otherAllocatedTotals: [URL: Int64] = [:]
         var visibleFiles: [SpaceItem] = []
         var zeroFiles: [SpaceItem] = []
         var count = 0
@@ -341,19 +362,21 @@ public enum FileScanner {
             total += bytes
             allocatedTotal += allocatedBytes ?? 0
             let parent = url.deletingLastPathComponent()
+            let isOther: Bool
             if bytes == 0 && zeroFiles.count < 10_000 {
                 zeroFiles.append(SpaceItem(url: url, parent: parent, bytes: 0, isFolder: false,
                                            allocatedBytes: allocatedBytes))
+                isOther = false
             } else if bytes >= 1_048_576 && visibleFiles.count < 10_000 {
                 visibleFiles.append(SpaceItem(url: url, parent: parent, bytes: bytes, isFolder: false,
                                               allocatedBytes: allocatedBytes))
+                isOther = false
             } else {
-                otherTotals[parent, default: 0] += bytes
-                otherAllocatedTotals[parent, default: 0] += allocatedBytes ?? 0
+                isOther = true
                 if bytes == 0 || bytes >= 1_048_576 { hiddenIndividualCount += 1 }
             }
-            directoryTotals[parent, default: 0] += bytes
-            directoryAllocatedTotals[parent, default: 0] += allocatedBytes ?? 0
+            usage[parent, default: SpaceDirectoryUsage()].addFile(
+                logical: bytes, allocated: allocatedBytes ?? 0, isOther: isOther)
         }
         var usedRust = false
         if useRust {
@@ -371,6 +394,7 @@ public enum FileScanner {
                         continue
                     }
                     directories.append(url)
+                    if usage[url] == nil { usage[url] = SpaceDirectoryUsage() }
                     control.visited(url)
                 }
                 let blockedDirectories = cloudDirectories
@@ -409,35 +433,38 @@ public enum FileScanner {
         if !usedRust {
             walkFiles(under: root, control: control, warnings: &warnings,
                       includeApps: true, includeHardLinks: true, parallel: true,
+                      workers: 6,
                       excludedPaths: excludedPaths,
-                      onDirectory: { directories.append($0) }) { url, stamp in
+                      onDirectory: { directory in
+                          directories.append(directory)
+                          if usage[directory] == nil { usage[directory] = SpaceDirectoryUsage() }
+                      }) { url, stamp in
                 recordFile(url, stamp.size, stamp.allocatedBytes)
             }
         }
         // Workers discover siblings in an arbitrary order. Propagate totals only after
         // every child directory has contributed to its parent.
-        var remainingChildren: [URL: Int] = [:]
         for directory in directories where directory != root {
-            remainingChildren[directory.deletingLastPathComponent(), default: 0] += 1
+            usage[directory.deletingLastPathComponent(), default: SpaceDirectoryUsage()].remainingChildren += 1
         }
-        var ready = directories.filter { remainingChildren[$0, default: 0] == 0 }
+        var ready = directories.filter { usage[$0]?.remainingChildren == 0 }
         while let directory = ready.popLast() {
             guard directory != root else { continue }
             let parent = directory.deletingLastPathComponent()
-            directoryTotals[parent, default: 0] += directoryTotals[directory, default: 0]
-            directoryAllocatedTotals[parent, default: 0] += directoryAllocatedTotals[directory, default: 0]
-            remainingChildren[parent, default: 0] -= 1
-            if remainingChildren[parent] == 0 { ready.append(parent) }
+            let child = usage[directory, default: SpaceDirectoryUsage()]
+            usage[parent, default: SpaceDirectoryUsage()].addChild(child)
+            if usage[parent]?.remainingChildren == 0 { ready.append(parent) }
         }
         let folders = directories.filter { $0.path != root.path }.map { url in
-            SpaceItem(url: url, parent: url.deletingLastPathComponent(),
-                      bytes: directoryTotals[url, default: 0], isFolder: true,
-                      allocatedBytes: directoryAllocatedTotals[url, default: 0])
+            let size = usage[url, default: SpaceDirectoryUsage()]
+            return SpaceItem(url: url, parent: url.deletingLastPathComponent(),
+                             bytes: size.logical, isFolder: true,
+                             allocatedBytes: size.allocated)
         }
-        let others = otherTotals.filter { $0.value > 0 }.map { parent, bytes in
+        let others = usage.filter { $0.value.otherLogical > 0 }.map { parent, size in
             SpaceItem(url: parent.appendingPathComponent("__other_files__", isDirectory: false), parent: parent,
-                      bytes: bytes, isFolder: false, isOther: true,
-                      allocatedBytes: otherAllocatedTotals[parent, default: 0])
+                      bytes: size.otherLogical, isFolder: false, isOther: true,
+                      allocatedBytes: size.otherAllocated)
         }
         if hiddenIndividualCount > 0 {
             appendWarning("spaceLimit", to: &warnings)

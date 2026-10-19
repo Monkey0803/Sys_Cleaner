@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-19",
+  "root": "/Users/huxiaohui",
+  "production_runs": [
+    {
+      "variant": "swift_4_workers",
+      "seconds": 66.48,
+      "peak_rss_bytes": 1982971904,
+      "result": {
+        "allocated": 334599344128,
+        "cancelled": false,
+        "directories": 535792,
+        "files": 2110023,
+        "logical": 369624303641,
+        "omitted": 49540
+      }
+    },
+    {
+      "variant": "swift_6_workers",
+      "seconds": 59.71,
+      "peak_rss_bytes": 1884864512,
+      "result": {
+        "allocated": 334620434432,
+        "cancelled": false,
+        "directories": 535804,
+        "files": 2110039,
+        "logical": 369629371807,
+        "omitted": 49541
+      }
+    },
+    {
+      "variant": "swift_4_workers",
+      "seconds": 65.97,
+      "peak_rss_bytes": 1950072832,
+      "result": {
+        "allocated": 334616985600,
+        "cancelled": false,
+        "directories": 535807,
+        "files": 2110042,
+        "logical": 369629096544,
+        "omitted": 49538
+      }
+    },
+    {
+      "variant": "swift_6_workers",
+      "seconds": 59.84,
+      "peak_rss_bytes": 2183118848,
+      "result": {
+        "allocated": 334621839360,
+        "cancelled": false,
+        "directories": 535820,
+        "files": 2110066,
+        "logical": 369638828385,
+        "omitted": 49541
+      }
+    }
+  ],
+  "cloud_stage_runs": [
+    {
+      "variant": "swift_4_workers",
+      "seconds": 49.74,
+      "peak_rss_bytes": 761233408,
+      "result": {
+        "allocated": 334595706880,
+        "cancelled": false,
+        "directories": 535791,
+        "files": 2110026,
+        "logical": 369615399178,
+        "omitted": 524
+      }
+    },
+    {
+      "variant": "swift_6_workers",
+      "seconds": 43.43,
+      "peak_rss_bytes": 930611200,
+      "result": {
+        "allocated": 334598488064,
+        "cancelled": false,
+        "directories": 535791,
+        "files": 2110025,
+        "logical": 369622039966,
+        "omitted": 524
+      }
+    },
+    {
+      "variant": "swift_8_workers",
+      "seconds": 41.69,
+      "peak_rss_bytes": 1005223936,
+      "result": {
+        "allocated": 334596341760,
+        "cancelled": false,
+        "directories": 535791,
+        "files": 2110025,
+        "logical": 369618314450,
+        "omitted": 524
+      }
+    },
+    {
+      "variant": "swift_nsurl_4_workers",
+      "seconds": 51.49,
+      "peak_rss_bytes": 742424576,
+      "result": {
+        "allocated": 334624169984,
+        "cancelled": false,
+        "directories": 535791,
+        "files": 2110103,
+        "logical": 369644911364,
+        "omitted": 524
+      }
+    }
+  ]
+}

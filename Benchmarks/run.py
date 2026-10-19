@@ -27,7 +27,7 @@ def command(variant, root, workers, extra=()):
     if variant == "swift":
         return [str(SWIFT), "matched", str(root), str(workers), *options, *extra]
     if variant == "production":
-        return [str(SWIFT), "production", str(root), "4", *options, *extra]
+        return [str(SWIFT), "production", str(root), "6", *options, *extra]
     return [str(RUST), "shared" if variant == "rust_shared" else "local",
             str(root), str(workers), *options, *extra]
 
@@ -74,6 +74,7 @@ def verify_fixture():
         (root / "empty").mkdir()
         (root / ".Trash").mkdir()
         (root / ".Trash/ignored").write_bytes(b"ignored")
+        (root / "._sidecar").write_bytes(b"AppleDouble")
         (root / "link").symlink_to(deep, target_is_directory=True)
         (root / "outside").symlink_to(Path.home(), target_is_directory=True)
         unreadable = root / "unreadable"
@@ -101,7 +102,7 @@ def verify_fixture():
             for workers in (1, 4, 8):
                 result = execute(variant, root, workers, ["--cancel-after", "1"])
                 assert result["cancelled"] and result["files"] < 2002, (variant, workers, result)
-    print("fixture: deep folders, symlinks, hardlink, .Trash, unreadable folder, cancellation: PASS", flush=True)
+    print("fixture: deep folders, symlinks, hardlink, .Trash, AppleDouble, unreadable folder, cancellation: PASS", flush=True)
 
 
 def verify_cross_volume():

@@ -2,6 +2,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -79,7 +80,8 @@ fn walk(root: &Path, excluded: &[PathBuf]) -> io::Result<Results> {
                                     continue;
                                 };
                                 let path = child.path();
-                                if path.file_name().is_some_and(|name| name == ".Trash")
+                                if path.file_name().is_some_and(|name| name == ".Trash" ||
+                                    name.as_bytes().starts_with(b"._"))
                                     || is_excluded(&path, excluded) { continue; }
                                 let Ok(info) = fs::symlink_metadata(&path) else { continue; };
                                 if info.dev() != root_device || info.file_type().is_symlink() {

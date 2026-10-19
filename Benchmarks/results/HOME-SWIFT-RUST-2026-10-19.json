@@ -1,0 +1,276 @@
+{
+  "date": "2026-10-19",
+  "root": "/Users/huxiaohui",
+  "threads": 4,
+  "host": "Apple M4, 32 GiB",
+  "swift": "6.4",
+  "rustc": "1.99.1",
+  "home_runs": [
+    {
+      "variant": "rust_local",
+      "seconds": 21.87,
+      "peak_rss_bytes": 442695680,
+      "result": {
+        "files": 2108343,
+        "directories": 535767,
+        "logical": 369490156134,
+        "allocated": 334468292608,
+        "omitted": 525,
+        "cancelled": false
+      }
+    },
+    {
+      "variant": "swift_matched_local",
+      "seconds": 27.46,
+      "peak_rss_bytes": 465829888,
+      "result": {
+        "allocated": 334468419584,
+        "cancelled": false,
+        "directories": 535767,
+        "files": 2108343,
+        "logical": 369490332528,
+        "omitted": 525
+      }
+    },
+    {
+      "variant": "swift_matched_local",
+      "seconds": 27.53,
+      "peak_rss_bytes": 456572928,
+      "result": {
+        "allocated": 334469525504,
+        "cancelled": false,
+        "directories": 535767,
+        "files": 2108345,
+        "logical": 369490879470,
+        "omitted": 525
+      }
+    },
+    {
+      "variant": "rust_local",
+      "seconds": 21.89,
+      "peak_rss_bytes": 435027968,
+      "result": {
+        "files": 2108344,
+        "directories": 535767,
+        "logical": 369489960152,
+        "allocated": 334468546560,
+        "omitted": 525,
+        "cancelled": false
+      }
+    }
+  ],
+  "stage_runs": [
+    {
+      "variant": "swift_matched_no_totals",
+      "seconds": 24.0,
+      "peak_rss_bytes": 308707328,
+      "result": {
+        "allocated": 334469021696,
+        "cancelled": false,
+        "directories": 535767,
+        "files": 2108346,
+        "logical": 369490733461,
+        "omitted": 525
+      }
+    },
+    {
+      "variant": "swift_matched_local_no_totals",
+      "seconds": 24.17,
+      "peak_rss_bytes": 409305088,
+      "result": {
+        "allocated": 334470176768,
+        "cancelled": false,
+        "directories": 535767,
+        "files": 2108346,
+        "logical": 369492201759,
+        "omitted": 525
+      }
+    },
+    {
+      "variant": "swift_matched_local_cloud_no_totals",
+      "seconds": 48.91,
+      "peak_rss_bytes": 958595072,
+      "result": {
+        "allocated": 334470303744,
+        "cancelled": false,
+        "directories": 535767,
+        "files": 2108347,
+        "logical": 369492771041,
+        "omitted": 525
+      }
+    },
+    {
+      "variant": "swift_matched_local_cloud_prefetch_no_totals",
+      "seconds": 73.09,
+      "peak_rss_bytes": 1437040640,
+      "result": {
+        "allocated": 334466695168,
+        "cancelled": false,
+        "directories": 535767,
+        "files": 2108346,
+        "logical": 369488321114,
+        "omitted": 525
+      }
+    },
+    {
+      "variant": "swift_matched_local_cloud_no_totals",
+      "seconds": 49.19,
+      "peak_rss_bytes": 954515456,
+      "result": {
+        "allocated": 334467227648,
+        "cancelled": false,
+        "directories": 535767,
+        "files": 2108348,
+        "logical": 369488883109,
+        "omitted": 525
+      }
+    }
+  ],
+  "rust_helper": {
+    "seconds": 21.07,
+    "peak_rss_bytes": 860340224,
+    "output_bytes": 485148204
+  },
+  "stable_git_pairs": [
+    {
+      "pair": 1,
+      "variant": "swift",
+      "seconds": 0.567,
+      "rss": 17235968,
+      "result": {
+        "allocated": 11679997952,
+        "cancelled": false,
+        "directories": 6731,
+        "files": 59759,
+        "logical": 11510416035,
+        "omitted": 0
+      }
+    },
+    {
+      "pair": 1,
+      "variant": "rust",
+      "seconds": 0.125,
+      "rss": 7684096,
+      "result": {
+        "files": 59759,
+        "directories": 6731,
+        "logical": 11510416035,
+        "allocated": 11679997952,
+        "omitted": 0,
+        "cancelled": false
+      }
+    },
+    {
+      "pair": 2,
+      "variant": "rust",
+      "seconds": 0.121,
+      "rss": 7733248,
+      "result": {
+        "files": 59759,
+        "directories": 6731,
+        "logical": 11510416035,
+        "allocated": 11679997952,
+        "omitted": 0,
+        "cancelled": false
+      }
+    },
+    {
+      "pair": 2,
+      "variant": "swift",
+      "seconds": 0.23,
+      "rss": 18333696,
+      "result": {
+        "allocated": 11679997952,
+        "cancelled": false,
+        "directories": 6731,
+        "files": 59759,
+        "logical": 11510416035,
+        "omitted": 0
+      }
+    },
+    {
+      "pair": 3,
+      "variant": "swift",
+      "seconds": 0.21,
+      "rss": 17760256,
+      "result": {
+        "allocated": 11679997952,
+        "cancelled": false,
+        "directories": 6731,
+        "files": 59759,
+        "logical": 11510416035,
+        "omitted": 0
+      }
+    },
+    {
+      "pair": 3,
+      "variant": "rust",
+      "seconds": 0.12,
+      "rss": 7880704,
+      "result": {
+        "files": 59759,
+        "directories": 6731,
+        "logical": 11510416035,
+        "allocated": 11679997952,
+        "omitted": 0,
+        "cancelled": false
+      }
+    },
+    {
+      "pair": 4,
+      "variant": "rust",
+      "seconds": 0.117,
+      "rss": 7946240,
+      "result": {
+        "files": 59759,
+        "directories": 6731,
+        "logical": 11510416035,
+        "allocated": 11679997952,
+        "omitted": 0,
+        "cancelled": false
+      }
+    },
+    {
+      "pair": 4,
+      "variant": "swift",
+      "seconds": 0.207,
+      "rss": 18186240,
+      "result": {
+        "allocated": 11679997952,
+        "cancelled": false,
+        "directories": 6731,
+        "files": 59759,
+        "logical": 11510416035,
+        "omitted": 0
+      }
+    },
+    {
+      "pair": 5,
+      "variant": "swift",
+      "seconds": 0.207,
+      "rss": 17416192,
+      "result": {
+        "allocated": 11679997952,
+        "cancelled": false,
+        "directories": 6731,
+        "files": 59759,
+        "logical": 11510416035,
+        "omitted": 0
+      }
+    },
+    {
+      "pair": 5,
+      "variant": "rust",
+      "seconds": 0.119,
+      "rss": 7733248,
+      "result": {
+        "files": 59759,
+        "directories": 6731,
+        "logical": 11510416035,
+        "allocated": 11679997952,
+        "omitted": 0,
+        "cancelled": false
+      }
+    }
+  ]
+}
