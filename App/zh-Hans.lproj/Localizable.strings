@@ -40,6 +40,15 @@
 "xcodeNotScanned" = "未扫描";
 "xcodeUnavailable" = "无法读取";
 "xcodeNotCovered" = "未覆盖";
+"xcodeStandardPath" = "标准位置：%@";
+"xcodeAddedPath" = "手动添加：%@";
+"xcodeSimulatorSource" = "来源：xcrun simctl 设备清单；路径由设备记录提供";
+"xcodeRuntimeSource" = "来源：xcrun simctl 运行时清单；路径由镜像记录提供";
+"xcodeSharedCaches" = "DerivedData 共享缓存";
+"xcodeSharedCachesSource" = "范围：CompilationCache、ModuleCache 等；尚未计量";
+"xcodeTestDevices" = "测试设备数据";
+"xcodeTestDevicesSource" = "范围：XCTestDevices 等；尚未确认路径和计量";
+"xcodeCoverageScope" = "完成状态仅针对列出的来源；Xcode 设置中的自定义 DerivedData 须在项目页手动添加，自定义归档位置和其他 Xcode 数据尚未覆盖。多个 Xcode 可能共用这些位置；不按版本推断归属，也不把各类别大小相加作为总占用。";
 "xcodeOtherArtifacts" = "其他 Xcode 数据";
 "xcodeOtherArtifactsHelp" = "测试克隆、其他缓存等数据尚未纳入清单；此概览不是 Xcode 总占用。";
 "xcodeRuntimes" = "模拟器运行时";
@@ -92,7 +101,9 @@
 "xcodeDeleteDevices" = "删除所选设备";
 "xcodeSimulatorConfirm" = "删除所选模拟器设备？";
 "xcodeSimulatorIrreversible" = "将删除 %d 个设备（%@）及其中的 App 和测试数据。此操作不能通过废纸篓恢复。执行前会重新检查设备状态。";
-"xcodeInvalidRoot" = "请选择个人目录中名为 DerivedData 的真实文件夹。";
+"xcodeInvalidRoot" = "请选择个人目录中名为 DerivedData 的真实文件夹，且不得与已有来源或其他分类重叠。";
+"xcodeInvalidRootWarning" = "无效的 DerivedData 来源：";
+"xcodeOverlappingRootWarning" = "与已扫描来源重叠：";
 "uninstallDescription" = "审阅应用及精确匹配的关联数据。";
 "orphansDescription" = "查找可能属于已卸载应用的用户数据；请在访达中核实，当前不提供自动删除。";
 "scan" = "扫描";

@@ -153,9 +153,13 @@ final class AppPreferences: ObservableObject {
 
     func addDerivedDataRoot(_ url: URL) {
         let root = url.standardizedFileURL
-        guard root.lastPathComponent == "DerivedData", FileSafety.isDirectory(root),
-              root.resolvingSymlinksInPath().path == root.path,
-              root.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path + "/"),
+        let standard = XcodeStorage.defaultDerivedDataRoot.standardizedFileURL.path
+        guard XcodeStorage.isAllowedDerivedDataRoot(root),
+              root.path != standard, !root.path.hasPrefix(standard + "/"),
+              !standard.hasPrefix(root.path + "/"),
+              !derivedDataRoots.contains(where: {
+                  root.path.hasPrefix($0.path + "/") || $0.path.hasPrefix(root.path + "/")
+              }),
               !derivedDataRoots.contains(where: { $0.path == root.path }) else { return }
         derivedDataRoots.append(root)
         derivedDataRoots.sort { $0.path < $1.path }

@@ -911,6 +911,42 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(report.warnings, ["Cannot read \(unreadable.path)"])
     }
 
+    func testXcodeDerivedDataRejectsOverlappingAndSymlinkRootsWithoutDoubleCounting() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let project = root.appendingPathComponent("Project-abcdefghijklmnopqrstuvwxabcd")
+        let nested = project.appendingPathComponent("DerivedData")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 21).write(to: nested.appendingPathComponent("build.o"))
+        let alias = parent.appendingPathComponent("Alias/DerivedData")
+        try FileManager.default.createDirectory(at: alias.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: root)
+
+        XCTAssertTrue(XcodeStorage.isAllowedDerivedDataRoot(root))
+        XCTAssertFalse(XcodeStorage.isAllowedDerivedDataRoot(alias))
+        let report = XcodeStorage.derivedDataEntries(roots: [root, root, nested, alias])
+        XCTAssertEqual(report.entries.count, 1)
+        XCTAssertEqual(report.entries[0].url, project)
+        XCTAssertEqual(report.entries[0].estimatedBytes, 21)
+        XCTAssertEqual(report.omittedCount, 2)
+        XCTAssertTrue(report.warnings.contains("Overlapping root \(nested.path)"))
+        XCTAssertTrue(report.warnings.contains("Invalid root \(alias.path)"))
+    }
+
+    func testXcodeDerivedDataRejectsReadOnlyCategoryOverlap() throws {
+        let root = XcodeStorage.defaultArchivesRoot
+            .appendingPathComponent("SysCleaner-XcodeTests-\(UUID().uuidString)/DerivedData")
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertFalse(XcodeStorage.isAllowedDerivedDataRoot(root))
+        let report = XcodeStorage.derivedDataEntries(roots: [root])
+        XCTAssertTrue(report.entries.isEmpty)
+        XCTAssertEqual(report.omittedCount, 1)
+        XCTAssertEqual(report.warnings, ["Invalid root \(root.path)"])
+    }
+
     func testXcodeScanReportsDirectoryChangedWhileMeasuring() throws {
         let parent = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")

@@ -40,6 +40,15 @@
 "xcodeNotScanned" = "Not scanned";
 "xcodeUnavailable" = "Unavailable";
 "xcodeNotCovered" = "Not covered";
+"xcodeStandardPath" = "Standard location: %@";
+"xcodeAddedPath" = "Added manually: %@";
+"xcodeSimulatorSource" = "Source: xcrun simctl device list; paths come from device records";
+"xcodeRuntimeSource" = "Source: xcrun simctl runtime list; paths come from image records";
+"xcodeSharedCaches" = "Shared DerivedData caches";
+"xcodeSharedCachesSource" = "Scope: CompilationCache, ModuleCache, and others; not measured yet";
+"xcodeTestDevices" = "Test device data";
+"xcodeTestDevicesSource" = "Scope: XCTestDevices and others; paths and sizes not verified yet";
+"xcodeCoverageScope" = "Complete applies only to listed sources. Add custom DerivedData locations from Xcode Settings manually on the Projects tab. Custom archive locations and other Xcode data are not covered. Multiple Xcode versions may share these locations; no version attribution or combined total is inferred.";
 "xcodeOtherArtifacts" = "Other Xcode data";
 "xcodeOtherArtifactsHelp" = "Test clones, additional caches, and other Xcode data are not inventoried here. This overview is not a total of all Xcode storage.";
 "xcodeRuntimes" = "Simulator Runtimes";
@@ -92,7 +101,9 @@
 "xcodeDeleteDevices" = "Delete Selected Devices";
 "xcodeSimulatorConfirm" = "Delete selected simulator devices?";
 "xcodeSimulatorIrreversible" = "This deletes %d devices (%@) and their apps and test data. Trash cannot restore them. Device state is checked again before deletion.";
-"xcodeInvalidRoot" = "Choose a real folder named DerivedData inside your home directory.";
+"xcodeInvalidRoot" = "Choose a real DerivedData folder in your home directory that does not overlap another source or category.";
+"xcodeInvalidRootWarning" = "Invalid DerivedData source:";
+"xcodeOverlappingRootWarning" = "Overlaps an already scanned source:";
 "uninstallDescription" = "Review apps and precisely matched data before removal.";
 "orphansDescription" = "Find data that may belong to removed apps. Verify it in Finder; automatic deletion is unavailable here.";
 "scan" = "Scan";

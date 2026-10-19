@@ -91,6 +91,20 @@ public enum XcodeStorage {
             .appendingPathComponent("Library/Developer/Xcode/iOS DeviceSupport")
     }
 
+    public static func isAllowedDerivedDataRoot(_ suppliedRoot: URL) -> Bool {
+        let root = suppliedRoot.standardizedFileURL
+        let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().standardizedFileURL
+        guard root.lastPathComponent == "DerivedData", root.path.hasPrefix(home.path + "/"),
+              FileSafety.isDirectory(root),
+              !FileSafety.hasSymlinkInPath(root, through: home) else { return false }
+        let protectedRoots = [defaultArchivesRoot, defaultDeviceSupportRoot,
+                              home.appendingPathComponent("Library/Developer/CoreSimulator/Devices")]
+        return !protectedRoots.contains { protected in
+            let path = protected.standardizedFileURL.path
+            return root.path == path || root.path.hasPrefix(path + "/")
+        }
+    }
+
     private static func projectMetadata(in derivedData: URL) -> (path: String?, lastUsed: Date?) {
         let info = derivedData.appendingPathComponent("info.plist")
         guard let data = try? Data(contentsOf: info),
@@ -132,13 +146,25 @@ public enum XcodeStorage {
                                           control: ScanControl = ScanControl()) -> ScanReport {
         var entries: [ScanEntry] = []
         var warnings: [String] = []
-        var seen = Set<String>()
-        for suppliedRoot in roots where !control.isCancelled {
+        var seenRoots = Set<String>()
+        var scannedRoots: [String] = []
+        var seenDirectories = Set<String>()
+        for suppliedRoot in roots.sorted(by: { left, right in
+            left.path.count == right.path.count ? left.path < right.path : left.path.count < right.path.count
+        }) where !control.isCancelled {
             let root = suppliedRoot.resolvingSymlinksInPath().standardizedFileURL
-            let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().standardizedFileURL.path
-            guard root.lastPathComponent == "DerivedData", root.path.hasPrefix(home + "/"),
-                  !FileSafety.hasSymlinkInPath(suppliedRoot, through: URL(fileURLWithPath: home)) else { continue }
-            guard seen.insert(root.path).inserted else { continue }
+            guard FileManager.default.fileExists(atPath: suppliedRoot.path) else { continue }
+            guard isAllowedDerivedDataRoot(suppliedRoot) else {
+                warnings.append("Invalid root \(suppliedRoot.path)")
+                control.recordOmitted()
+                continue
+            }
+            guard seenRoots.insert(root.path).inserted else { continue }
+            if scannedRoots.contains(where: { root.path.hasPrefix($0 + "/") || $0.hasPrefix(root.path + "/") }) {
+                warnings.append("Overlapping root \(root.path)")
+                control.recordOmitted()
+                continue
+            }
             guard let children = try? FileManager.default.contentsOfDirectory(at: root,
                     includingPropertiesForKeys: nil) else {
                 if FileManager.default.fileExists(atPath: root.path) {
@@ -147,12 +173,15 @@ public enum XcodeStorage {
                 }
                 continue
             }
+            scannedRoots.append(root.path)
             for child in children where !control.isCancelled {
                 let child = URL(fileURLWithPath: child.path, isDirectory: false)
                 guard FileSafety.isDirectory(child), isProjectDirectory(child),
                       !excludedPaths.contains(where: { child.path == $0 || child.path.hasPrefix($0 + "/") }),
                       FileSafety.isSafeLocation(child, scope: root, category: .developerCache),
                       let before = FileSafety.stamp(at: child) else { continue }
+                let identity = "\(before.device):\(before.inode)"
+                guard !seenDirectories.contains(identity) else { continue }
                 let omittedBefore = control.omittedCount
                 guard let metrics = FileScanner.directorySignature(child, control: control),
                       FileSafety.stamp(at: child) == before else {
@@ -163,6 +192,7 @@ public enum XcodeStorage {
                     continue
                 }
                 let metadata = projectMetadata(in: child)
+                seenDirectories.insert(identity)
                 entries.append(ScanEntry(url: child, scope: root, category: .developerCache,
                     stamp: before, estimatedBytes: metrics.bytes,
                     allocatedBytes: metrics.allocatedBytes, risk: .review,

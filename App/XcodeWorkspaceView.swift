@@ -173,31 +173,37 @@ struct XcodeWorkspaceView: View {
                 if store.isScanning { ProgressView("scanning") }
                 overviewRow("xcodeProjects", count: store.entries.count,
                             bytes: store.entries.reduce(0) { $0 + $1.estimatedBytes },
-                            status: store.isScanning ? L("scanning") : store.hasScanned
-                                ? L(store.hasPartialResults ? "partialResults" : "completeResults")
-                                : L("xcodeNotScanned"), isScanning: store.isScanning)
+                            status: projectScanStatus, isScanning: store.isScanning,
+                            sources: [String(format: L("xcodeStandardPath"),
+                                             XcodeStorage.defaultDerivedDataRoot.resolvingSymlinksInPath().path)]
+                                + preferences.derivedDataRoots.map { String(format: L("xcodeAddedPath"), $0.path) })
                 overviewRow("xcodeArchives", count: archives.count,
                             bytes: archives.reduce(0) { $0 + $1.logicalBytes },
-                            status: scanStatus(archiveScan), isScanning: archiveScan.isScanning)
+                            status: scanStatus(archiveScan), isScanning: archiveScan.isScanning,
+                            sources: [String(format: L("xcodeStandardPath"),
+                                             XcodeStorage.defaultArchivesRoot.resolvingSymlinksInPath().path)])
                 overviewRow("xcodeSimulators", count: simulators.count,
                             bytes: simulators.allSatisfy { $0.dataBytes != nil }
                                 ? simulators.reduce(0) { $0 + ($1.dataBytes ?? 0) } : nil,
-                            status: scanStatus(simulatorScan), isScanning: simulatorScan.isScanning)
+                            status: scanStatus(simulatorScan), isScanning: simulatorScan.isScanning,
+                            sources: [L("xcodeSimulatorSource")])
                 overviewRow("xcodeRuntimes", count: runtimes.count,
                             bytes: runtimes.allSatisfy { $0.logicalBytes != nil }
                                 ? runtimes.reduce(0) { $0 + ($1.logicalBytes ?? 0) } : nil,
-                            status: scanStatus(runtimeScan), isScanning: runtimeScan.isScanning)
+                            status: scanStatus(runtimeScan), isScanning: runtimeScan.isScanning,
+                            sources: [L("xcodeRuntimeSource")])
                 overviewRow("xcodeDeviceSupport", count: deviceSupport.count,
                             bytes: deviceSupport.reduce(0) { $0 + $1.logicalBytes },
-                            status: scanStatus(deviceSupportScan), isScanning: deviceSupportScan.isScanning)
-                HStack {
-                    Text("xcodeOtherArtifacts")
-                    Spacer()
-                    Text("xcodeNotCovered").foregroundStyle(.secondary)
-                }
-                .font(.callout).padding(10)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                Text("xcodeOtherArtifactsHelp").font(.caption).foregroundStyle(.secondary)
+                            status: scanStatus(deviceSupportScan), isScanning: deviceSupportScan.isScanning,
+                            sources: [String(format: L("xcodeStandardPath"),
+                                             XcodeStorage.defaultDeviceSupportRoot.resolvingSymlinksInPath().path)])
+                overviewRow("xcodeSharedCaches", count: nil, bytes: nil,
+                            status: L("xcodeNotCovered"), isScanning: false,
+                            sources: [L("xcodeSharedCachesSource")])
+                overviewRow("xcodeTestDevices", count: nil, bytes: nil,
+                            status: L("xcodeNotCovered"), isScanning: false,
+                            sources: [L("xcodeTestDevicesSource")])
+                Text("xcodeCoverageScope").font(.caption).foregroundStyle(.secondary)
 
                 if !runtimes.isEmpty {
                     Text("xcodeRuntimes").font(.headline)
@@ -477,13 +483,33 @@ struct XcodeWorkspaceView: View {
         }
     }
 
-    private func overviewRow(_ title: LocalizedStringKey, count: Int, bytes: Int64?,
-                             status: String, isScanning: Bool) -> some View {
+    private var projectScanStatus: String {
+        if store.isScanning { return L("scanning") }
+        guard store.hasScanned || store.hasPartialResults else { return L("xcodeNotScanned") }
+        guard store.hasPartialResults else { return L("completeResults") }
+        let roots = [XcodeStorage.defaultDerivedDataRoot] + preferences.derivedDataRoots
+        let hasReadableSource = roots.contains { root in
+            !store.warnings.contains {
+                $0 == "Cannot read \(root.path)" || $0 == "Invalid root \(root.path)" ||
+                $0 == "Overlapping root \(root.path)"
+            }
+        }
+        return L(hasReadableSource ? "partialResults" : "xcodeUnavailable")
+    }
+
+    private func overviewRow(_ title: LocalizedStringKey, count: Int?, bytes: Int64?,
+                             status: String, isScanning: Bool, sources: [String]) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.callout.weight(.semibold))
-                Text(String(format: L("xcodeOverviewCount"), count))
-                    .font(.caption).foregroundStyle(.secondary)
+                if let count {
+                    Text(String(format: L("xcodeOverviewCount"), count))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(sources, id: \.self) { source in
+                    Text(source).font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
@@ -665,6 +691,12 @@ struct XcodeWorkspaceView: View {
     }
 
     private func localizedWarning(_ warning: String) -> String {
+        if warning.hasPrefix("Invalid root ") {
+            return warning.replacingOccurrences(of: "Invalid root ", with: L("xcodeInvalidRootWarning") + " ")
+        }
+        if warning.hasPrefix("Overlapping root ") {
+            return warning.replacingOccurrences(of: "Overlapping root ", with: L("xcodeOverlappingRootWarning") + " ")
+        }
         if warning.hasPrefix("Cannot read ") {
             return warning.replacingOccurrences(of: "Cannot read ", with: L("cannotRead") + " ")
         }
@@ -881,7 +913,8 @@ struct XcodeWorkspaceView: View {
                 case .archives(let inventory, let seconds):
                     archives = inventory.items
                     archiveWarnings = inventory.warnings
-                    archiveScan = inventory.isComplete ? .complete(seconds) : .partial(seconds)
+                    archiveScan = inventory.warnings.contains("Cannot read \(XcodeStorage.defaultArchivesRoot.path)")
+                        ? .unavailable(seconds) : inventory.isComplete ? .complete(seconds) : .partial(seconds)
                 case .simulators(let items, let error, let seconds):
                     simulators = items
                     simulatorInventoryError = error
@@ -893,7 +926,8 @@ struct XcodeWorkspaceView: View {
                 case .deviceSupport(let inventory, let seconds):
                     deviceSupport = inventory.items
                     deviceSupportWarnings = inventory.warnings
-                    deviceSupportScan = inventory.isComplete ? .complete(seconds) : .partial(seconds)
+                    deviceSupportScan = inventory.warnings.contains("Cannot read \(XcodeStorage.defaultDeviceSupportRoot.path)")
+                        ? .unavailable(seconds) : inventory.isComplete ? .complete(seconds) : .partial(seconds)
                 }
             }
         }

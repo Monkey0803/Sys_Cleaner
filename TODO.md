@@ -4,11 +4,6 @@
 
 ## Xcode 后续路线图
 
-### P0：确认扫描覆盖范围
-
-- [ ] 建立覆盖清单：标明当前已扫描的 DerivedData 项目目录、归档、模拟器设备与运行时、iOS 设备支持文件，以及未覆盖的共享缓存和测试数据。每类在界面中区分完整、部分、无法读取与未覆盖；用空目录、不可读目录和扫描中变化的目录核对结果。
-- [ ] 核对 Xcode 标准位置、Xcode 设置中的自定义位置及多个 Xcode 版本共用的位置；记录真实路径和路径来源，不凭目录名推断项目或 Xcode 版本。验证同一目录不会因路径重叠或符号链接被重复计入。
-
 ### P1：扩充只读审阅
 
 - [ ] 调查并只读展示 DerivedData 内的共享缓存候选，例如 CompilationCache.noindex、ModuleCache.noindex、SDKStatCaches.noindex、SDKExplicitPrecompiledModules 和 SymbolCache.noindex。逐项提供可获取的真实路径、逻辑大小、磁盘占用估算、扫描状态与 Finder 入口；无法可靠取得最近使用时间时不猜测。
@@ -28,6 +23,11 @@
 参考：[Apple 归档说明](https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases)、[Xcode 组件管理](https://developer.apple.com/documentation/Xcode/downloading-and-installing-additional-xcode-components)、[Xcode Locations 设置](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings)。
 
 ## 已完成记录
+
+### P0：确认扫描覆盖范围
+
+- [x] Xcode 概览逐类显示 DerivedData 项目目录、归档、模拟器设备与运行时、iOS 设备支持文件的状态及来源，并将共享缓存与测试设备数据分别标为未覆盖；完整状态只针对列出的来源。沿用空目录、不可读目录和扫描中变化目录的回归测试，已在仓库 App 概览核对。
+- [x] 显示标准位置和手动添加的 DerivedData 路径，说明自定义归档位置未覆盖且多个 Xcode 可能共用目录；不推断版本归属、不合计各类别。拒绝符号链接、重叠及落在归档或模拟器设备范围内的 DerivedData 根目录；隔离目录测试验证没有重复计量。60 项核心测试及规定的 Debug 构建通过，并重开仓库 App 检查概览。
 
 ### P0：说明 Xcode 扫描是否完整
 
