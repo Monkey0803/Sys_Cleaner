@@ -114,7 +114,9 @@ public struct ScanRequest: Sendable {
 
 public struct ScanReport: Sendable {
     public let entries: [ScanEntry]
-    public let spaceItems: [SpaceItem]
+    private let storedSpaceItems: [SpaceItem]
+    public let spaceTree: SpaceTree?
+    public var spaceItems: [SpaceItem] { spaceTree?.allItems() ?? storedSpaceItems }
     public let scannedFileCount: Int
     public let scannedBytes: Int64
     public let scannedAllocatedBytes: Int64?
@@ -123,9 +125,11 @@ public struct ScanReport: Sendable {
     public let cancelled: Bool
     public init(entries: [ScanEntry], warnings: [String], cancelled: Bool,
                 spaceItems: [SpaceItem] = [], scannedFileCount: Int? = nil, scannedBytes: Int64? = nil,
-                scannedAllocatedBytes: Int64? = nil, omittedCount: Int = 0) {
+                scannedAllocatedBytes: Int64? = nil, omittedCount: Int = 0,
+                spaceTree: SpaceTree? = nil) {
         self.entries = entries
-        self.spaceItems = spaceItems
+        self.storedSpaceItems = spaceItems
+        self.spaceTree = spaceTree
         self.scannedFileCount = scannedFileCount ?? entries.count
         self.scannedBytes = scannedBytes ?? entries.reduce(0) { $0 + $1.estimatedBytes }
         self.scannedAllocatedBytes = scannedAllocatedBytes ??

@@ -30,6 +30,9 @@ final class CleanerStore: ObservableObject {
     @Published var spaceItems: [SpaceItem] = [] {
         didSet { refreshSpaceChildren() }
     }
+    @Published private(set) var spaceTree: SpaceTree? {
+        didSet { refreshSpaceChildren() }
+    }
     @Published private(set) var visibleEntries: [ScanEntry] = []
     @Published private(set) var visibleDuplicateGroups: [[ScanEntry]] = []
     private var visibleEntryIDs: Set<UUID> = []
@@ -86,6 +89,7 @@ final class CleanerStore: ObservableObject {
     private struct CategoryResult {
         let entries: [ScanEntry]
         let spaceItems: [SpaceItem]
+        let spaceTree: SpaceTree?
         let summaryCount: Int
         let summaryBytes: Int64
         let scanMetrics: ScanMetrics
@@ -101,7 +105,8 @@ final class CleanerStore: ObservableObject {
         func removing(_ urls: Set<URL>) -> CategoryResult {
             let remaining = entries.filter { !urls.contains($0.url) }
             return CategoryResult(
-                entries: remaining, spaceItems: spaceItems, summaryCount: remaining.count,
+                entries: remaining, spaceItems: spaceItems, spaceTree: spaceTree,
+                summaryCount: remaining.count,
                 summaryBytes: remaining.reduce(0) { $0 + $1.estimatedBytes },
                 scanMetrics: ScanMetrics(
                     allocatedBytes: remaining.allSatisfy { $0.allocatedBytes != nil } ?
@@ -115,7 +120,8 @@ final class CleanerStore: ObservableObject {
         }
 
         func updatingProgress(_ progress: ScanProgress) -> CategoryResult {
-            CategoryResult(entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
+            CategoryResult(entries: entries, spaceItems: spaceItems, spaceTree: spaceTree,
+                           summaryCount: summaryCount,
                            summaryBytes: summaryBytes, scanMetrics: scanMetrics,
                            warnings: warnings, selectedIDs: selectedIDs,
                            hasScanned: hasScanned, isScanning: isScanning, scanProgress: progress,
@@ -126,7 +132,8 @@ final class CleanerStore: ObservableObject {
             let updated = entries.map { entry in
                 entry.url == url ? entry.withEstimatedBytes(bytes, allocatedBytes: allocatedBytes) : entry
             }
-            return CategoryResult(entries: updated, spaceItems: spaceItems, summaryCount: summaryCount,
+            return CategoryResult(entries: updated, spaceItems: spaceItems, spaceTree: spaceTree,
+                                  summaryCount: summaryCount,
                                   summaryBytes: updated.reduce(0) { $0 + $1.estimatedBytes },
                                   scanMetrics: ScanMetrics(
                                     allocatedBytes: updated.allSatisfy { $0.allocatedBytes != nil } ?
@@ -147,6 +154,7 @@ final class CleanerStore: ObservableObject {
             selected.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil
     }
     var hasPartialResults: Bool { scanMetrics.omittedCount > 0 || !warnings.isEmpty }
+    var hasSpaceResults: Bool { spaceTree?.hasDisplayItems ?? !spaceItems.isEmpty }
 
     func refreshVolumes() { volumes = Self.readVolumeSummaries() }
 
@@ -223,7 +231,7 @@ final class CleanerStore: ObservableObject {
         }
         let base = (spaceFolder ?? root).standardizedFileURL
         visibleSpaceChildren = ScanSorting.spaceItems(
-            spaceItems.filter { $0.parent.path == base.path },
+            spaceTree?.children(of: base) ?? spaceItems.filter { $0.parent.path == base.path },
             selection: sortSelection, otherName: L("otherFiles"))
     }
 
@@ -242,6 +250,7 @@ final class CleanerStore: ObservableObject {
             root = url.resolvingSymlinksInPath().standardizedFileURL
             entries = []
             spaceItems = []
+            spaceTree = nil
             summaryCount = 0
             summaryBytes = 0
             scanMetrics = ScanMetrics()
@@ -276,6 +285,7 @@ final class CleanerStore: ObservableObject {
             resultFilter = .all
             entries = []
             spaceItems = []
+            spaceTree = nil
             summaryCount = 0
             summaryBytes = 0
             scanMetrics = ScanMetrics()
@@ -296,6 +306,7 @@ final class CleanerStore: ObservableObject {
         reviewedApplicationName = nil
         entries = []
         spaceItems = []
+        spaceTree = nil
         summaryCount = 0
         summaryBytes = 0
         scanMetrics = ScanMetrics()
@@ -313,6 +324,7 @@ final class CleanerStore: ObservableObject {
         reviewedApplicationName = nil
         entries = []
         spaceItems = []
+        spaceTree = nil
         summaryCount = 0
         summaryBytes = 0
         scanMetrics = ScanMetrics()
@@ -479,7 +491,8 @@ final class CleanerStore: ObservableObject {
         runningScans.removeValue(forKey: scannedCategory)
         if category == scannedCategory {
             entries = report.entries
-            spaceItems = report.spaceItems
+            spaceTree = report.spaceTree
+            spaceItems = report.spaceTree == nil ? report.spaceItems : []
             summaryCount = report.scannedFileCount
             summaryBytes = report.scannedBytes
             scanMetrics = ScanMetrics(allocatedBytes: report.scannedAllocatedBytes,
@@ -490,7 +503,9 @@ final class CleanerStore: ObservableObject {
             hasScanned = !report.cancelled
         } else if let previous = categoryResults[scannedCategory] {
             categoryResults[scannedCategory] = CategoryResult(
-                entries: report.entries, spaceItems: report.spaceItems,
+                entries: report.entries,
+                spaceItems: report.spaceTree == nil ? report.spaceItems : [],
+                spaceTree: report.spaceTree,
                 summaryCount: report.scannedFileCount, summaryBytes: report.scannedBytes,
                 scanMetrics: ScanMetrics(allocatedBytes: report.scannedAllocatedBytes,
                                          omittedCount: report.omittedCount),
@@ -615,7 +630,8 @@ final class CleanerStore: ObservableObject {
 
     private func currentResult() -> CategoryResult {
         CategoryResult(
-            entries: entries, spaceItems: spaceItems, summaryCount: summaryCount,
+            entries: entries, spaceItems: spaceItems, spaceTree: spaceTree,
+            summaryCount: summaryCount,
             summaryBytes: summaryBytes, scanMetrics: scanMetrics,
             warnings: warnings, selectedIDs: selectedIDs,
             hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
@@ -626,6 +642,7 @@ final class CleanerStore: ObservableObject {
     private func restore(_ result: CategoryResult) {
         entries = result.entries
         spaceItems = result.spaceItems
+        spaceTree = result.spaceTree
         summaryCount = result.summaryCount
         summaryBytes = result.summaryBytes
         scanMetrics = result.scanMetrics

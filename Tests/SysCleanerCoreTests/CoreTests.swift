@@ -384,6 +384,36 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(report.spaceItems.first(where: { $0.parent.path == root.path && $0.isOther })?.bytes, 4)
     }
 
+    func testSpaceTreeMaterializesOnlyRequestedFolderChildren() throws {
+        let folder = root.appendingPathComponent("资料")
+        let nested = folder.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        _ = try file("small", "tiny")
+        try Data(repeating: 7, count: 1_048_576).write(to: nested.appendingPathComponent("large"))
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        let tree = try XCTUnwrap(report.spaceTree)
+
+        XCTAssertEqual(tree.directoryCount, 3)
+        let rootChildren = tree.children(of: root)
+        XCTAssertEqual(rootChildren.first(where: { $0.isFolder })?.url.path, folder.path)
+        XCTAssertEqual(rootChildren.first(where: { $0.isOther })?.bytes, 4)
+        XCTAssertEqual(tree.children(of: folder).map(\.url.lastPathComponent), ["nested"])
+        XCTAssertEqual(tree.children(of: nested).map(\.url.lastPathComponent), ["large"])
+        XCTAssertTrue(tree.children(of: root.appendingPathComponent("missing")).isEmpty)
+
+        let complete = Dictionary(uniqueKeysWithValues: report.spaceItems.map { ($0.id, $0.bytes) })
+        XCTAssertEqual(complete[folder.path], 1_048_576)
+        XCTAssertEqual(complete[nested.path], 1_048_576)
+    }
+
+    func testEmptySpaceTreeHasNoDisplayItems() throws {
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        let tree = try XCTUnwrap(report.spaceTree)
+        XCTAssertEqual(tree.directoryCount, 1)
+        XCTAssertFalse(tree.hasDisplayItems)
+        XCTAssertTrue(tree.children(of: root).isEmpty)
+    }
+
     func testDeepSpaceTotalsPropagateOnceThroughEveryParent() throws {
         var directory = root!
         for depth in 0..<20 {
@@ -414,6 +444,10 @@ final class CoreTests: XCTestCase {
         let scannedRoot = folder.resolvingSymlinksInPath().standardizedFileURL
         XCTAssertEqual(report.spaceItems.first(where: { $0.isFolder })?.parent.path, scannedRoot.path)
         XCTAssertEqual(report.spaceItems.first(where: { $0.isFolder })?.bytes, 1)
+        let tree = try XCTUnwrap(report.spaceTree)
+        XCTAssertEqual(tree.children(of: scannedRoot).first(where: { $0.isFolder })?.bytes, 1)
+        XCTAssertEqual(tree.children(of: scannedRoot.appendingPathComponent("nested"))
+            .first(where: { $0.isOther })?.bytes, 1)
     }
 
     func testRustSpacePrototypeMatchesSwiftAndFallsBack() throws {

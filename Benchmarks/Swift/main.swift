@@ -207,17 +207,54 @@ private func scanMatched(root: URL, workers: Int, cancelAfter: Int?, manifest: B
 }
 
 private func scanProduction(root: URL, manifest: Bool, excluded: String?,
-                            useRust: Bool, helper: URL?) -> Output {
+                            useRust: Bool, helper: URL?, navigationBenchmark: Bool) -> Output {
     let report = FileScanner.scan(ScanRequest(category: .space, root: root,
                                               excludedPaths: excluded.map { [$0] } ?? [],
                                               useRustSpaceScanner: useRust, rustHelperURL: helper))
-    var folders: [String: Totals] = [:]
-    for folder in report.spaceItems where folder.isFolder {
-        folders[folder.url.path] = Totals(logical: folder.bytes, allocated: folder.allocatedBytes ?? 0)
+    if navigationBenchmark, let tree = report.spaceTree {
+        // Deliberately materialize the old flat list only for this comparison.
+        let flat = report.spaceItems
+        let targets = [root, root.appendingPathComponent("Library", isDirectory: true)]
+            .filter { !tree.children(of: $0).isEmpty }
+        let rounds = 10
+        var flatCount = 0
+        let flatStart = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<rounds {
+            for folder in targets {
+                flatCount += flat.filter { $0.parent.path == folder.path }.count
+            }
+        }
+        let flatSeconds = ProcessInfo.processInfo.systemUptime - flatStart
+        var indexedCount = 0
+        let indexedStart = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<rounds {
+            for folder in targets { indexedCount += tree.children(of: folder).count }
+        }
+        let indexedSeconds = ProcessInfo.processInfo.systemUptime - indexedStart
+        precondition(flatCount == indexedCount)
+        fputs(String(format: "navigation: %d lookups; flat %.3fs; indexed %.3fs; items %d\n",
+                     rounds * targets.count, flatSeconds, indexedSeconds, flatCount), stderr)
     }
-    folders[root.path] = Totals(logical: report.scannedBytes,
-                                allocated: report.scannedAllocatedBytes ?? 0)
-    return Output(files: report.scannedFileCount, directories: folders.count,
+    var folders: [String: Totals] = [:]
+    let directoryCount: Int
+    if let tree = report.spaceTree {
+        directoryCount = tree.directoryCount
+        if manifest {
+            tree.forEachDirectory { url, logical, allocated in
+                folders[url.path] = Totals(logical: logical, allocated: allocated)
+            }
+        }
+    } else {
+        for folder in report.spaceItems where folder.isFolder {
+            folders[folder.url.path] = Totals(logical: folder.bytes, allocated: folder.allocatedBytes ?? 0)
+        }
+        directoryCount = folders.count + 1
+    }
+    if manifest {
+        folders[root.path] = Totals(logical: report.scannedBytes,
+                                    allocated: report.scannedAllocatedBytes ?? 0)
+    }
+    return Output(files: report.scannedFileCount, directories: directoryCount,
                   logical: report.scannedBytes, allocated: report.scannedAllocatedBytes ?? 0,
                   omitted: report.omittedCount, cancelled: report.cancelled,
                   folders: manifest ? folders : nil)
@@ -226,7 +263,7 @@ private func scanProduction(root: URL, manifest: Bool, excluded: String?,
 let arguments = CommandLine.arguments
 guard arguments.count >= 4, let workers = Int(arguments[3]), [1, 4, 6, 8].contains(workers),
       ["matched", "matched-local", "production", "production-rust"].contains(arguments[1]) else {
-    fputs("usage: ScanBenchmark matched|matched-local|production|production-rust ROOT 1|4|6|8 [--manifest] [--no-totals] [--check-cloud] [--prefetch-cloud] [--filemanager-cloud] [--nsurl-cloud] [--exclude PATH] [--helper PATH]\n", stderr)
+    fputs("usage: ScanBenchmark matched|matched-local|production|production-rust ROOT 1|4|6|8 [--manifest] [--navigation-benchmark] [--no-totals] [--check-cloud] [--prefetch-cloud] [--filemanager-cloud] [--nsurl-cloud] [--exclude PATH] [--helper PATH]\n", stderr)
     exit(2)
 }
 let root = URL(fileURLWithPath: arguments[2]).resolvingSymlinksInPath().standardizedFileURL
@@ -275,7 +312,8 @@ let helper = arguments.firstIndex(of: "--helper").flatMap { index in
 }
 private let output = ["production", "production-rust"].contains(arguments[1]) ?
     scanProduction(root: root, manifest: manifest, excluded: excluded,
-                   useRust: arguments[1] == "production-rust", helper: helper) :
+                   useRust: arguments[1] == "production-rust", helper: helper,
+                   navigationBenchmark: arguments.contains("--navigation-benchmark")) :
     scanMatched(root: root, workers: workers, cancelAfter: cancelAfter, manifest: manifest,
                 excluded: excluded, local: arguments[1] == "matched-local",
                 calculateTotals: calculateTotals, checkCloud: checkCloud,

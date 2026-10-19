@@ -110,6 +110,7 @@ private final class DirectoryWorkQueue: @unchecked Sendable {
 }
 
 private struct SpaceDirectoryUsage {
+    var index = -1
     var logical: Int64 = 0
     var allocated: Int64 = 0
     var otherLogical: Int64 = 0
@@ -129,6 +130,13 @@ private struct SpaceDirectoryUsage {
         logical += child.logical
         allocated += child.allocated
         remainingChildren -= 1
+    }
+
+    mutating func mergeAlias(_ alias: SpaceDirectoryUsage) {
+        logical += alias.logical
+        allocated += alias.allocated
+        otherLogical += alias.otherLogical
+        otherAllocated += alias.otherAllocated
     }
 }
 
@@ -394,7 +402,7 @@ public enum FileScanner {
                         continue
                     }
                     directories.append(url)
-                    if usage[url] == nil { usage[url] = SpaceDirectoryUsage() }
+                    usage[url, default: SpaceDirectoryUsage()].index = directories.count - 1
                     control.visited(url)
                 }
                 let blockedDirectories = cloudDirectories
@@ -437,9 +445,29 @@ public enum FileScanner {
                       excludedPaths: excludedPaths,
                       onDirectory: { directory in
                           directories.append(directory)
-                          if usage[directory] == nil { usage[directory] = SpaceDirectoryUsage() }
+                          usage[directory, default: SpaceDirectoryUsage()].index = directories.count - 1
                       }) { url, stamp in
                 recordFile(url, stamp.size, stamp.allocatedBytes)
+            }
+        }
+        // Some FileManager paths differ only in URL directory metadata (notably /tmp aliases).
+        // Fold such file totals into the discovered directory before propagating upward.
+        let aliases = usage.filter { $0.value.index < 0 }
+        if !aliases.isEmpty {
+            var byPath: [String: Int] = [:]
+            if aliases.count > 8 {
+                for (index, directory) in directories.enumerated() {
+                    byPath[directory.path] = index
+                }
+            }
+            for (url, alias) in aliases {
+                let canonical = url.resolvingSymlinksInPath().path
+                let index = aliases.count > 8 ? byPath[url.path] ?? byPath[canonical] :
+                    directories.firstIndex(where: { $0.path == url.path || $0.path == canonical })
+                if let index {
+                    usage[directories[index], default: SpaceDirectoryUsage()].mergeAlias(alias)
+                    usage.removeValue(forKey: url)
+                }
             }
         }
         // Workers discover siblings in an arbitrary order. Propagate totals only after
@@ -455,26 +483,30 @@ public enum FileScanner {
             usage[parent, default: SpaceDirectoryUsage()].addChild(child)
             if usage[parent]?.remainingChildren == 0 { ready.append(parent) }
         }
-        let folders = directories.filter { $0.path != root.path }.map { url in
+        func directoryIndex(for url: URL) -> Int {
+            if let index = usage[url]?.index, index >= 0 { return index }
+            if url.path == root.path || url.resolvingSymlinksInPath().path == root.path { return 0 }
+            return directories.firstIndex(where: { $0.path == url.path }) ?? 0
+        }
+        let nodes = directories.enumerated().map { index, url in
             let size = usage[url, default: SpaceDirectoryUsage()]
-            return SpaceItem(url: url, parent: url.deletingLastPathComponent(),
-                             bytes: size.logical, isFolder: true,
-                             allocatedBytes: size.allocated)
+            let parentIndex = index == 0 ? 0 : directoryIndex(for: url.deletingLastPathComponent())
+            return SpaceTree.Directory(name: url.lastPathComponent, parentIndex: parentIndex,
+                                       bytes: size.logical, allocatedBytes: size.allocated,
+                                       otherBytes: size.otherLogical,
+                                       otherAllocatedBytes: size.otherAllocated)
         }
-        let others = usage.filter { $0.value.otherLogical > 0 }.map { parent, size in
-            SpaceItem(url: parent.appendingPathComponent("__other_files__", isDirectory: false), parent: parent,
-                      bytes: size.otherLogical, isFolder: false, isOther: true,
-                      allocatedBytes: size.otherAllocated)
-        }
+        let files = visibleFiles + zeroFiles
+        let fileParents = files.map { directoryIndex(for: $0.parent) }
+        let tree = SpaceTree(root: root, directories: nodes, files: files, fileParents: fileParents)
         if hiddenIndividualCount > 0 {
             appendWarning("spaceLimit", to: &warnings)
             control.recordOmitted(hiddenIndividualCount)
         }
         return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
-                          spaceItems: folders + visibleFiles + zeroFiles + others,
                           scannedFileCount: count, scannedBytes: total,
                           scannedAllocatedBytes: allocatedTotal,
-                          omittedCount: control.omittedCount)
+                          omittedCount: control.omittedCount, spaceTree: tree)
     }
 
     private static func findDuplicates(files: [(URL, FileStamp)], root: URL, control: ScanControl,

@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-19",
+  "root": "/Users/huxiaohui",
+  "command": "ScanBenchmark production /Users/huxiaohui 6",
+  "records": [
+    {
+      "version": "flat",
+      "run": 1,
+      "seconds": 52.39,
+      "max_rss_bytes": 1777188864,
+      "summary": {
+        "allocated": 335529058304,
+        "cancelled": false,
+        "directories": 538039,
+        "files": 2130517,
+        "logical": 370487008942,
+        "omitted": 50227
+      }
+    },
+    {
+      "version": "tree",
+      "run": 1,
+      "seconds": 51.16,
+      "max_rss_bytes": 1065877504,
+      "summary": {
+        "allocated": 335527616512,
+        "cancelled": false,
+        "directories": 538047,
+        "files": 2130529,
+        "logical": 370487922994,
+        "omitted": 50225
+      }
+    },
+    {
+      "version": "flat",
+      "run": 2,
+      "seconds": 52.68,
+      "max_rss_bytes": 1763639296,
+      "summary": {
+        "allocated": 335529533440,
+        "cancelled": false,
+        "directories": 538047,
+        "files": 2130532,
+        "logical": 370492130382,
+        "omitted": 50226
+      }
+    },
+    {
+      "version": "tree",
+      "run": 2,
+      "seconds": 56.41,
+      "max_rss_bytes": 1154744320,
+      "summary": {
+        "allocated": 335531360256,
+        "cancelled": false,
+        "directories": 538034,
+        "files": 2130499,
+        "logical": 370491313870,
+        "omitted": 50225
+      }
+    }
+  ],
+  "navigation": "navigation: 20 lookups; flat 10.198s; indexed 0.002s; items 1910"
+}

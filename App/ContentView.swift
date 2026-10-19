@@ -65,7 +65,7 @@ struct ContentView: View {
                         Button("cancel") { store.cancel() }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if !store.hasScanned && store.entries.isEmpty && store.spaceItems.isEmpty {
+                } else if !store.hasScanned && store.entries.isEmpty && !store.hasSpaceResults {
                     ContentUnavailableView {
                         Label(store.category.title, systemImage: store.category.symbol)
                     } description: {
@@ -74,7 +74,7 @@ struct ContentView: View {
                         scanButton
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if store.entries.isEmpty && store.spaceItems.isEmpty {
+                } else if store.entries.isEmpty && !store.hasSpaceResults {
                     ContentUnavailableView {
                         Label("noResults", systemImage: "checkmark.circle")
                     } description: {
@@ -192,11 +192,11 @@ struct ContentView: View {
                 }
                 Spacer()
                 if store.hasScanned && !store.isScanning &&
-                    (store.category == .space ? !store.spaceItems.isEmpty : !store.entries.isEmpty) {
+                    (store.category == .space ? store.hasSpaceResults : !store.entries.isEmpty) {
                     sortMenu
                 }
                 if store.reviewedApplicationName == nil && store.hasScanned && !store.isScanning &&
-                    (store.category == .space ? !store.spaceItems.isEmpty : !store.visibleEntries.isEmpty) {
+                    (store.category == .space ? store.hasSpaceResults : !store.visibleEntries.isEmpty) {
                     scanButton
                 }
             }

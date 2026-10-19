@@ -12,6 +12,7 @@
 		22D20911B15411DE7585F70E /* FileSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */; };
 		3F4FD4CBA332D2A17F89538D /* ServicesMenu.strings in Resources */ = {isa = PBXBuildFile; fileRef = AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */; };
 		51BED6A4CBE686C9EAEA312D /* SpacePie.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E912A313219445FB1AD75 /* SpacePie.swift */; };
+		51BED6A4CBE686C9EAEA312E /* SpaceTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E912A313219445FB1AD76 /* SpaceTree.swift */; };
 		521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */; };
 		70D4A44D0BC7439BA7A16F41 /* RustSpaceScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D4A44D0BC7439BA7A16F40 /* RustSpaceScanner.swift */; };
 		5493669A51751302B25DA811 /* XcodeWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FBD249CFF274AD501630D /* XcodeWorkspaceView.swift */; };
@@ -46,6 +47,7 @@
 		81DFF62E5B5D069B3674A928 /* CleanerStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CleanerStore.swift; sourceTree = "<group>"; };
 		87F5E196311241DE8560C69A /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		9B0E912A313219445FB1AD75 /* SpacePie.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpacePie.swift; sourceTree = "<group>"; };
+		9B0E912A313219445FB1AD76 /* SpaceTree.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpaceTree.swift; sourceTree = "<group>"; };
 		9BA4296D3BA0EAD5EC528653 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A0057F6D52D821DF08CC602F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		C0F779EB88A1A7E6B1815C4B /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/ServicesMenu.strings"; sourceTree = "<group>"; };
@@ -120,6 +122,7 @@
 				604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */,
 				70D4A44D0BC7439BA7A16F40 /* RustSpaceScanner.swift */,
 				9B0E912A313219445FB1AD75 /* SpacePie.swift */,
+				9B0E912A313219445FB1AD76 /* SpaceTree.swift */,
 				0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */,
 			);
 			name = SysCleanerCore;
@@ -216,6 +219,7 @@
 				5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */,
 				9A6FAB0A663DD86365F88360 /* SettingsView.swift in Sources */,
 				51BED6A4CBE686C9EAEA312D /* SpacePie.swift in Sources */,
+				51BED6A4CBE686C9EAEA312E /* SpaceTree.swift in Sources */,
 				5493669A51751302B25DA811 /* XcodeWorkspaceView.swift in Sources */,
 				091E81BB9397A7C35D7CFB51 /* XcodeStorage.swift in Sources */,
 			);
