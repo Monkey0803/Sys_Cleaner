@@ -93,10 +93,13 @@ public struct ScanRequest: Sendable {
     public let excludedPaths: [String]
     public let ignoredDuplicateHashes: Set<String>
     public let derivedDataRoots: [URL]
+    public let useRustSpaceScanner: Bool
+    public let rustHelperURL: URL?
 
     public init(category: ScanCategory, root: URL, minimumBytes: Int64 = 100 * 1_024 * 1_024,
                 olderThanDays: Int = 0, excludedPaths: [String] = [],
-                ignoredDuplicateHashes: Set<String> = [], derivedDataRoots: [URL] = []) {
+                ignoredDuplicateHashes: Set<String> = [], derivedDataRoots: [URL] = [],
+                useRustSpaceScanner: Bool = false, rustHelperURL: URL? = nil) {
         self.category = category
         self.root = root
         self.minimumBytes = minimumBytes
@@ -104,6 +107,8 @@ public struct ScanRequest: Sendable {
         self.excludedPaths = excludedPaths
         self.ignoredDuplicateHashes = ignoredDuplicateHashes
         self.derivedDataRoots = derivedDataRoots
+        self.useRustSpaceScanner = useRustSpaceScanner
+        self.rustHelperURL = rustHelperURL
     }
 }
 

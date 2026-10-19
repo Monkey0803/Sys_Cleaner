@@ -13,6 +13,7 @@
 		3F4FD4CBA332D2A17F89538D /* ServicesMenu.strings in Resources */ = {isa = PBXBuildFile; fileRef = AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */; };
 		51BED6A4CBE686C9EAEA312D /* SpacePie.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E912A313219445FB1AD75 /* SpacePie.swift */; };
 		521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */; };
+		70D4A44D0BC7439BA7A16F41 /* RustSpaceScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D4A44D0BC7439BA7A16F40 /* RustSpaceScanner.swift */; };
 		5493669A51751302B25DA811 /* XcodeWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FBD249CFF274AD501630D /* XcodeWorkspaceView.swift */; };
 		5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706382312C541D86CE8A7B13 /* AppPreferences.swift */; };
 		645FC5F87984F5E40EC2F6ED /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 44CA5682F828CB6B5F3D9531 /* Localizable.strings */; };
@@ -39,6 +40,7 @@
 		33DD818F0C85ADD3F05B4EAB /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/ServicesMenu.strings; sourceTree = "<group>"; };
 		49B61AAC3F7BCA34CBDFF63F /* Sys Cleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sys Cleaner.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Scanner.swift; sourceTree = "<group>"; };
+		70D4A44D0BC7439BA7A16F40 /* RustSpaceScanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RustSpaceScanner.swift; sourceTree = "<group>"; };
 		6A3BB0013569E23EB20AD4C5 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		706382312C541D86CE8A7B13 /* AppPreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
 		81DFF62E5B5D069B3674A928 /* CleanerStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CleanerStore.swift; sourceTree = "<group>"; };
@@ -116,6 +118,7 @@
 				2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */,
 				FA30EEF2908C3F8BC514782C /* Models.swift */,
 				604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */,
+				70D4A44D0BC7439BA7A16F40 /* RustSpaceScanner.swift */,
 				9B0E912A313219445FB1AD75 /* SpacePie.swift */,
 				0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */,
 			);
@@ -209,6 +212,7 @@
 				22D20911B15411DE7585F70E /* FileSafety.swift in Sources */,
 				BD4D948DEFB37C0BBFA0857B /* Models.swift in Sources */,
 				521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */,
+				70D4A44D0BC7439BA7A16F41 /* RustSpaceScanner.swift in Sources */,
 				5DF593D38E9A2D7D8EA69BE0 /* AppPreferences.swift in Sources */,
 				9A6FAB0A663DD86365F88360 /* SettingsView.swift in Sources */,
 				51BED6A4CBE686C9EAEA312D /* SpacePie.swift in Sources */,

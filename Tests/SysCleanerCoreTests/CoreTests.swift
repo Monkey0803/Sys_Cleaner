@@ -416,6 +416,80 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(report.spaceItems.first(where: { $0.isFolder })?.bytes, 1)
     }
 
+    func testRustSpacePrototypeMatchesSwiftAndFallsBack() throws {
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let helper = repository.appendingPathComponent("Benchmarks/Rust/target/release/space_helper")
+        guard FileManager.default.isExecutableFile(atPath: helper.path) else {
+            throw XCTSkip("Build the Rust space_helper release binary before this test")
+        }
+        let nested = root.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: 1_048_576).write(to: nested.appendingPathComponent("large"))
+        try Data().write(to: nested.appendingPathComponent("empty"))
+        try Data("small".utf8).write(to: nested.appendingPathComponent("small"))
+        try FileManager.default.linkItem(at: nested.appendingPathComponent("small"),
+                                         to: root.appendingPathComponent("hardlink"))
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"),
+                                                    withDestinationURL: nested)
+        let trash = root.appendingPathComponent(".Trash")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        try Data("ignored".utf8).write(to: trash.appendingPathComponent("ignored"))
+        let excluded = root.appendingPathComponent("excluded")
+        try FileManager.default.createDirectory(at: excluded, withIntermediateDirectories: true)
+        try Data("excluded".utf8).write(to: excluded.appendingPathComponent("file"))
+
+        let swift = FileScanner.scan(ScanRequest(category: .space, root: root,
+                                                  excludedPaths: [excluded.path]))
+        let rust = FileScanner.scan(ScanRequest(category: .space, root: root,
+                                                 excludedPaths: [excluded.path],
+                                                 useRustSpaceScanner: true, rustHelperURL: helper))
+        let fallback = FileScanner.scan(ScanRequest(category: .space, root: root,
+                                                     excludedPaths: [excluded.path],
+                                                     useRustSpaceScanner: true,
+                                                     rustHelperURL: root.appendingPathComponent("missing-helper")))
+
+        func items(_ report: ScanReport) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: report.spaceItems.map { item in
+                (item.url.path + (item.isOther ? "#other" : ""),
+                 "\(item.bytes):\(item.allocatedBytes ?? -1):\(item.isFolder)")
+            })
+        }
+        XCTAssertEqual(rust.scannedFileCount, swift.scannedFileCount)
+        XCTAssertEqual(rust.scannedBytes, swift.scannedBytes)
+        XCTAssertEqual(rust.scannedAllocatedBytes, swift.scannedAllocatedBytes)
+        XCTAssertEqual(rust.omittedCount, swift.omittedCount)
+        XCTAssertEqual(items(rust), items(swift))
+        XCTAssertEqual(items(fallback), items(swift))
+
+        let control = ScanControl()
+        control.cancel()
+        XCTAssertTrue(FileScanner.scan(ScanRequest(category: .space, root: root,
+                                                    useRustSpaceScanner: true, rustHelperURL: helper),
+                                       control: control).cancelled)
+    }
+
+    func testRustSpacePrototypeStopsRunningHelperWhenCancelled() throws {
+        let helper = root.appendingPathComponent("slow-helper.sh")
+        try "#!/bin/sh\nexec /bin/sleep 10\n".write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+        let control = ScanControl()
+        let finished = expectation(description: "Rust helper stopped after cancellation")
+        let started = Date()
+        let scanRoot = try XCTUnwrap(root)
+        DispatchQueue.global().async {
+            let report = FileScanner.scan(ScanRequest(category: .space, root: scanRoot,
+                                                       useRustSpaceScanner: true, rustHelperURL: helper),
+                                          control: control)
+            XCTAssertTrue(report.cancelled)
+            finished.fulfill()
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+        control.cancel()
+        wait(for: [finished], timeout: 3)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
+    }
+
     func testDuplicatePrehashIsOnlyAFilter() throws {
         let edge = Data(repeating: 1, count: 4_096)
         let first = edge + Data(repeating: 2, count: 24_576) + edge

@@ -12,11 +12,25 @@ public final class ScanControl: @unchecked Sendable {
     private var processedBytes: Int64 = 0
     private var lastPublished = 0.0
     private var omitted = 0
+    private var cancellationHandler: (() -> Void)?
 
     public init(onProgress: (@Sendable (ScanProgress) -> Void)? = nil) {
         self.onProgress = onProgress
     }
-    public func cancel() { lock.lock(); stopped = true; lock.unlock() }
+    public func cancel() {
+        lock.lock()
+        stopped = true
+        let handler = cancellationHandler
+        lock.unlock()
+        handler?()
+    }
+    func setCancellationHandler(_ handler: (() -> Void)?) {
+        lock.lock()
+        cancellationHandler = handler
+        let shouldCancel = stopped && handler != nil
+        lock.unlock()
+        if shouldCancel { handler?() }
+    }
     public var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
     public var omittedCount: Int { lock.lock(); defer { lock.unlock() }; return omitted }
     public func recordOmitted(_ count: Int = 1) {
@@ -103,7 +117,8 @@ public enum FileScanner {
         control.begin(request.category == .uninstall ? .measuringApps : .discovering, path: root)
         switch request.category {
         case .space:
-            return scanSpace(root: root, control: control, excludedPaths: request.excludedPaths)
+            return scanSpace(root: root, control: control, excludedPaths: request.excludedPaths,
+                             useRust: request.useRustSpaceScanner, helperURL: request.rustHelperURL)
         case .large:
             let oldest = Date().addingTimeInterval(-Double(request.olderThanDays) * 86_400)
             walkFiles(under: root, control: control, warnings: &warnings,
@@ -291,7 +306,8 @@ public enum FileScanner {
     }
 
     private static func scanSpace(root: URL, control: ScanControl,
-                                  excludedPaths: [String]) -> ScanReport {
+                                  excludedPaths: [String], useRust: Bool,
+                                  helperURL: URL?) -> ScanReport {
         var warnings: [String] = []
         var directoryTotals: [URL: Int64] = [:]
         var directoryAllocatedTotals: [URL: Int64] = [:]
@@ -304,27 +320,83 @@ public enum FileScanner {
         var total: Int64 = 0
         var allocatedTotal: Int64 = 0
         var hiddenIndividualCount = 0
-        walkFiles(under: root, control: control, warnings: &warnings,
-                  includeApps: true, includeHardLinks: true, parallel: true,
-                  excludedPaths: excludedPaths,
-                  onDirectory: { directories.append($0) }) { url, stamp in
+        let recordFile: (URL, Int64, Int64?) -> Void = { url, bytes, allocatedBytes in
             count += 1
-            total += stamp.size
-            allocatedTotal += stamp.allocatedBytes ?? 0
+            total += bytes
+            allocatedTotal += allocatedBytes ?? 0
             let parent = url.deletingLastPathComponent()
-            if stamp.size == 0 && zeroFiles.count < 10_000 {
+            if bytes == 0 && zeroFiles.count < 10_000 {
                 zeroFiles.append(SpaceItem(url: url, parent: parent, bytes: 0, isFolder: false,
-                                           allocatedBytes: stamp.allocatedBytes))
-            } else if stamp.size >= 1_048_576 && visibleFiles.count < 10_000 {
-                visibleFiles.append(SpaceItem(url: url, parent: parent, bytes: stamp.size, isFolder: false,
-                                              allocatedBytes: stamp.allocatedBytes))
+                                           allocatedBytes: allocatedBytes))
+            } else if bytes >= 1_048_576 && visibleFiles.count < 10_000 {
+                visibleFiles.append(SpaceItem(url: url, parent: parent, bytes: bytes, isFolder: false,
+                                              allocatedBytes: allocatedBytes))
             } else {
-                otherTotals[parent, default: 0] += stamp.size
-                otherAllocatedTotals[parent, default: 0] += stamp.allocatedBytes ?? 0
-                if stamp.size == 0 || stamp.size >= 1_048_576 { hiddenIndividualCount += 1 }
+                otherTotals[parent, default: 0] += bytes
+                otherAllocatedTotals[parent, default: 0] += allocatedBytes ?? 0
+                if bytes == 0 || bytes >= 1_048_576 { hiddenIndividualCount += 1 }
             }
-            directoryTotals[parent, default: 0] += stamp.size
-            directoryAllocatedTotals[parent, default: 0] += stamp.allocatedBytes ?? 0
+            directoryTotals[parent, default: 0] += bytes
+            directoryAllocatedTotals[parent, default: 0] += allocatedBytes ?? 0
+        }
+        var usedRust = false
+        if useRust {
+            switch RustSpaceScanner.read(root: root, excludedPaths: excludedPaths, control: control,
+                                         helperOverride: helperURL) {
+            case .completed(let listing):
+                usedRust = true
+                var cloudDirectories: [String] = []
+                for path in listing.directories.sorted(by: { $0.split(separator: "/").count < $1.split(separator: "/").count })
+                    where !control.isCancelled {
+                    guard let url = listing.path(path, rebasedTo: root, isDirectory: true) else { continue }
+                    if cloudDirectories.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { continue }
+                    if FileSafety.isCloudPlaceholder(url) {
+                        cloudDirectories.append(path)
+                        continue
+                    }
+                    directories.append(url)
+                    control.visited(url)
+                }
+                let blockedDirectories = cloudDirectories
+                let acceptedLock = NSLock()
+                var acceptedFiles: [(URL, RustSpaceListing.File)] = []
+                DispatchQueue.concurrentPerform(iterations: 4) { worker in
+                    var local: [(URL, RustSpaceListing.File)] = []
+                    for index in stride(from: worker, to: listing.files.count, by: 4) where !control.isCancelled {
+                        autoreleasepool {
+                            let file = listing.files[index]
+                            if blockedDirectories.contains(where: { file.path.hasPrefix($0 + "/") }) { return }
+                            guard let url = listing.path(file.path, rebasedTo: root),
+                                  !FileSafety.isCloudPlaceholder(url) else { return }
+                            local.append((url, file))
+                        }
+                    }
+                    acceptedLock.lock()
+                    acceptedFiles.append(contentsOf: local)
+                    acceptedLock.unlock()
+                }
+                for (url, file) in acceptedFiles where !control.isCancelled {
+                    recordFile(url, file.logical, file.allocated)
+                    control.visited(url, bytes: file.logical)
+                }
+                for path in listing.omitted where !control.isCancelled {
+                    if cloudDirectories.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { continue }
+                    appendWarning("Cannot read \(path)", to: &warnings)
+                    control.recordOmitted()
+                }
+            case .cancelled:
+                return ScanReport(entries: [], warnings: [], cancelled: true)
+            case .unavailable:
+                break
+            }
+        }
+        if !usedRust {
+            walkFiles(under: root, control: control, warnings: &warnings,
+                      includeApps: true, includeHardLinks: true, parallel: true,
+                      excludedPaths: excludedPaths,
+                      onDirectory: { directories.append($0) }) { url, stamp in
+                recordFile(url, stamp.size, stamp.allocatedBytes)
+            }
         }
         // Workers discover siblings in an arbitrary order. Propagate totals only after
         // every child directory has contributed to its parent.

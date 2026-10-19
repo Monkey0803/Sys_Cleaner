@@ -1,0 +1,566 @@
+{
+  "timestamp_utc": "2026-10-19T03:06:37.988359+00:00",
+  "host": "Darwin arm64",
+  "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx27.2.0",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "roots": {
+    "/Users/huxiaohui/Documents/YostarWork/Github": {
+      "allocated": 13285056512,
+      "cancelled": false,
+      "directories": 12916,
+      "files": 136862,
+      "logical": 12956705336,
+      "omitted": 0
+    }
+  },
+  "exclusions": {
+    "/Users/huxiaohui/Documents/YostarWork/Github": "/Users/huxiaohui/Documents/YostarWork/Github/HM/HarmonyRss"
+  },
+  "unit": {
+    "seconds": "wall clock",
+    "rss_bytes": "maximum resident set size from /usr/bin/time -l"
+  },
+  "runs": [
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 1,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 2.900359,
+      "rss_bytes": 73940992
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 1,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 0.775499,
+      "rss_bytes": 11223040
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 1,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 0.72985,
+      "rss_bytes": 11206656
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 4,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 1.88281,
+      "rss_bytes": 79052800
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 4,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 0.475527,
+      "rss_bytes": 10338304
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 4,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 0.402671,
+      "rss_bytes": 11665408
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 8,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 2.320649,
+      "rss_bytes": 76464128
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 8,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 0.534788,
+      "rss_bytes": 11616256
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 8,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 0.44947,
+      "rss_bytes": 11272192
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "production",
+      "workers": 4,
+      "repetition": 0,
+      "phase": "first",
+      "seconds": 4.519628,
+      "rss_bytes": 455049216
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "production",
+      "workers": 4,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 5.971456,
+      "rss_bytes": 457900032
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 8,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 0.447131,
+      "rss_bytes": 11190272
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 8,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 0.496468,
+      "rss_bytes": 11534336
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 8,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 2.132757,
+      "rss_bytes": 83476480
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 4,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 0.397197,
+      "rss_bytes": 11485184
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 4,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 0.489962,
+      "rss_bytes": 10321920
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 4,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 2.119553,
+      "rss_bytes": 78708736
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 1,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 1.061149,
+      "rss_bytes": 11173888
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 1,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 0.751313,
+      "rss_bytes": 10469376
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 1,
+      "repetition": 1,
+      "phase": "repeat",
+      "seconds": 3.051147,
+      "rss_bytes": 74039296
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 1,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 3.034196,
+      "rss_bytes": 73990144
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 1,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 0.840437,
+      "rss_bytes": 11190272
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 1,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 0.766188,
+      "rss_bytes": 11173888
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 4,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 1.898646,
+      "rss_bytes": 79085568
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 4,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 0.468959,
+      "rss_bytes": 10092544
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 4,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 0.407245,
+      "rss_bytes": 11370496
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 8,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 2.277607,
+      "rss_bytes": 81543168
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 8,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 0.526511,
+      "rss_bytes": 10633216
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 8,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 0.434704,
+      "rss_bytes": 11698176
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "production",
+      "workers": 4,
+      "repetition": 2,
+      "phase": "repeat",
+      "seconds": 4.561657,
+      "rss_bytes": 456032256
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "production",
+      "workers": 4,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 4.583541,
+      "rss_bytes": 455917568
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 8,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 0.447314,
+      "rss_bytes": 11632640
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 8,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 0.485198,
+      "rss_bytes": 10305536
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 8,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 1.995869,
+      "rss_bytes": 81575936
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 4,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 0.398377,
+      "rss_bytes": 11698176
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 4,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 0.426807,
+      "rss_bytes": 10207232
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 4,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 1.903325,
+      "rss_bytes": 79216640
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 1,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 0.764037,
+      "rss_bytes": 11157504
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 1,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 0.726691,
+      "rss_bytes": 11206656
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 1,
+      "repetition": 3,
+      "phase": "repeat",
+      "seconds": 2.839976,
+      "rss_bytes": 73940992
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 1,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 2.871985,
+      "rss_bytes": 73990144
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 1,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 0.705838,
+      "rss_bytes": 11091968
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 1,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 0.699228,
+      "rss_bytes": 11173888
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 4,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 1.901246,
+      "rss_bytes": 79036416
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 4,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 0.397925,
+      "rss_bytes": 10420224
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 4,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 0.369985,
+      "rss_bytes": 10780672
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 8,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 2.07329,
+      "rss_bytes": 81068032
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 8,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 0.537275,
+      "rss_bytes": 10747904
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 8,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 0.419378,
+      "rss_bytes": 12615680
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "production",
+      "workers": 4,
+      "repetition": 4,
+      "phase": "repeat",
+      "seconds": 5.384105,
+      "rss_bytes": 455294976
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "production",
+      "workers": 4,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 4.42111,
+      "rss_bytes": 455245824
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 8,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 0.458224,
+      "rss_bytes": 12484608
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 8,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 0.523999,
+      "rss_bytes": 10616832
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 8,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 2.107838,
+      "rss_bytes": 81444864
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 4,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 0.478044,
+      "rss_bytes": 10862592
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 4,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 0.405327,
+      "rss_bytes": 10436608
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 4,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 1.833694,
+      "rss_bytes": 78921728
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_local",
+      "workers": 1,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 0.776369,
+      "rss_bytes": 11223040
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "rust_shared",
+      "workers": 1,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 0.708175,
+      "rss_bytes": 11173888
+    },
+    {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Github",
+      "variant": "swift",
+      "workers": 1,
+      "repetition": 5,
+      "phase": "repeat",
+      "seconds": 2.947297,
+      "rss_bytes": 73990144
+    }
+  ]
+}

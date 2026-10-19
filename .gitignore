@@ -8,3 +8,4 @@ xcuserdata/
 *.app/
 *.dmg
 UIFixture/
+Benchmarks/Rust/target/
