@@ -23,8 +23,8 @@
 "xcodeReview" = "审阅清单";
 "xcodeReviewExplain" = "按清理方式审阅 Xcode 空间，各类内部优先显示较大项目。构建数据可移入废纸篓；模拟器设备删除不能恢复；归档、运行时和设备支持文件在此只读。估算值不等于实际可释放空间。";
 "xcodeReviewTrash" = "可移入废纸篓的构建数据";
-"xcodeReviewTrashSummary" = "%d 个目录 · 逻辑大小估算 %@";
-"xcodeReviewTrashHelp" = "逐个勾选 DerivedData 目录。删除前仍会复核目录内容和占用状态；再次构建时会重新生成。";
+"xcodeReviewTrashSummary" = "%d 个项目 · %d 个目录 · 逻辑大小估算 %@";
+"xcodeReviewTrashHelp" = "展开项目后逐个勾选 DerivedData 目录。删除前仍会复核目录内容和占用状态；再次构建时会重新生成。";
 "xcodeReviewDevices" = "模拟器设备 · 不可通过废纸篓恢复";
 "xcodeReviewDeviceSummary" = "%d 台已关闭设备可选 · 数据估算 %@";
 "xcodeReviewDevicesHelp" = "仅已关闭的设备可选。删除会丢失设备内的 App 和测试数据，执行前重新读取状态。";

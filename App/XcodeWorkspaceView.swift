@@ -273,9 +273,13 @@ struct XcodeWorkspaceView: View {
     }
 
     private var reviewProjectEntries: [ScanEntry] {
-        store.entries.filter(\.canDelete).sorted {
-            $0.estimatedBytes == $1.estimatedBytes
-                ? $0.url.path < $1.url.path : $0.estimatedBytes > $1.estimatedBytes
+        store.entries.filter(\.canDelete)
+    }
+
+    private var reviewProjects: [XcodeProjectGroup] {
+        XcodeStorage.projectGroups(reviewProjectEntries).sorted {
+            $0.logicalBytes == $1.logicalBytes
+                ? $0.id < $1.id : $0.logicalBytes > $1.logicalBytes
         }
     }
 
@@ -301,13 +305,24 @@ struct XcodeWorkspaceView: View {
                     } else if reviewProjectEntries.isEmpty && !store.isScanning {
                         Text("xcodeNoProjects").foregroundStyle(.secondary)
                     }
-                    ForEach(reviewProjectEntries) { entry in projectRow(entry) }
+                    ForEach(reviewProjects) { group in
+                        DisclosureGroup {
+                            ForEach(group.entries) { entry in projectRow(entry) }
+                        } label: {
+                            projectGroupRow(group, showRebuildHelp: true)
+                        }
+                    }
+                    Text(String(format: L("selectedSummary"), store.selectedEntries.count,
+                                ByteCountFormatter.string(fromByteCount: store.estimatedSelectedBytes,
+                                                          countStyle: .file)))
+                        .font(.caption).foregroundStyle(.secondary)
                     Button("moveToTrash") { showingTrashConfirmation = true }
                         .hoverHighlight()
                         .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
                 } header: {
                     Text("xcodeReviewTrash")
-                    Text(String(format: L("xcodeReviewTrashSummary"), reviewProjectEntries.count,
+                    Text(String(format: L("xcodeReviewTrashSummary"), reviewProjects.count,
+                                reviewProjectEntries.count,
                                 ByteCountFormatter.string(
                                     fromByteCount: reviewProjectEntries.reduce(0) { $0 + $1.estimatedBytes },
                                     countStyle: .file)))
@@ -610,18 +625,32 @@ struct XcodeWorkspaceView: View {
         }
     }
 
-    private func projectGroupRow(_ group: XcodeProjectGroup) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+    private func projectGroupRow(_ group: XcodeProjectGroup, showRebuildHelp: Bool = false) -> some View {
+        let selected = group.entries.filter { store.selectedIDs.contains($0.id) }
+        return HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(projectName(group)).font(.headline)
                 if let path = group.projectPath {
                     Text(path).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                } else if let entry = group.entries.first {
+                    Text(entry.url.path).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
                 Text(String(format: L("xcodeBuildDirectories"), group.entries.count))
                     .font(.caption).foregroundStyle(.secondary)
                 Text(String(format: L("xcodeLastActivity"), group.lastActivity.formatted()))
                     .font(.caption2).foregroundStyle(.secondary)
+                if showRebuildHelp {
+                    if !selected.isEmpty {
+                        Text(String(format: L("selectedSummary"), selected.count,
+                                    ByteCountFormatter.string(
+                                        fromByteCount: selected.reduce(0) { $0 + $1.estimatedBytes },
+                                        countStyle: .file)))
+                            .font(.caption2).foregroundStyle(.blue)
+                    }
+                    Text("xcodeRebuildHelp").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 4) {

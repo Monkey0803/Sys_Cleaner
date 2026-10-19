@@ -23,8 +23,8 @@
 "xcodeReview" = "Review List";
 "xcodeReviewExplain" = "Review Xcode storage by cleanup method, with larger items first within each category. Build data can go to Trash; simulator device deletion cannot be restored; archives, runtimes, and Device Support are read-only here. Estimates are not actual reclaimable space.";
 "xcodeReviewTrash" = "Build data that can go to Trash";
-"xcodeReviewTrashSummary" = "%d directories · estimated logical size %@";
-"xcodeReviewTrashHelp" = "Select DerivedData directories individually. Contents and active use are checked again before removal. Xcode regenerates them on the next build.";
+"xcodeReviewTrashSummary" = "%d projects · %d directories · estimated logical size %@";
+"xcodeReviewTrashHelp" = "Expand a project to select DerivedData directories individually. Contents and active use are checked again before removal. Xcode regenerates them on the next build.";
 "xcodeReviewDevices" = "Simulator devices · No Trash recovery";
 "xcodeReviewDeviceSummary" = "%d shutdown devices selectable · estimated data %@";
 "xcodeReviewDevicesHelp" = "Only shutdown devices can be selected. Deletion loses installed apps and test data; state is checked again before the action.";
