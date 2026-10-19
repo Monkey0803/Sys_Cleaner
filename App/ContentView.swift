@@ -191,9 +191,9 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
+                        .hoverHighlight()
                         .disabled(store.isDeleting)
                         .padding(.bottom, 4)
-                        .hoverHighlight()
                     }
                     Text(store.reviewedApplicationName ?? store.category.title).font(.largeTitle.bold())
                     Text(descriptionKey).foregroundStyle(.secondary)
@@ -310,8 +310,8 @@ struct ContentView: View {
                     } label: {
                         Label(L("filter_\(store.resultFilter.rawValue)"), systemImage: "line.3.horizontal.decrease")
                     }
-                    .disabled(store.isScanning)
                     .hoverHighlight()
+                    .disabled(store.isScanning)
                     if store.hasScanned && (!store.resultQuery.isEmpty || store.resultFilter != .all) {
                         Text(String(format: L("visibleResultCount"), store.visibleEntries.count,
                                     store.entries.count))
@@ -320,8 +320,8 @@ struct ContentView: View {
                     }
                     if store.category == .uninstall && store.reviewedApplicationName == nil {
                         Button("chooseApp") { store.chooseApplication() }
-                            .disabled(store.isScanning || store.isDeleting)
                             .hoverHighlight()
+                            .disabled(store.isScanning || store.isDeleting)
                         Text("dropAppHint").font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -408,8 +408,8 @@ struct ContentView: View {
             store.scan()
         }
             .buttonStyle(.borderedProminent)
-            .disabled(store.isScanning || store.isDeleting)
             .hoverHighlight()
+            .disabled(store.isScanning || store.isDeleting)
     }
 
     private var sortMenu: some View {
@@ -431,9 +431,9 @@ struct ContentView: View {
             Label("sort", systemImage: "arrow.up.arrow.down")
         }
         .menuStyle(.borderedButton)
+        .hoverHighlight()
         .disabled(store.isDeleting)
         .help(L("sort"))
-        .hoverHighlight()
     }
 
     private var resultsContent: some View {
@@ -455,15 +455,15 @@ struct ContentView: View {
                                 .help(L("duplicateRetainedRule"))
                             Spacer()
                             Button("selectGroupCopies") { store.selectDuplicateGroup(group) }
+                                .hoverHighlight()
                                 .disabled(ScanResultGrouping.selectableIDs(in: group)
                                     .isSubset(of: store.selectedIDs) || store.isDeleting)
-                                .hoverHighlight()
                             Button("clearGroupSelection") { store.clearDuplicateGroup(group) }
+                                .hoverHighlight()
                                 .disabled(!group.contains { store.selectedIDs.contains($0.id) } || store.isDeleting)
-                                .hoverHighlight()
                             Button("ignoreDuplicateGroup") { store.ignoreDuplicateGroup(group) }
-                                .disabled(store.isDeleting)
                                 .hoverHighlight()
+                                .disabled(store.isDeleting)
                         }
                     }
                 }
@@ -500,8 +500,8 @@ struct ContentView: View {
             if pageCount > 1 {
                 HStack(spacing: 12) {
                     Button("previousPage") { duplicateGroupPage -= 1 }
-                        .disabled(duplicateGroupPage == 0)
                         .hoverHighlight()
+                        .disabled(duplicateGroupPage == 0)
                     Text(String(format: L("duplicatePageSummary"), duplicateGroupPage + 1, pageCount,
                                 duplicateGroupPage * duplicateGroupsPerPage + 1,
                                 min((duplicateGroupPage + 1) * duplicateGroupsPerPage, groupCount)))
@@ -517,8 +517,8 @@ struct ContentView: View {
                     }
                     .hoverHighlight()
                     Button("nextPage") { duplicateGroupPage += 1 }
-                        .disabled(duplicateGroupPage + 1 >= pageCount)
                         .hoverHighlight()
+                        .disabled(duplicateGroupPage + 1 >= pageCount)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
@@ -570,8 +570,8 @@ struct ContentView: View {
                 if store.category == .uninstall && entry.isDirectory && entry.directorySignature == nil &&
                     entry.risk != .protected {
                     Button("reviewApp") { store.prepareApplication(entry) }
-                        .disabled(store.isDeleting)
                         .hoverHighlight()
+                        .disabled(store.isDeleting)
                 }
                 VStack(alignment: .trailing, spacing: 2) {
                     if entry.sizeIsKnown {
@@ -624,8 +624,8 @@ struct ContentView: View {
                 } label: {
                     Label("back", systemImage: "chevron.left")
                 }
-                .disabled(store.spaceFolder == nil || store.spaceFolder?.path == store.root.path)
                 .hoverHighlight()
+                .disabled(store.spaceFolder == nil || store.spaceFolder?.path == store.root.path)
                 Text((store.spaceFolder ?? store.root).path).font(.callout.monospaced())
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
@@ -730,16 +730,16 @@ struct ContentView: View {
             }
             Spacer()
             Button("moveToTrash") { pendingMode = .trash; showingConfirmation = true }
+                .hoverHighlight()
                 .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
                           store.isDeleting || store.isScanning)
-                .hoverHighlight()
             Button("deletePermanently", role: .destructive) {
                 pendingMode = .permanent
                 showingConfirmation = true
             }
+            .hoverHighlight()
             .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
                       store.isDeleting || store.isScanning)
-            .hoverHighlight()
         }
         .padding(16)
         .background(.bar)
@@ -858,9 +858,9 @@ struct ContentView: View {
                                         Button("restore") {
                                             store.restoreHistoryItem(recordID: record.id, itemID: item.id)
                                         }
+                                        .hoverHighlight()
                                         .disabled(!item.canRestore)
                                         .help(L(item.canRestore ? "restoreHelp" : "restoreUnavailable"))
-                                        .hoverHighlight()
                                     }
                                 }
                             }

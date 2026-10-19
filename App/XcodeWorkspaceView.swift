@@ -115,8 +115,8 @@ struct XcodeWorkspaceView: View {
                 }
                 Spacer()
                 Button("scanAgain") { refresh() }
-                    .disabled(store.isDeleting)
                     .hoverHighlight()
+                    .disabled(store.isDeleting)
             }
             .padding(20)
             Picker("xcodeSection", selection: $section) {
@@ -303,8 +303,8 @@ struct XcodeWorkspaceView: View {
                     }
                     ForEach(reviewProjectEntries) { entry in projectRow(entry) }
                     Button("moveToTrash") { showingTrashConfirmation = true }
-                        .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
                         .hoverHighlight()
+                        .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
                 } header: {
                     Text("xcodeReviewTrash")
                     Text(String(format: L("xcodeReviewTrashSummary"), reviewProjectEntries.count,
@@ -328,8 +328,8 @@ struct XcodeWorkspaceView: View {
                     Button("xcodeDeleteDevices", role: .destructive) {
                         showingSimulatorConfirmation = true
                     }
-                    .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning || store.isDeleting)
                     .hoverHighlight()
+                    .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning || store.isDeleting)
                 } header: {
                     Text("xcodeReviewDevices")
                     Text(String(format: L("xcodeReviewDeviceSummary"), reviewShutdownDevices.count,
@@ -414,9 +414,9 @@ struct XcodeWorkspaceView: View {
         } label: {
             Image(systemName: "folder")
         }
+        .hoverHighlight()
         .disabled(url == nil)
         .help(L(url == nil ? "xcodeFinderPathUnavailable" : "showInFinder"))
-        .hoverHighlight()
     }
 
     @ViewBuilder
@@ -602,8 +602,8 @@ struct XcodeWorkspaceView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button("moveToTrash") { showingTrashConfirmation = true }
-                    .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
                     .hoverHighlight()
+                    .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
             }
             .padding(16)
             .background(.bar)
@@ -740,8 +740,8 @@ struct XcodeWorkspaceView: View {
             HStack {
                 Spacer()
                 Button("xcodeDeleteDevices", role: .destructive) { showingSimulatorConfirmation = true }
-                    .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning)
                     .hoverHighlight()
+                    .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning)
             }.padding(16).background(.bar)
         }
     }
