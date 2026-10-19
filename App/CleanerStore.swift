@@ -3,6 +3,10 @@ import Foundation
 
 @MainActor
 final class CleanerStore: ObservableObject {
+    enum ProjectHistoryStatus {
+        case notScanned, incomplete, storageError, comparison(XcodeProjectComparison)
+    }
+
     struct VolumeSummary: Identifiable {
         let id: String
         let name: String
@@ -18,6 +22,8 @@ final class CleanerStore: ObservableObject {
     }
     private static let historyURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Sys Cleaner/cleanup-history.json")
+    private static let projectHistoryURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Sys Cleaner/xcode-project-history.json")
     @Published var category: ScanCategory = .space {
         didSet { refreshVisibleEntries(); refreshSpaceChildren() }
     }
@@ -52,6 +58,7 @@ final class CleanerStore: ObservableObject {
     @Published var selectedIDs: Set<UUID> = []
     @Published var isScanning = false
     @Published private(set) var scanProgress: ScanProgress?
+    @Published private(set) var projectHistoryStatus: ProjectHistoryStatus = .notScanned
     @Published var isDeleting = false
     @Published var hasScanned = false
     @Published var results: [DeleteResult] = []
@@ -314,6 +321,7 @@ final class CleanerStore: ObservableObject {
         selectedIDs = []
         hasScanned = false
         scanProgress = nil
+        if category == .developerCache { projectHistoryStatus = .notScanned }
     }
 
     func scan() {
@@ -332,6 +340,7 @@ final class CleanerStore: ObservableObject {
         selectedIDs = []
         hasScanned = false
         scanProgress = nil
+        if category == .developerCache { projectHistoryStatus = .notScanned }
         spaceFolder = root
         isScanning = true
         let scannedCategory = category
@@ -350,7 +359,7 @@ final class CleanerStore: ObservableObject {
                                   derivedDataRoots: AppPreferences.shared.derivedDataRoots)
         Task.detached(priority: .userInitiated) { [weak self] in
             let report = FileScanner.scan(request, control: newControl)
-            await self?.finishScan(report, category: scannedCategory, scanID: scanID)
+            await self?.finishScan(report, category: scannedCategory, scanID: scanID, request: request)
         }
     }
 
@@ -500,9 +509,26 @@ final class CleanerStore: ObservableObject {
                      mode: .trash, availableSpaceDelta: outcome.1)
     }
 
-    private func finishScan(_ report: ScanReport, category scannedCategory: ScanCategory, scanID: UUID) {
+    private func finishScan(_ report: ScanReport, category scannedCategory: ScanCategory,
+                            scanID: UUID, request: ScanRequest) {
         guard runningScans[scannedCategory]?.id == scanID else { return }
         runningScans.removeValue(forKey: scannedCategory)
+        if scannedCategory == .developerCache {
+            if let snapshot = XcodeProjectSnapshot.capture(report: report, scanID: scanID,
+                    capturedAt: Date(), roots: [XcodeStorage.defaultDerivedDataRoot] + request.derivedDataRoots,
+                    excludedPaths: request.excludedPaths) {
+                do {
+                    var history = try XcodeProjectHistory.load(from: Self.projectHistoryURL)
+                    let comparison = history.record(snapshot)
+                    try history.save(to: Self.projectHistoryURL)
+                    projectHistoryStatus = .comparison(comparison)
+                } catch {
+                    projectHistoryStatus = .storageError
+                }
+            } else {
+                projectHistoryStatus = .incomplete
+            }
+        }
         if category == scannedCategory {
             entries = report.entries
             spaceTree = report.spaceTree

@@ -758,6 +758,9 @@ struct XcodeWorkspaceView: View {
                     }
                 }.padding(.horizontal, 20)
             }
+            if !store.isScanning && (store.hasScanned || store.hasPartialResults) {
+                projectHistorySummary
+            }
             if store.hasScanned && !store.isScanning {
                 ScanCompletionSummaryView()
             }
@@ -796,7 +799,7 @@ struct XcodeWorkspaceView: View {
                             projectGroupRow(group)
                         }
                     } else if let entry = group.entries.first {
-                        projectRow(entry)
+                        projectRow(entry, showTrend: true)
                     }
                 }
                 .listStyle(.inset)
@@ -840,6 +843,54 @@ struct XcodeWorkspaceView: View {
         }
     }
 
+    private var projectHistorySummary: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("xcodeHistoryTitle").font(.headline)
+            switch store.projectHistoryStatus {
+            case .notScanned:
+                Text("xcodeHistoryNotScanned")
+            case .incomplete:
+                Text("xcodeHistoryIncomplete")
+            case .storageError:
+                Text("xcodeHistoryStorageError")
+            case .comparison(let comparison):
+                switch comparison {
+                case .noPrevious:
+                    Text("xcodeHistoryFirst")
+                case .sourcesChanged:
+                    Text("xcodeHistorySourcesChanged")
+                case .comparable(let previousDate, _, let disappearedCount):
+                    Text(String(format: L("xcodeHistoryComparedTo"), previousDate.formatted()))
+                    if disappearedCount > 0 {
+                        Text(String(format: L("xcodeHistoryDisappeared"), disappearedCount))
+                    }
+                }
+            }
+            Text("xcodeHistoryHelp").font(.caption2).foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 20).padding(.bottom, 8)
+    }
+
+    private func projectTrend(_ id: String) -> String? {
+        guard case .comparison(let comparison) = store.projectHistoryStatus,
+              let trend = comparison.trend(for: id) else { return nil }
+        switch trend {
+        case .increased(let bytes):
+            return String(format: L("xcodeHistoryIncreased"),
+                          ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
+        case .decreased(let bytes):
+            return String(format: L("xcodeHistoryDecreased"),
+                          ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
+        case .unchanged: return L("xcodeHistoryUnchanged")
+        case .newProject: return L("xcodeHistoryNewProject")
+        case .reattributed: return L("xcodeHistoryReattributed")
+        }
+    }
+
     private func projectGroupRow(_ group: XcodeProjectGroup, showRebuildHelp: Bool = false) -> some View {
         let selected = group.entries.filter { store.selectedIDs.contains($0.id) }
         return HStack(alignment: .top, spacing: 12) {
@@ -856,6 +907,9 @@ struct XcodeWorkspaceView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Text(String(format: L("xcodeLastActivity"), group.lastActivity.formatted()))
                     .font(.caption2).foregroundStyle(.secondary)
+                if let trend = projectTrend(group.id) {
+                    Text(trend).font(.caption2).foregroundStyle(.blue)
+                }
                 if showRebuildHelp {
                     if !selected.isEmpty {
                         Text(String(format: L("selectedSummary"), selected.count,
@@ -899,7 +953,7 @@ struct XcodeWorkspaceView: View {
         return L(warning)
     }
 
-    private func projectRow(_ entry: ScanEntry) -> some View {
+    private func projectRow(_ entry: ScanEntry, showTrend: Bool = false) -> some View {
         let path = entry.note
         let lastUsed = entry.lastUsedDate
         return HStack(alignment: .top, spacing: 12) {
@@ -922,6 +976,14 @@ struct XcodeWorkspaceView: View {
                 Text(String(format: L(lastUsed == nil ? "xcodeLastModified" : "xcodeLastUsed"),
                             (lastUsed ?? Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds))).formatted()))
                     .font(.caption2).foregroundStyle(.secondary)
+                if showTrend {
+                    if entry.note.isEmpty {
+                        Text("xcodeHistoryUnknown").font(.caption2).foregroundStyle(.secondary)
+                    } else if let trend = projectTrend("project:" + URL(fileURLWithPath: entry.note)
+                            .standardizedFileURL.path) {
+                        Text(trend).font(.caption2).foregroundStyle(.blue)
+                    }
+                }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 4) {

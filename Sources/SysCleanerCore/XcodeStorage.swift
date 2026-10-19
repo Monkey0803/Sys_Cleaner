@@ -313,7 +313,13 @@ public enum XcodeStorage {
             left.path.count == right.path.count ? left.path < right.path : left.path.count < right.path.count
         }) where !control.isCancelled {
             let root = suppliedRoot.resolvingSymlinksInPath().standardizedFileURL
-            guard FileManager.default.fileExists(atPath: suppliedRoot.path) else { continue }
+            guard FileManager.default.fileExists(atPath: suppliedRoot.path) else {
+                if suppliedRoot.standardizedFileURL.path != defaultDerivedDataRoot.standardizedFileURL.path {
+                    warnings.append("Cannot read \(suppliedRoot.path)")
+                    control.recordOmitted()
+                }
+                continue
+            }
             guard isAllowedDerivedDataRoot(suppliedRoot) else {
                 warnings.append("Invalid root \(suppliedRoot.path)")
                 control.recordOmitted()

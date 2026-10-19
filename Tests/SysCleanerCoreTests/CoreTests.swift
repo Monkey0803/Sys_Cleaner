@@ -988,6 +988,77 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(groups.filter { $0.projectPath == nil }.allSatisfy { $0.entries.count == 1 })
     }
 
+    func testXcodeProjectHistoryTracksGrowthShrinkAndMetadataRename() throws {
+        let source = root.appendingPathComponent("DerivedData")
+        func snapshot(_ entries: [ScanEntry], _ id: UUID = UUID()) -> XcodeProjectSnapshot {
+            try! XCTUnwrap(XcodeProjectSnapshot.capture(
+                report: ScanReport(entries: entries, warnings: [], cancelled: false),
+                scanID: id, capturedAt: Date(timeIntervalSince1970: 1_000),
+                roots: [source], excludedPaths: []))
+        }
+        func entry(_ name: String, project: String, bytes: Int64) -> ScanEntry {
+            sortableEntry(name, size: bytes, modified: 1, category: .developerCache,
+                          note: project, isDirectory: true)
+        }
+        let first = snapshot([entry("A", project: "/Projects/A.xcodeproj", bytes: 100),
+                              entry("B", project: "/Projects/B.xcodeproj", bytes: 90)])
+        let second = snapshot([entry("A", project: "/Projects/A.xcodeproj", bytes: 140),
+                               entry("B", project: "/Projects/B.xcodeproj", bytes: 60)])
+        var history = XcodeProjectHistory()
+        if case .noPrevious = history.record(first) {} else { XCTFail("Expected first snapshot") }
+        let changes = history.record(second)
+        XCTAssertEqual(changes.trend(for: "project:/Projects/A.xcodeproj"), .increased(40))
+        XCTAssertEqual(changes.trend(for: "project:/Projects/B.xcodeproj"), .decreased(30))
+
+        let renamed = snapshot([entry("A", project: "/Projects/Renamed.xcodeproj", bytes: 140),
+                                entry("B", project: "/Projects/B.xcodeproj", bytes: 60)])
+        let renameResult = history.record(renamed)
+        XCTAssertEqual(renameResult.trend(for: "project:/Projects/Renamed.xcodeproj"), .reattributed)
+        XCTAssertEqual(renameResult.trend(for: "project:/Projects/B.xcodeproj"), .unchanged)
+        if case .comparable(_, _, let disappearedCount) = renameResult {
+            XCTAssertEqual(disappearedCount, 0)
+        } else { XCTFail("Expected comparable snapshot") }
+
+        let file = root.appendingPathComponent("project-history.json")
+        try history.save(to: file)
+        XCTAssertEqual(try XcodeProjectHistory.load(from: file).snapshots.count, 3)
+        try Data("invalid JSON".utf8).write(to: file)
+        XCTAssertThrowsError(try XcodeProjectHistory.load(from: file))
+    }
+
+    func testXcodeProjectHistoryRejectsPartialAndChangedSources() throws {
+        let entry = sortableEntry("A", size: 10, modified: 1, category: .developerCache,
+                                  note: "/Projects/A.xcodeproj", isDirectory: true)
+        let source = root.appendingPathComponent("DerivedData")
+        let partial = ScanReport(entries: [entry], warnings: ["Cannot read \(source.path)"],
+                                 cancelled: false, omittedCount: 1)
+        XCTAssertNil(XcodeProjectSnapshot.capture(report: partial, scanID: UUID(),
+            capturedAt: Date(), roots: [source], excludedPaths: []))
+        let cancelled = ScanReport(entries: [entry], warnings: [], cancelled: true)
+        XCTAssertNil(XcodeProjectSnapshot.capture(report: cancelled, scanID: UUID(),
+            capturedAt: Date(), roots: [source], excludedPaths: []))
+        let missing = root.appendingPathComponent("Custom/DerivedData")
+        let missingReport = XcodeStorage.derivedDataEntries(roots: [missing])
+        XCTAssertFalse(missingReport.warnings.isEmpty)
+        XCTAssertNil(XcodeProjectSnapshot.capture(report: missingReport, scanID: UUID(),
+            capturedAt: Date(), roots: [missing], excludedPaths: []))
+
+        let complete = ScanReport(entries: [entry], warnings: [], cancelled: false)
+        let first = try XCTUnwrap(XcodeProjectSnapshot.capture(report: complete, scanID: UUID(),
+            capturedAt: Date(), roots: [source], excludedPaths: []))
+        let changed = try XCTUnwrap(XcodeProjectSnapshot.capture(report: complete, scanID: UUID(),
+            capturedAt: Date(), roots: [source, missing], excludedPaths: []))
+        var history = XcodeProjectHistory()
+        _ = history.record(first)
+        if case .sourcesChanged = history.record(changed) {} else { XCTFail("Expected scope change") }
+        for _ in 0..<31 {
+            let next = try XCTUnwrap(XcodeProjectSnapshot.capture(report: complete, scanID: UUID(),
+                capturedAt: Date(), roots: [source], excludedPaths: []))
+            _ = history.record(next)
+        }
+        XCTAssertEqual(history.snapshots.count, 30)
+    }
+
     func testXcodeEmptyAndUnreadableRootsReportCompleteness() throws {
         let parent = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
