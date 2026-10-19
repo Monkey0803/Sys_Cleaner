@@ -1004,6 +1004,7 @@ final class CoreTests: XCTestCase {
         {"00000000-0000-0000-0000-000000000001":{
           "identifier":"00000000-0000-0000-0000-000000000001",
           "runtimeIdentifier":"com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+          "path":"/System/Library/AssetsV2/Example.runtime",
           "version":"27.0","build":"24A434","state":"Ready",
           "sizeBytes":8192,"lastUsedAt":"2026-10-16T06:51:28Z"}}
         """
@@ -1012,6 +1013,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(runtimes[0].name, "iOS")
         XCTAssertEqual(runtimes[0].version, "27.0")
         XCTAssertEqual(runtimes[0].runtimeIdentifier, "com.apple.CoreSimulator.SimRuntime.iOS-27-0")
+        XCTAssertEqual(runtimes[0].path, "/System/Library/AssetsV2/Example.runtime")
         XCTAssertEqual(runtimes[0].logicalBytes, 8192)
         XCTAssertNotNil(runtimes[0].lastUsed)
     }

@@ -27,6 +27,7 @@ public struct XcodeDeviceSupport: Identifiable, Sendable {
 public struct XcodeSimulatorRuntime: Identifiable, Sendable {
     public let id: String
     public let runtimeIdentifier: String?
+    public let path: String?
     public let name: String
     public let version: String
     public let build: String
@@ -261,6 +262,7 @@ public enum XcodeStorage {
         struct Image: Decodable {
             let identifier: String
             let runtimeIdentifier: String?
+            let path: String?
             let version: String?
             let build: String?
             let state: String?
@@ -273,7 +275,8 @@ public enum XcodeStorage {
             let platform = image.runtimeIdentifier?.components(separatedBy: ".").last?
                 .components(separatedBy: "-").first ?? "Simulator"
             return XcodeSimulatorRuntime(id: image.identifier,
-                                         runtimeIdentifier: image.runtimeIdentifier, name: platform,
+                                         runtimeIdentifier: image.runtimeIdentifier,
+                                         path: image.path, name: platform,
                                          version: image.version ?? "", build: image.build ?? "",
                                          state: image.state ?? "", logicalBytes: image.sizeBytes,
                                          lastUsed: image.lastUsedAt)

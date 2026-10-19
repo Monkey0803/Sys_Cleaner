@@ -27,7 +27,7 @@ struct XcodeWorkspaceView: View {
     @State private var projectSort: ProjectSort = .size
 
     private enum Section: String, CaseIterable, Identifiable {
-        case overview, projects, archives, simulators
+        case overview, review, projects, archives, simulators
         var id: Self { self }
     }
 
@@ -121,6 +121,7 @@ struct XcodeWorkspaceView: View {
             .padding(20)
             Picker("xcodeSection", selection: $section) {
                 Text("xcodeOverview").tag(Section.overview)
+                Text("xcodeReview").tag(Section.review)
                 Text("xcodeProjects").tag(Section.projects)
                 Text("xcodeArchives").tag(Section.archives)
                 Text("xcodeSimulators").tag(Section.simulators)
@@ -132,6 +133,7 @@ struct XcodeWorkspaceView: View {
             Divider()
             switch section {
             case .overview: overviewView
+            case .review: reviewView
             case .projects: projectsView
             case .archives: archivesView
             case .simulators: simulatorsView
@@ -215,6 +217,10 @@ struct XcodeWorkspaceView: View {
                                         .font(.caption2).foregroundStyle(.secondary)
                                 }
                                 runtimeRelationship(runtime)
+                                if let path = runtimePath(runtime) {
+                                    Text(path.path).font(.caption2).foregroundStyle(.tertiary)
+                                        .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                                }
                             }
                             Spacer()
                             Text(runtime.logicalBytes.map { bytes in
@@ -222,6 +228,7 @@ struct XcodeWorkspaceView: View {
                                        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
                             } ?? L("notMeasured"))
                                 .font(.caption).foregroundStyle(.secondary)
+                            finderButton(runtimePath(runtime))
                         }
                         .padding(10)
                         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
@@ -263,6 +270,153 @@ struct XcodeWorkspaceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
         }
+    }
+
+    private var reviewProjectEntries: [ScanEntry] {
+        store.entries.filter(\.canDelete).sorted {
+            $0.estimatedBytes == $1.estimatedBytes
+                ? $0.url.path < $1.url.path : $0.estimatedBytes > $1.estimatedBytes
+        }
+    }
+
+    private var reviewShutdownDevices: [XcodeSimulator] {
+        simulators.filter(\.canDelete)
+    }
+
+    private var reviewView: some View {
+        VStack(spacing: 0) {
+            Text("xcodeReviewExplain")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20).padding(.vertical, 12)
+            List {
+                SwiftUI.Section {
+                    if store.isScanning { ProgressView("scanning") }
+                    if store.hasPartialResults {
+                        Text("xcodeReviewPartialProjects")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if !store.hasScanned && !store.isScanning && !store.hasPartialResults {
+                        Text("xcodeNotScanned").foregroundStyle(.secondary)
+                    } else if reviewProjectEntries.isEmpty && !store.isScanning {
+                        Text("xcodeNoProjects").foregroundStyle(.secondary)
+                    }
+                    ForEach(reviewProjectEntries) { entry in projectRow(entry) }
+                    Button("moveToTrash") { showingTrashConfirmation = true }
+                        .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
+                        .hoverHighlight()
+                } header: {
+                    Text("xcodeReviewTrash")
+                    Text(String(format: L("xcodeReviewTrashSummary"), reviewProjectEntries.count,
+                                ByteCountFormatter.string(
+                                    fromByteCount: reviewProjectEntries.reduce(0) { $0 + $1.estimatedBytes },
+                                    countStyle: .file)))
+                } footer: {
+                    Text("xcodeReviewTrashHelp")
+                }
+
+                SwiftUI.Section {
+                    if simulatorScan.isScanning { ProgressView("scanning") }
+                    if simulatorInventoryError != nil {
+                        Text("xcodeReviewUnavailableDevices")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if simulators.isEmpty && !simulatorScan.isScanning && simulatorInventoryError == nil {
+                        Text("xcodeNoSimulators").foregroundStyle(.secondary)
+                    }
+                    ForEach(simulators) { device in simulatorRow(device) }
+                    Button("xcodeDeleteDevices", role: .destructive) {
+                        showingSimulatorConfirmation = true
+                    }
+                    .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning || store.isDeleting)
+                    .hoverHighlight()
+                } header: {
+                    Text("xcodeReviewDevices")
+                    Text(String(format: L("xcodeReviewDeviceSummary"), reviewShutdownDevices.count,
+                                reviewShutdownDevices.allSatisfy { $0.dataBytes != nil }
+                                    ? ByteCountFormatter.string(
+                                        fromByteCount: reviewShutdownDevices.reduce(0) { $0 + ($1.dataBytes ?? 0) },
+                                        countStyle: .file) : L("notMeasured")))
+                } footer: {
+                    Text("xcodeReviewDevicesHelp")
+                }
+
+                SwiftUI.Section {
+                    if archiveScan.isScanning || runtimeScan.isScanning || deviceSupportScan.isScanning {
+                        ProgressView("scanning")
+                    }
+                    ForEach(archiveWarnings + deviceSupportWarnings, id: \.self) { warning in
+                        Text(localizedWarning(warning))
+                            .font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                    }
+                    if let runtimeError {
+                        Text(runtimeError).font(.caption).foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                    }
+                    ForEach(archives.sorted { $0.logicalBytes > $1.logicalBytes }) { archive in
+                        reviewReadOnlyRow(name: archive.name, path: archive.url,
+                                          bytes: archive.logicalBytes, kind: L("xcodeArchives"))
+                    }
+                    ForEach(runtimes) { runtime in
+                        reviewReadOnlyRow(name: "\(runtime.name) \(runtime.version) (\(runtime.build))",
+                                          path: runtimePath(runtime), bytes: runtime.logicalBytes,
+                                          kind: L("xcodeRuntimes"))
+                    }
+                    ForEach(deviceSupport.sorted { $0.logicalBytes > $1.logicalBytes }) { item in
+                        reviewReadOnlyRow(name: item.name, path: item.url,
+                                          bytes: item.logicalBytes, kind: L("xcodeDeviceSupport"))
+                    }
+                    if archives.isEmpty && runtimes.isEmpty && deviceSupport.isEmpty &&
+                        archiveWarnings.isEmpty && deviceSupportWarnings.isEmpty && runtimeError == nil &&
+                        !archiveScan.isScanning && !runtimeScan.isScanning && !deviceSupportScan.isScanning {
+                        Text("xcodeReviewNoReadOnly").foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("xcodeReviewReadOnly")
+                } footer: {
+                    Text("xcodeReviewReadOnlyHelp")
+                }
+            }
+            .listStyle(.inset)
+        }
+    }
+
+    private func reviewReadOnlyRow(name: String, path: URL?, bytes: Int64?, kind: String) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name).font(.headline)
+                Text(kind).font(.caption).foregroundStyle(.secondary)
+                Text(path?.path ?? L("xcodeFinderPathUnavailable"))
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+            }
+            Spacer(minLength: 8)
+            Text(bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+                 ?? L("notMeasured"))
+                .font(.caption).foregroundStyle(.secondary)
+            finderButton(path)
+        }
+        .padding(.vertical, 5)
+    }
+
+    private func runtimePath(_ runtime: XcodeSimulatorRuntime) -> URL? {
+        guard let path = runtime.path, path.hasPrefix("/") else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    private func finderButton(_ url: URL?) -> some View {
+        Button {
+            guard let url, FileManager.default.fileExists(atPath: url.path) else {
+                operationError = L("xcodeFinderPathUnavailable")
+                return
+            }
+            store.reveal(url)
+        } label: {
+            Image(systemName: "folder")
+        }
+        .disabled(url == nil)
+        .help(L(url == nil ? "xcodeFinderPathUnavailable" : "showInFinder"))
+        .hoverHighlight()
     }
 
     @ViewBuilder
@@ -580,22 +734,7 @@ struct XcodeWorkspaceView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(simulators) { device in
-                    HStack(spacing: 12) {
-                        Toggle("", isOn: Binding(get: { selectedSimulatorIDs.contains(device.id) }, set: { selected in
-                            if selected { selectedSimulatorIDs.insert(device.id) }
-                            else { selectedSimulatorIDs.remove(device.id) }
-                        }))
-                        .labelsHidden().disabled(!device.canDelete)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(device.name).font(.headline)
-                            Text("\(device.runtimeName) · \(device.state)")
-                                .font(.caption).foregroundStyle(.secondary)
-                            if let date = device.lastUsed { Text(date.formatted()).font(.caption2).foregroundStyle(.secondary) }
-                        }
-                        Spacer()
-                        Text(device.dataBytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
-                             ?? L("notMeasured"))
-                    }.padding(.vertical, 6)
+                    simulatorRow(device)
                 }
             }
             HStack {
@@ -605,6 +744,34 @@ struct XcodeWorkspaceView: View {
                     .hoverHighlight()
             }.padding(16).background(.bar)
         }
+    }
+
+    private func simulatorRow(_ device: XcodeSimulator) -> some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { selectedSimulatorIDs.contains(device.id) }, set: { selected in
+                if selected { selectedSimulatorIDs.insert(device.id) }
+                else { selectedSimulatorIDs.remove(device.id) }
+            }))
+            .labelsHidden().disabled(!device.canDelete || simulatorScan.isScanning || store.isDeleting)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(device.name).font(.headline)
+                Text("\(device.runtimeName) · \(device.state)")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let date = device.lastUsed {
+                    Text(date.formatted()).font(.caption2).foregroundStyle(.secondary)
+                }
+                Text(device.dataPath?.path ?? L("xcodeFinderPathUnavailable"))
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+            }
+            Spacer(minLength: 8)
+            Text(device.dataBytes.map {
+                ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+            } ?? L("notMeasured"))
+                .font(.caption).foregroundStyle(.secondary)
+            finderButton(device.dataPath)
+        }
+        .padding(.vertical, 6)
     }
 
     private func chooseRoot() {
