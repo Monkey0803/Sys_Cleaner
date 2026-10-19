@@ -67,7 +67,7 @@
 "xcodePurposeSharedCache" = "DerivedData 根目录中的共享构建缓存";
 "xcodeTestDevices" = "测试设备数据";
 "xcodeTestDevicesSource" = "范围：XCTestDevices 等；尚未确认路径和计量";
-"xcodeCoverageScope" = "完成状态仅针对已列出的目录；Xcode 设置中的自定义 DerivedData 须在项目页手动添加，自定义归档位置仍未覆盖。多个 Xcode 可能共用这些目录；不推断版本归属，也不把各类别大小相加作为总占用。";
+"xcodeCoverageScope" = "完成状态仅针对已列出的目录；Xcode 设置中的自定义 DerivedData 和归档路径须分别在项目页、归档页手动添加。多个 Xcode 可能共用这些目录；不推断版本归属，也不把各类别大小相加作为总占用。";
 "xcodeOtherArtifacts" = "其他 Xcode 数据";
 "xcodeOtherArtifactsHelp" = "测试克隆、其他缓存等数据尚未纳入清单；此概览不是 Xcode 总占用。";
 "xcodeRuntimes" = "模拟器运行时";
@@ -90,6 +90,7 @@
 "xcodeAddRoot" = "添加路径";
 "xcodeRemoveRoot" = "移除自定义路径";
 "xcodeChooseRootHelp" = "请选择位于个人目录中的 DerivedData 文件夹。";
+"xcodeChooseArchivesRootHelp" = "请选择 Xcode 存放按日期归档的文件夹。归档仍为只读。";
 "xcodeNoProjects" = "没有项目构建数据";
 "xcodeNoProjectsDetail" = "可添加自定义 DerivedData 路径后重新扫描。";
 "xcodePartialNoProjects" = "扫描未完成";
@@ -114,6 +115,8 @@
 "xcodeAllocated" = "磁盘占用估算：%@";
 "xcodeTrashConfirm" = "将所选项目构建数据移入废纸篓？";
 "xcodeArchivesReadOnly" = "归档可能是唯一的发布产物；此处仅供查看，不能删除。";
+"xcodeInvalidArchivesRoot" = "请选择真实的归档文件夹，且不得与其他已扫描位置重叠。";
+"xcodeInvalidArchivesRootWarning" = "无效的归档来源：";
 "xcodeNoArchives" = "没有归档";
 "xcodeSimulatorHelp" = "仅可选择已关闭设备；清理会删除其中安装的 App 和测试数据。大小为估算值。";
 "xcodeNoSimulators" = "没有模拟器设备";

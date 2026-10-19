@@ -226,7 +226,8 @@ struct XcodeWorkspaceView: View {
                             bytes: archives.reduce(0) { $0 + $1.logicalBytes },
                             status: scanStatus(archiveScan), isScanning: archiveScan.isScanning,
                             sources: [String(format: L("xcodeStandardPath"),
-                                             XcodeStorage.defaultArchivesRoot.resolvingSymlinksInPath().path)])
+                                             XcodeStorage.defaultArchivesRoot.resolvingSymlinksInPath().path)]
+                                + preferences.archivesRoots.map { String(format: L("xcodeAddedPath"), $0.path) })
                 overviewRow("xcodeSimulators", count: simulators.count,
                             bytes: simulators.allSatisfy { $0.dataBytes != nil }
                                 ? simulators.reduce(0) { $0 + ($1.dataBytes ?? 0) } : nil,
@@ -879,6 +880,10 @@ struct XcodeWorkspaceView: View {
     }
 
     private func localizedWarning(_ warning: String) -> String {
+        if warning.hasPrefix("Invalid archive root ") {
+            return warning.replacingOccurrences(of: "Invalid archive root ",
+                                                with: L("xcodeInvalidArchivesRootWarning") + " ")
+        }
         if warning.hasPrefix("Invalid root ") {
             return warning.replacingOccurrences(of: "Invalid root ", with: L("xcodeInvalidRootWarning") + " ")
         }
@@ -936,8 +941,33 @@ struct XcodeWorkspaceView: View {
 
     private var archivesView: some View {
         VStack(spacing: 0) {
-            Text("xcodeArchivesReadOnly").font(.caption).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+            HStack {
+                Text("xcodeArchivesReadOnly").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("xcodeAddRoot") { chooseArchivesRoot() }
+                    .hoverHighlight()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            if !preferences.archivesRoots.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack {
+                        ForEach(preferences.archivesRoots, id: \.path) { root in
+                            HStack {
+                                Text(root.path).font(.caption).lineLimit(1)
+                                Button {
+                                    preferences.removeArchivesRoot(root)
+                                    clearComparison()
+                                    Task { await refreshExtras() }
+                                } label: { Image(systemName: "xmark.circle.fill") }
+                                    .buttonStyle(.plain)
+                                    .help(L("xcodeRemoveRoot"))
+                                    .hoverHighlight()
+                            }
+                            .padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }.padding(.horizontal, 16)
+            }
             ForEach(archiveWarnings, id: \.self) { warning in
                 Text(localizedWarning(warning)).font(.caption).foregroundStyle(.orange)
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -1036,6 +1066,24 @@ struct XcodeWorkspaceView: View {
                 refreshAfterRootChange()
             } else {
                 operationError = L("xcodeInvalidRoot")
+            }
+        }
+    }
+
+    private func chooseArchivesRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = L("xcodeChooseArchivesRootHelp")
+        if panel.runModal() == .OK, let url = panel.url {
+            let previousCount = preferences.archivesRoots.count
+            preferences.addArchivesRoot(url)
+            if preferences.archivesRoots.count > previousCount {
+                clearComparison()
+                Task { await refreshExtras() }
+            } else {
+                operationError = L("xcodeInvalidArchivesRoot")
             }
         }
     }
@@ -1164,9 +1212,10 @@ struct XcodeWorkspaceView: View {
         selectedSimulatorIDs.removeAll()
 
         await withTaskGroup(of: ExtraInventoryResult.self) { group in
+            let archiveRoots = [XcodeStorage.defaultArchivesRoot] + preferences.archivesRoots
             group.addTask(priority: .utility) {
                 let start = ProcessInfo.processInfo.systemUptime
-                let inventory = XcodeStorage.archiveInventory()
+                let inventory = XcodeStorage.archiveInventory(roots: archiveRoots)
                 return .archives(inventory, ProcessInfo.processInfo.systemUptime - start)
             }
             group.addTask(priority: .utility) {
@@ -1212,7 +1261,8 @@ struct XcodeWorkspaceView: View {
                 case .archives(let inventory, let seconds):
                     archives = inventory.items
                     archiveWarnings = inventory.warnings
-                    archiveScan = inventory.warnings.contains("Cannot read \(XcodeStorage.defaultArchivesRoot.path)")
+                    archiveScan = inventory.readableSourceCount == 0 && inventory.items.isEmpty &&
+                        !inventory.warnings.isEmpty
                         ? .unavailable(seconds) : inventory.isComplete ? .complete(seconds) : .partial(seconds)
                 case .simulators(let items, let error, let seconds):
                     simulators = items

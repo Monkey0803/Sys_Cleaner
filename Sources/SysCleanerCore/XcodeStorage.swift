@@ -12,7 +12,14 @@ public struct XcodeArchive: Identifiable, Sendable {
 public struct XcodeStorageInventory<Item: Sendable>: Sendable {
     public let items: [Item]
     public let warnings: [String]
+    public let readableSourceCount: Int
     public var isComplete: Bool { warnings.isEmpty }
+
+    public init(items: [Item], warnings: [String], readableSourceCount: Int = 0) {
+        self.items = items
+        self.warnings = warnings
+        self.readableSourceCount = readableSourceCount
+    }
 }
 
 public struct XcodeDeviceSupport: Identifiable, Sendable {
@@ -363,9 +370,65 @@ public enum XcodeStorage {
         archiveInventory(at: root).items
     }
 
+    public static func isAllowedArchivesRoot(_ suppliedRoot: URL) -> Bool {
+        let root = suppliedRoot.standardizedFileURL
+        guard root.path != "/", root.path != FileManager.default.homeDirectoryForCurrentUser.path,
+              FileSafety.isDirectory(root),
+              !FileSafety.hasSymlinkInPath(root, through: URL(fileURLWithPath: "/")) else { return false }
+        let otherSources = [defaultDerivedDataRoot, defaultDeviceSupportRoot,
+                            FileManager.default.homeDirectoryForCurrentUser
+                                .appendingPathComponent("Library/Developer/CoreSimulator/Devices")]
+        return !otherSources.contains { source in
+            let path = source.standardizedFileURL.path
+            return root.path == path || root.path.hasPrefix(path + "/") || path.hasPrefix(root.path + "/")
+        }
+    }
+
+    public static func archiveInventory(roots: [URL]) -> XcodeStorageInventory<XcodeArchive> {
+        var items: [XcodeArchive] = []
+        var warnings: [String] = []
+        var scanned: [String] = []
+        var identities = Set<String>()
+        var readableSourceCount = 0
+        for supplied in roots {
+            let root = supplied.standardizedFileURL
+            guard !scanned.contains(root.path) else { continue }
+            if root.path == defaultArchivesRoot.standardizedFileURL.path &&
+                !FileManager.default.fileExists(atPath: root.path) { continue }
+            guard isAllowedArchivesRoot(root) else {
+                warnings.append("Invalid archive root \(root.path)")
+                continue
+            }
+            guard !scanned.contains(where: { root.path.hasPrefix($0 + "/") || $0.hasPrefix(root.path + "/") }) else {
+                warnings.append("Overlapping root \(root.path)")
+                continue
+            }
+            guard let stamp = FileSafety.stamp(at: root) else {
+                warnings.append("Cannot verify \(root.path)")
+                continue
+            }
+            let identity = "\(stamp.device):\(stamp.inode)"
+            guard identities.insert(identity).inserted else { continue }
+            scanned.append(root.path)
+            let inventory = archiveInventory(at: root)
+            items.append(contentsOf: inventory.items)
+            warnings.append(contentsOf: inventory.warnings)
+            if !inventory.warnings.contains("Cannot read \(root.path)") &&
+                !inventory.warnings.contains("Cannot verify \(root.path)") {
+                readableSourceCount += 1
+            }
+        }
+        return XcodeStorageInventory(items: items.sorted {
+            ($0.created ?? .distantPast) > ($1.created ?? .distantPast)
+        }, warnings: warnings, readableSourceCount: readableSourceCount)
+    }
+
     public static func archiveInventory(at root: URL = defaultArchivesRoot) -> XcodeStorageInventory<XcodeArchive> {
         guard FileManager.default.fileExists(atPath: root.path) else {
             return XcodeStorageInventory(items: [], warnings: [])
+        }
+        guard isAllowedArchivesRoot(root), let beforeRoot = FileSafety.stamp(at: root) else {
+            return XcodeStorageInventory(items: [], warnings: ["Cannot verify \(root.path)"])
         }
         guard let days = try? FileManager.default.contentsOfDirectory(at: root,
                 includingPropertiesForKeys: nil) else {
@@ -373,14 +436,35 @@ public enum XcodeStorage {
         }
         var warnings: [String] = []
         let archives = days.flatMap { day -> [XcodeArchive] in
-            guard FileSafety.isDirectory(day) else { return [] }
+            guard FileSafety.isDirectory(day) else {
+                if FileSafety.hasSymlinkInPath(day, through: root) {
+                    warnings.append("Cannot verify \(day.path)")
+                }
+                return []
+            }
+            guard !FileSafety.hasSymlinkInPath(day, through: root),
+                  let beforeDay = FileSafety.stamp(at: day) else {
+                warnings.append("Cannot verify \(day.path)")
+                return []
+            }
             guard let children = try? FileManager.default.contentsOfDirectory(at: day,
                     includingPropertiesForKeys: nil) else {
                 warnings.append("Cannot read \(day.path)")
                 return []
             }
-            return children.compactMap { url in
-                guard url.pathExtension == "xcarchive", FileSafety.isDirectory(url) else { return nil }
+            let result = children.compactMap { url -> XcodeArchive? in
+                guard url.pathExtension == "xcarchive" else { return nil }
+                guard FileSafety.isDirectory(url) else {
+                    if FileSafety.hasSymlinkInPath(url, through: root) {
+                        warnings.append("Cannot verify \(url.path)")
+                    }
+                    return nil
+                }
+                guard !FileSafety.hasSymlinkInPath(url, through: root),
+                      let beforeArchive = FileSafety.stamp(at: url) else {
+                    warnings.append("Cannot verify \(url.path)")
+                    return nil
+                }
                 let infoURL = url.appendingPathComponent("Info.plist")
                 let data = try? Data(contentsOf: infoURL)
                 let info = data.flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) }
@@ -389,11 +473,16 @@ public enum XcodeStorage {
                 let name = (app?["ApplicationPath"] as? String).map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
                     ?? url.deletingPathExtension().lastPathComponent
                 let size = directorySize(url)
-                if !size.complete { warnings.append("Cannot verify \(url.path)") }
+                if !size.complete || FileSafety.stamp(at: url) != beforeArchive {
+                    warnings.append("Cannot verify \(url.path)")
+                }
                 return XcodeArchive(url: url, name: name, created: info?["CreationDate"] as? Date,
                                     logicalBytes: size.logical, allocatedBytes: size.allocated)
             }
+            if FileSafety.stamp(at: day) != beforeDay { warnings.append("Cannot verify \(day.path)") }
+            return result
         }.sorted { ($0.created ?? .distantPast) > ($1.created ?? .distantPast) }
+        if FileSafety.stamp(at: root) != beforeRoot { warnings.append("Cannot verify \(root.path)") }
         return XcodeStorageInventory(items: archives, warnings: warnings)
     }
 

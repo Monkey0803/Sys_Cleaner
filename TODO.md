@@ -23,6 +23,10 @@
 
 ## 已完成记录
 
+### P1：自定义归档路径只读覆盖
+
+- [x] 归档页可手动添加和移除 Xcode 的自定义 Archives 路径；概览列出标准及自定义来源。重复、重叠、符号链接、失效及扫描中变化的路径会去重或报告不完整；归档仍无删除入口。隔离测试目录在仓库 App 中显示为第 2 项，移除路径后恢复为默认归档，测试目录已清理。76 项核心测试（1 项条件跳过）、规定的 Debug 构建通过。
+
 ### P1：扩充只读审阅
 
 - [x] 只读展示 DerivedData 根目录的 CompilationCache.noindex、ModuleCache.noindex、SDKStatCaches.noindex、SDKExplicitPrecompiledModules 和 SymbolCache.noindex。逐项显示真实路径、逻辑大小、磁盘占用估算、扫描状态及 Finder 入口；未可靠取得最近使用时间时不猜测。将这些目录从项目构建数据中排除，避免跨类别重复计量。

@@ -1357,6 +1357,45 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(XcodeStorage.archiveInventory(at: archivesRoot).isComplete)
     }
 
+    func testCustomArchivesRootsAreCombinedWithoutDuplicateCounting() throws {
+        let standard = root.appendingPathComponent("Archives")
+        let custom = root.appendingPathComponent("Custom Archives")
+        let first = standard.appendingPathComponent("2026-10-16/First.xcarchive")
+        let second = custom.appendingPathComponent("2026-10-17/Second.xcarchive")
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 11).write(to: first.appendingPathComponent("binary"))
+        try Data(repeating: 2, count: 22).write(to: second.appendingPathComponent("binary"))
+
+        let result = XcodeStorage.archiveInventory(roots: [standard, custom, standard,
+                                                            custom.appendingPathComponent("2026-10-17")])
+        XCTAssertEqual(Set(result.items.map { $0.url.standardizedFileURL.path }),
+                       Set([first.path, second.path]))
+        XCTAssertTrue(result.items.allSatisfy { $0.logicalBytes > 0 })
+        XCTAssertEqual(result.warnings, ["Overlapping root \(custom.appendingPathComponent("2026-10-17").path)"])
+        XCTAssertTrue(XcodeStorage.isAllowedArchivesRoot(custom))
+        XCTAssertFalse(XcodeStorage.isAllowedArchivesRoot(XcodeStorage.defaultDerivedDataRoot))
+    }
+
+    func testCustomArchivesMissingAndSymbolicLinkSourcesAreReported() throws {
+        let custom = root.appendingPathComponent("Custom Archives")
+        let day = custom.appendingPathComponent("2026-10-17")
+        let archive = day.appendingPathComponent("Real.xcarchive")
+        try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+        let alias = root.appendingPathComponent("Alias Archives")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: custom)
+        let linkedArchive = day.appendingPathComponent("Alias.xcarchive")
+        try FileManager.default.createSymbolicLink(at: linkedArchive, withDestinationURL: archive)
+        let missing = root.appendingPathComponent("Missing Archives")
+
+        let result = XcodeStorage.archiveInventory(roots: [custom, alias, missing])
+        XCTAssertEqual(result.items.map { $0.url.standardizedFileURL.path }, [archive.path])
+        XCTAssertTrue(result.warnings.contains("Cannot verify \(linkedArchive.path)"))
+        XCTAssertTrue(result.warnings.contains("Invalid archive root \(alias.path)"))
+        XCTAssertTrue(result.warnings.contains("Invalid archive root \(missing.path)"))
+        XCTAssertFalse(result.isComplete)
+    }
+
     func testXcodeRuntimeImagesParseReadOnlyMetadata() throws {
         let json = """
         {"00000000-0000-0000-0000-000000000001":{

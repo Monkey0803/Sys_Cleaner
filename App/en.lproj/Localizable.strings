@@ -67,7 +67,7 @@
 "xcodePurposeSharedCache" = "Shared build cache at a DerivedData root";
 "xcodeTestDevices" = "Test device data";
 "xcodeTestDevicesSource" = "Scope: XCTestDevices and others; paths and sizes not verified yet";
-"xcodeCoverageScope" = "Complete applies only to listed directories. Add custom DerivedData locations from Xcode Settings manually on the Projects tab. Custom archive locations remain uncovered. Multiple Xcode versions may share these directories; no version attribution or combined total is inferred.";
+"xcodeCoverageScope" = "Complete applies only to listed directories. Add custom DerivedData and Archives locations from Xcode Settings manually on their respective tabs. Multiple Xcode versions may share these directories; no version attribution or combined total is inferred.";
 "xcodeOtherArtifacts" = "Other Xcode data";
 "xcodeOtherArtifactsHelp" = "Test clones, additional caches, and other Xcode data are not inventoried here. This overview is not a total of all Xcode storage.";
 "xcodeRuntimes" = "Simulator Runtimes";
@@ -90,6 +90,7 @@
 "xcodeAddRoot" = "Add Location";
 "xcodeRemoveRoot" = "Remove custom location";
 "xcodeChooseRootHelp" = "Choose a DerivedData folder inside your home directory.";
+"xcodeChooseArchivesRootHelp" = "Choose the folder Xcode uses to store dated .xcarchive folders. Archives remain read-only.";
 "xcodeNoProjects" = "No Project Build Data";
 "xcodeNoProjectsDetail" = "Add a custom DerivedData location and scan again.";
 "xcodePartialNoProjects" = "Scan Incomplete";
@@ -114,6 +115,8 @@
 "xcodeAllocated" = "Estimated disk use: %@";
 "xcodeTrashConfirm" = "Move selected project build data to the Trash?";
 "xcodeArchivesReadOnly" = "An archive may be your only distributable build. Archives are read-only here.";
+"xcodeInvalidArchivesRoot" = "Choose a real Archives folder that does not overlap another scanned location.";
+"xcodeInvalidArchivesRootWarning" = "Invalid Archives source:";
 "xcodeNoArchives" = "No Archives";
 "xcodeSimulatorHelp" = "Only shutdown devices can be selected. Deletion removes installed apps and test data. Sizes are estimates.";
 "xcodeNoSimulators" = "No Simulator Devices";

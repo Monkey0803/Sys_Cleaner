@@ -71,6 +71,7 @@ final class AppPreferences: ObservableObject {
     private static let excludedPathsKey = "ScanExcludedPaths"
     private static let ignoredDuplicateHashesKey = "IgnoredDuplicateHashes"
     private static let derivedDataRootsKey = "ExtraDerivedDataRoots"
+    private static let archivesRootsKey = "ExtraArchivesRoots"
 
     @Published var language: AppLanguage {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey) }
@@ -97,6 +98,9 @@ final class AppPreferences: ObservableObject {
     @Published private(set) var derivedDataRoots: [URL] {
         didSet { UserDefaults.standard.set(derivedDataRoots.map(\.path), forKey: Self.derivedDataRootsKey) }
     }
+    @Published private(set) var archivesRoots: [URL] {
+        didSet { UserDefaults.standard.set(archivesRoots.map(\.path), forKey: Self.archivesRootsKey) }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -106,6 +110,8 @@ final class AppPreferences: ObservableObject {
         excludedPaths = defaults.stringArray(forKey: Self.excludedPathsKey) ?? []
         ignoredDuplicateHashes = Set(defaults.stringArray(forKey: Self.ignoredDuplicateHashesKey) ?? [])
         derivedDataRoots = (defaults.stringArray(forKey: Self.derivedDataRootsKey) ?? [])
+            .map { URL(fileURLWithPath: $0) }
+        archivesRoots = (defaults.stringArray(forKey: Self.archivesRootsKey) ?? [])
             .map { URL(fileURLWithPath: $0) }
     }
 
@@ -161,12 +167,32 @@ final class AppPreferences: ObservableObject {
                   root.path.hasPrefix($0.path + "/") || $0.path.hasPrefix(root.path + "/")
               }),
               !derivedDataRoots.contains(where: { $0.path == root.path }) else { return }
+        guard !archivesRoots.contains(where: {
+            root.path == $0.path || root.path.hasPrefix($0.path + "/") || $0.path.hasPrefix(root.path + "/")
+        }) else { return }
         derivedDataRoots.append(root)
         derivedDataRoots.sort { $0.path < $1.path }
     }
 
     func removeDerivedDataRoot(_ url: URL) {
         derivedDataRoots.removeAll { $0.path == url.path }
+    }
+
+    func addArchivesRoot(_ url: URL) {
+        let root = url.standardizedFileURL
+        let existing = [XcodeStorage.defaultArchivesRoot] + archivesRoots + derivedDataRoots
+        guard XcodeStorage.isAllowedArchivesRoot(root),
+              !existing.contains(where: {
+                  root.path == $0.standardizedFileURL.path ||
+                  root.path.hasPrefix($0.standardizedFileURL.path + "/") ||
+                  $0.standardizedFileURL.path.hasPrefix(root.path + "/")
+              }) else { return }
+        archivesRoots.append(root)
+        archivesRoots.sort { $0.path < $1.path }
+    }
+
+    func removeArchivesRoot(_ url: URL) {
+        archivesRoots.removeAll { $0.path == url.path }
     }
 
 }
