@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		091E81BB9397A7C35D7CFB51 /* XcodeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */; };
+		091E81BB9397A7C35D7CFB52 /* XcodeReviewComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E7AFC13C406BB7C4416C21F /* XcodeReviewComparison.swift */; };
 		17282EAC48104789ACB76FB4 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D4285D6F8EBB45A49282921B /* InfoPlist.strings */; };
 		22D20911B15411DE7585F70E /* FileSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */; };
 		3F4FD4CBA332D2A17F89538D /* ServicesMenu.strings in Resources */ = {isa = PBXBuildFile; fileRef = AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */; };
@@ -35,6 +36,7 @@
 		011A696469615F01985B1936 /* HoverHighlight.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HoverHighlight.swift; sourceTree = "<group>"; };
 		0615ABDC2BA0388108C2EAD4 /* zh-Hans */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XcodeStorage.swift; sourceTree = "<group>"; };
+		0E7AFC13C406BB7C4416C21F /* XcodeReviewComparison.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XcodeReviewComparison.swift; sourceTree = "<group>"; };
 		122FBD249CFF274AD501630D /* XcodeWorkspaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XcodeWorkspaceView.swift; sourceTree = "<group>"; };
 		15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		257C3E77B75C4A0EA2A9DE1C /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -127,6 +129,7 @@
 				9B0E912A313219445FB1AD75 /* SpacePie.swift */,
 				9B0E912A313219445FB1AD76 /* SpaceTree.swift */,
 				0E7AFC13C406BB7C4416C21E /* XcodeStorage.swift */,
+				0E7AFC13C406BB7C4416C21F /* XcodeReviewComparison.swift */,
 			);
 			name = SysCleanerCore;
 			path = Sources/SysCleanerCore;
@@ -226,6 +229,7 @@
 				51BED6A4CBE686C9EAEA312E /* SpaceTree.swift in Sources */,
 				5493669A51751302B25DA811 /* XcodeWorkspaceView.swift in Sources */,
 				091E81BB9397A7C35D7CFB51 /* XcodeStorage.swift in Sources */,
+				091E81BB9397A7C35D7CFB52 /* XcodeReviewComparison.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

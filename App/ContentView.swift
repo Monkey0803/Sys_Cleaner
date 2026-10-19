@@ -748,8 +748,10 @@ struct ContentView: View {
     private var resultsSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("operationResults").font(.title2.bold())
-            Text(String(format: L("resultSummary"), store.results.filter(\.success).count,
-                        store.results.filter { !$0.success }.count))
+            Text(String(format: L("resultSummaryDetailed"),
+                        store.results.filter { $0.status == .success }.count,
+                        store.results.filter { $0.status == .skipped }.count,
+                        store.results.filter { $0.status == .failed }.count))
             if let delta = store.lastAvailableSpaceDelta {
                 Text(String(format: L("observedAvailableChange"),
                             delta >= 0 ? "+" : "-", fileSize(abs(delta))))
@@ -772,6 +774,9 @@ struct ContentView: View {
                         Text(result.url.path).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Text(L(result.status == .success ? "resultSuccess" :
+                           result.status == .skipped ? "resultSkipped" : "resultFailed"))
+                        .font(.caption).foregroundStyle(.secondary)
                     Text(L(result.message)).font(.caption)
                 }
             }

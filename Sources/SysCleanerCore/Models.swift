@@ -15,17 +15,22 @@ public struct FileStamp: Codable, Equatable, Sendable {
     public let size: Int64
     public let modifiedSeconds: Int64
     public let modifiedNanoseconds: Int64
+    public let changedSeconds: Int64?
+    public let changedNanoseconds: Int64?
     public let linkCount: UInt64
     /// Allocated blocks are an estimate: APFS clones can share those blocks.
     public let allocatedBytes: Int64?
 
     public init(device: UInt64, inode: UInt64, size: Int64, modifiedSeconds: Int64,
-                modifiedNanoseconds: Int64, linkCount: UInt64, allocatedBytes: Int64? = nil) {
+                modifiedNanoseconds: Int64, linkCount: UInt64, allocatedBytes: Int64? = nil,
+                changedSeconds: Int64? = nil, changedNanoseconds: Int64? = nil) {
         self.device = device
         self.inode = inode
         self.size = size
         self.modifiedSeconds = modifiedSeconds
         self.modifiedNanoseconds = modifiedNanoseconds
+        self.changedSeconds = changedSeconds
+        self.changedNanoseconds = changedNanoseconds
         self.linkCount = linkCount
         self.allocatedBytes = allocatedBytes
     }
@@ -33,7 +38,9 @@ public struct FileStamp: Codable, Equatable, Sendable {
     public static func == (lhs: FileStamp, rhs: FileStamp) -> Bool {
         lhs.device == rhs.device && lhs.inode == rhs.inode && lhs.size == rhs.size &&
             lhs.modifiedSeconds == rhs.modifiedSeconds &&
-            lhs.modifiedNanoseconds == rhs.modifiedNanoseconds && lhs.linkCount == rhs.linkCount
+            lhs.modifiedNanoseconds == rhs.modifiedNanoseconds && lhs.linkCount == rhs.linkCount &&
+            (lhs.changedSeconds == nil || rhs.changedSeconds == nil ||
+             (lhs.changedSeconds == rhs.changedSeconds && lhs.changedNanoseconds == rhs.changedNanoseconds))
     }
 }
 
@@ -351,16 +358,35 @@ private extension ComparisonResult {
 
 public enum DeleteMode: Sendable, Equatable { case trash, permanent }
 
+public enum DeletionCapacityScope {
+    /// A single volume reading cannot represent a batch spanning volumes.
+    public static func commonScope(for entries: [ScanEntry]) -> URL? {
+        guard let first = entries.first,
+              entries.allSatisfy({ $0.stamp.device == first.stamp.device }) else { return nil }
+        return first.scope
+    }
+}
+
 public struct DeleteResult: Sendable {
+    public enum Status: Sendable { case success, skipped, failed }
     public let url: URL
     public let success: Bool
     public let message: String
     public let trashURL: URL?
-    public init(url: URL, success: Bool, message: String, trashURL: URL? = nil) {
+    public let trashSignature: String?
+    public var status: Status {
+        if success { return .success }
+        let refusals: Set<String> = ["protected", "unsafePath", "cloudPlaceholder", "changed",
+                                     "changedOrRunning", "recentlyUsed", "fileInUse"]
+        return refusals.contains(message) ? .skipped : .failed
+    }
+    public init(url: URL, success: Bool, message: String, trashURL: URL? = nil,
+                trashSignature: String? = nil) {
         self.url = url
         self.success = success
         self.message = message
         self.trashURL = trashURL
+        self.trashSignature = trashSignature
     }
 }
 
@@ -373,6 +399,7 @@ public struct CleanupHistoryItem: Codable, Identifiable, Sendable {
     public let trashPath: String?
     public let scopePath: String?
     public let trashStamp: FileStamp?
+    public let trashSignature: String?
     public var restoredAt: Date?
 
     public var canRestore: Bool {
@@ -382,7 +409,8 @@ public struct CleanupHistoryItem: Codable, Identifiable, Sendable {
 
     public init(path: String, estimatedBytes: Int64, success: Bool,
                 message: String, trashPath: String?, scopePath: String? = nil,
-                trashStamp: FileStamp? = nil, restoredAt: Date? = nil) {
+                trashStamp: FileStamp? = nil, trashSignature: String? = nil,
+                restoredAt: Date? = nil) {
         self.id = UUID()
         self.path = path
         self.estimatedBytes = estimatedBytes
@@ -391,6 +419,7 @@ public struct CleanupHistoryItem: Codable, Identifiable, Sendable {
         self.trashPath = trashPath
         self.scopePath = scopePath
         self.trashStamp = trashStamp
+        self.trashSignature = trashSignature
         self.restoredAt = restoredAt
     }
 }

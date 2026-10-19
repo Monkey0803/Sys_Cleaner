@@ -9,19 +9,35 @@ struct XcodeWorkspaceView: View {
     @State private var simulators: [XcodeSimulator] = []
     @State private var runtimes: [XcodeSimulatorRuntime] = []
     @State private var deviceSupport: [XcodeDeviceSupport] = []
+    @State private var sharedCaches: [XcodeReadOnlyItem] = []
+    @State private var additionalData: [XcodeReadOnlyItem] = []
     @State private var archiveWarnings: [String] = []
     @State private var deviceSupportWarnings: [String] = []
+    @State private var sharedCacheWarnings: [String] = []
+    @State private var additionalDataWarnings: [String] = []
     @State private var runtimeError: String?
     @State private var simulatorInventoryError: String?
     @State private var archiveScan: InventoryScan = .notScanned
     @State private var simulatorScan: InventoryScan = .notScanned
     @State private var runtimeScan: InventoryScan = .notScanned
     @State private var deviceSupportScan: InventoryScan = .notScanned
+    @State private var sharedCacheScan: InventoryScan = .notScanned
+    @State private var additionalDataScan: InventoryScan = .notScanned
+    @State private var sharedCacheProgress: ScanProgress?
+    @State private var additionalDataProgress: ScanProgress?
+    @State private var sharedCacheControl: ScanControl?
+    @State private var additionalDataControl: ScanControl?
     @State private var extraRefreshID = UUID()
     @State private var selectedSimulatorIDs = Set<String>()
+    @State private var selectedCachePaths = Set<String>()
     @State private var showingTrashConfirmation = false
     @State private var showingSimulatorConfirmation = false
+    @State private var showingCacheTrashConfirmation = false
     @State private var operationError: String?
+    @State private var comparisonBefore: XcodeReviewSnapshot?
+    @State private var comparisonAfter: XcodeReviewSnapshot?
+    @State private var comparisonRefreshPending = false
+    @State private var comparisonExtrasDone = false
     @State private var projectQuery = ""
     @State private var projectFilter: ProjectFilter = .all
     @State private var projectSort: ProjectSort = .size
@@ -33,7 +49,7 @@ struct XcodeWorkspaceView: View {
 
     private enum InventoryScan {
         case notScanned, scanning
-        case complete(TimeInterval), partial(TimeInterval), unavailable(TimeInterval)
+        case complete(TimeInterval), partial(TimeInterval), unavailable(TimeInterval), cancelled(TimeInterval)
 
         var isScanning: Bool {
             if case .scanning = self { return true }
@@ -46,6 +62,8 @@ struct XcodeWorkspaceView: View {
         case simulators([XcodeSimulator], String?, TimeInterval)
         case runtimes([XcodeSimulatorRuntime], String?, TimeInterval)
         case deviceSupport(XcodeStorageInventory<XcodeDeviceSupport>, TimeInterval)
+        case sharedCaches(XcodeReadOnlyReport, TimeInterval)
+        case additionalData(XcodeReadOnlyReport, TimeInterval)
     }
 
     private enum ProjectFilter: String {
@@ -149,8 +167,28 @@ struct XcodeWorkspaceView: View {
             }
             await refreshExtras()
         }
+        .onDisappear {
+            sharedCacheControl?.cancel()
+            additionalDataControl?.cancel()
+            clearComparison()
+        }
+        .onChange(of: store.showResults) { _, showing in
+            guard showing, comparisonBefore != nil, !comparisonRefreshPending else { return }
+            comparisonRefreshPending = true
+            comparisonExtrasDone = false
+            store.scan()
+            Task {
+                await refreshExtras()
+                comparisonExtrasDone = true
+                finishComparisonIfReady()
+            }
+        }
+        .onChange(of: store.isScanning) { _, _ in finishComparisonIfReady() }
         .alert("xcodeTrashConfirm", isPresented: $showingTrashConfirmation) {
-            Button("moveToTrash", role: .destructive) { store.delete(.trash) }
+            Button("moveToTrash", role: .destructive) {
+                beginComparison()
+                store.delete(.trash)
+            }
             Button("cancel", role: .cancel) {}
         } message: {
             Text(String(format: L("confirmCount"), store.selectedEntries.count,
@@ -162,6 +200,13 @@ struct XcodeWorkspaceView: View {
         } message: {
             let names = simulators.filter { selectedSimulatorIDs.contains($0.id) }.map(\.name).joined(separator: "、")
             Text(String(format: L("xcodeSimulatorIrreversible"), selectedSimulatorIDs.count, names))
+        }
+        .alert("xcodeCacheTrashConfirm", isPresented: $showingCacheTrashConfirmation) {
+            Button("moveToTrash", role: .destructive) { deleteSelectedCaches() }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            let names = sharedCaches.filter { selectedCachePaths.contains($0.url.path) }.map(\.name).joined(separator: "、")
+            Text(String(format: L("xcodeCacheTrashMessage"), selectedCachePaths.count, names))
         }
     }
 
@@ -197,12 +242,30 @@ struct XcodeWorkspaceView: View {
                             status: scanStatus(deviceSupportScan), isScanning: deviceSupportScan.isScanning,
                             sources: [String(format: L("xcodeStandardPath"),
                                              XcodeStorage.defaultDeviceSupportRoot.resolvingSymlinksInPath().path)])
-                overviewRow("xcodeSharedCaches", count: nil, bytes: nil,
-                            status: L("xcodeNotCovered"), isScanning: false,
+                overviewRow("xcodeSharedCaches", count: sharedCaches.count,
+                            bytes: sharedCaches.reduce(0) { $0 + $1.logicalBytes },
+                            status: scanStatus(sharedCacheScan), isScanning: sharedCacheScan.isScanning,
                             sources: [L("xcodeSharedCachesSource")])
-                overviewRow("xcodeTestDevices", count: nil, bytes: nil,
-                            status: L("xcodeNotCovered"), isScanning: false,
-                            sources: [L("xcodeTestDevicesSource")])
+                overviewRow("xcodeAdditionalData", count: additionalData.count,
+                            bytes: additionalData.reduce(0) { $0 + $1.logicalBytes },
+                            status: scanStatus(additionalDataScan), isScanning: additionalDataScan.isScanning,
+                            sources: [L("xcodeAdditionalDataSource")])
+                Button("cancel") { cancelReadOnlyScans() }
+                    .hoverHighlight()
+                    .disabled(!sharedCacheScan.isScanning && !additionalDataScan.isScanning)
+                if sharedCacheScan.isScanning || additionalDataScan.isScanning {
+                    readOnlyProgress(sharedCacheProgress, title: L("xcodeSharedCaches"))
+                    readOnlyProgress(additionalDataProgress, title: L("xcodeAdditionalData"))
+                }
+                ForEach(sharedCacheWarnings + additionalDataWarnings, id: \.self) { warning in
+                    Text(localizedWarning(warning)).font(.caption).foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+                if !sharedCaches.isEmpty || !additionalData.isEmpty {
+                    DisclosureGroup("xcodeReadOnlyCandidates") {
+                        ForEach(sharedCaches + additionalData) { item in readOnlyCandidateRow(item) }
+                    }
+                }
                 Text("xcodeCoverageScope").font(.caption).foregroundStyle(.secondary)
 
                 if !runtimes.isEmpty {
@@ -299,7 +362,52 @@ struct XcodeWorkspaceView: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20).padding(.vertical, 12)
+            if let before = comparisonBefore, let after = comparisonAfter {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("xcodeReviewComparisonTitle").font(.headline)
+                    ForEach(XcodeReviewCategory.allCases, id: \.self) { category in
+                        if let pair = before.comparison(to: after, category: category) {
+                            Text(String(format: L("xcodeReviewComparisonRow"),
+                                        L(comparisonCategoryKey(category)),
+                                        pair.before.count, pair.after.count,
+                                        comparisonSize(pair.before.estimatedBytes),
+                                        comparisonSize(pair.after.estimatedBytes)))
+                                .font(.caption).monospacedDigit()
+                        } else {
+                            Text(String(format: L("xcodeReviewComparisonIncomplete"),
+                                        L(comparisonCategoryKey(category))))
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    Text("xcodeReviewComparisonHelp")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            }
+            if !sharedCaches.isEmpty {
+                HStack {
+                    Spacer()
+                    Button("xcodeCacheTrashAction") { showingCacheTrashConfirmation = true }
+                        .hoverHighlight()
+                        .disabled(selectedCachePaths.isEmpty || sharedCacheScan.isScanning || store.isDeleting)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            }
             List {
+                if !sharedCaches.isEmpty {
+                    SwiftUI.Section {
+                        ForEach(sharedCaches) { item in readOnlyCandidateRow(item, selectable: true) }
+                        Text("xcodeCacheTrashHelp").font(.caption).foregroundStyle(.secondary)
+                    } header: {
+                        Text("xcodeSharedCaches")
+                    }
+                }
+
                 SwiftUI.Section {
                     if store.isScanning { ProgressView("scanning") }
                     if store.hasPartialResults {
@@ -363,10 +471,12 @@ struct XcodeWorkspaceView: View {
                 }
 
                 SwiftUI.Section {
-                    if archiveScan.isScanning || runtimeScan.isScanning || deviceSupportScan.isScanning {
+                    if archiveScan.isScanning || runtimeScan.isScanning || deviceSupportScan.isScanning ||
+                        sharedCacheScan.isScanning || additionalDataScan.isScanning {
                         ProgressView("scanning")
                     }
-                    ForEach(archiveWarnings + deviceSupportWarnings, id: \.self) { warning in
+                    ForEach(archiveWarnings + deviceSupportWarnings + sharedCacheWarnings + additionalDataWarnings,
+                            id: \.self) { warning in
                         Text(localizedWarning(warning))
                             .font(.caption).foregroundStyle(.orange).textSelection(.enabled)
                     }
@@ -387,9 +497,13 @@ struct XcodeWorkspaceView: View {
                         reviewReadOnlyRow(name: item.name, path: item.url,
                                           bytes: item.logicalBytes, kind: L("xcodeDeviceSupport"))
                     }
+                    ForEach(additionalData) { item in readOnlyCandidateRow(item, selectable: false) }
                     if archives.isEmpty && runtimes.isEmpty && deviceSupport.isEmpty &&
-                        archiveWarnings.isEmpty && deviceSupportWarnings.isEmpty && runtimeError == nil &&
-                        !archiveScan.isScanning && !runtimeScan.isScanning && !deviceSupportScan.isScanning {
+                        sharedCaches.isEmpty && additionalData.isEmpty &&
+                        archiveWarnings.isEmpty && deviceSupportWarnings.isEmpty &&
+                        sharedCacheWarnings.isEmpty && additionalDataWarnings.isEmpty && runtimeError == nil &&
+                        !archiveScan.isScanning && !runtimeScan.isScanning && !deviceSupportScan.isScanning &&
+                        !sharedCacheScan.isScanning && !additionalDataScan.isScanning {
                         Text("xcodeReviewNoReadOnly").foregroundStyle(.secondary)
                     }
                 } header: {
@@ -418,6 +532,65 @@ struct XcodeWorkspaceView: View {
             finderButton(path)
         }
         .padding(.vertical, 5)
+    }
+
+    private func readOnlyCandidateRow(_ item: XcodeReadOnlyItem, selectable: Bool = false) -> some View {
+        HStack(spacing: 12) {
+            if selectable, let _ = XcodeStorage.cacheDeletionEntry(for: item, derivedDataRoots:
+                [XcodeStorage.defaultDerivedDataRoot] + preferences.derivedDataRoots) {
+                Toggle(item.name, isOn: Binding(
+                    get: { selectedCachePaths.contains(item.url.path) },
+                    set: { selected in
+                        if selected { selectedCachePaths.insert(item.url.path) }
+                        else { selectedCachePaths.remove(item.url.path) }
+                    }
+                ))
+                .labelsHidden()
+                .disabled(sharedCacheScan.isScanning || store.isDeleting)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.name).font(.headline)
+                Text(readOnlyPurpose(item.name)).font(.caption).foregroundStyle(.secondary)
+                Text(item.url.path).font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                Text(item.isComplete ? "completeResults" : "partialResults")
+                    .font(.caption2).foregroundColor(item.isComplete ? .secondary : .orange)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(String(format: L("xcodeEstimatedSize"),
+                            ByteCountFormatter.string(fromByteCount: item.logicalBytes, countStyle: .file)))
+                Text(String(format: L("xcodeAllocated"),
+                            ByteCountFormatter.string(fromByteCount: item.allocatedBytes, countStyle: .file)))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            finderButton(item.url)
+        }.padding(.vertical, 5)
+    }
+
+    private func readOnlyPurpose(_ name: String) -> String {
+        switch name {
+        case "DeviceLogs": L("xcodePurposeDeviceLogs")
+        case "DocumentationCache": L("xcodePurposeDocumentationCache")
+        case "DocumentationIndex": L("xcodePurposeDocumentationIndex")
+        case "Products": L("xcodePurposeProducts")
+        case "DVTDownloads": L("xcodePurposeDVTDownloads")
+        case "XCTestDevices": L("xcodePurposeXCTestDevices")
+        default: L("xcodePurposeSharedCache")
+        }
+    }
+
+    @ViewBuilder
+    private func readOnlyProgress(_ progress: ScanProgress?, title: String) -> some View {
+        if let progress {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title + " · " + String(format: L("scanProgressCounts"),
+                    progress.processedFiles, progress.processedDirectories,
+                    ByteCountFormatter.string(fromByteCount: progress.processedBytes, countStyle: .file)))
+                Text(progress.currentPath).lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
+            }.font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private func runtimePath(_ runtime: XcodeSimulatorRuntime) -> URL? {
@@ -459,7 +632,7 @@ struct XcodeWorkspaceView: View {
             }
         case .scanning:
             Text("xcodeRuntimeCheckingDevices").font(.caption).foregroundStyle(.secondary)
-        case .notScanned, .partial, .unavailable:
+        case .notScanned, .partial, .unavailable, .cancelled:
             Text("xcodeRuntimeDevicesUnavailable").font(.caption).foregroundStyle(.orange)
         }
     }
@@ -480,7 +653,19 @@ struct XcodeWorkspaceView: View {
         case .complete(let seconds): String(format: L("xcodeScanDuration"), L("completeResults"), seconds)
         case .partial(let seconds): String(format: L("xcodeScanDuration"), L("partialResults"), seconds)
         case .unavailable(let seconds): String(format: L("xcodeScanDuration"), L("xcodeUnavailable"), seconds)
+        case .cancelled(let seconds): String(format: L("xcodeScanDuration"), L("scanCancelled"), seconds)
         }
+    }
+
+    private func readOnlyStatus(_ report: XcodeReadOnlyReport, seconds: TimeInterval) -> InventoryScan {
+        if report.cancelled { return .cancelled(seconds) }
+        if report.isComplete { return .complete(seconds) }
+        return report.readableSourceCount == 0 ? .unavailable(seconds) : .partial(seconds)
+    }
+
+    private func cancelReadOnlyScans() {
+        sharedCacheControl?.cancel()
+        additionalDataControl?.cancel()
     }
 
     private var projectScanStatus: String {
@@ -557,7 +742,10 @@ struct XcodeWorkspaceView: View {
                         ForEach(preferences.derivedDataRoots, id: \.path) { root in
                             HStack {
                                 Text(root.path).font(.caption).lineLimit(1)
-                                Button { preferences.removeDerivedDataRoot(root); store.invalidateScan(); store.scan() } label: {
+                                Button {
+                                    preferences.removeDerivedDataRoot(root)
+                                    refreshAfterRootChange()
+                                } label: {
                                     Image(systemName: "xmark.circle.fill")
                                 }
                                 .buttonStyle(.plain)
@@ -845,32 +1033,131 @@ struct XcodeWorkspaceView: View {
             let previousCount = preferences.derivedDataRoots.count
             preferences.addDerivedDataRoot(url)
             if preferences.derivedDataRoots.count > previousCount {
-                store.invalidateScan()
-                store.scan()
+                refreshAfterRootChange()
             } else {
                 operationError = L("xcodeInvalidRoot")
             }
         }
     }
 
-    private func refresh() {
+    private func refreshAfterRootChange() {
+        clearComparison()
+        store.invalidateScan()
         store.scan()
         Task { await refreshExtras() }
     }
 
+    private func refresh() {
+        clearComparison()
+        store.scan()
+        Task { await refreshExtras() }
+    }
+
+    private func comparisonCategoryKey(_ category: XcodeReviewCategory) -> String {
+        switch category {
+        case .projects: "xcodeProjects"
+        case .sharedCaches: "xcodeSharedCaches"
+        case .simulators: "xcodeSimulators"
+        case .archives: "xcodeArchives"
+        case .runtimes: "xcodeRuntimes"
+        case .deviceSupport: "xcodeDeviceSupport"
+        case .otherData: "xcodeAdditionalData"
+        }
+    }
+
+    private func comparisonSize(_ bytes: Int64?) -> String {
+        bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+            ?? L("notMeasured")
+    }
+
+    private func inventoryComplete(_ scan: InventoryScan) -> Bool {
+        if case .complete = scan { return true }
+        return false
+    }
+
+    private var reviewSnapshot: XcodeReviewSnapshot {
+        XcodeReviewSnapshot(measures: [
+            .projects: XcodeReviewMeasure(count: store.entries.count,
+                estimatedBytes: store.entries.reduce(0) { $0 + $1.estimatedBytes },
+                complete: store.hasScanned && !store.hasPartialResults && !store.isScanning),
+            .sharedCaches: XcodeReviewMeasure(count: sharedCaches.count,
+                estimatedBytes: sharedCaches.reduce(0) { $0 + $1.logicalBytes },
+                complete: inventoryComplete(sharedCacheScan)),
+            .simulators: XcodeReviewMeasure(count: simulators.count,
+                estimatedBytes: simulators.allSatisfy { $0.dataBytes != nil }
+                    ? simulators.reduce(0) { $0 + ($1.dataBytes ?? 0) } : nil,
+                complete: inventoryComplete(simulatorScan)),
+            .archives: XcodeReviewMeasure(count: archives.count,
+                estimatedBytes: archives.reduce(0) { $0 + $1.logicalBytes },
+                complete: inventoryComplete(archiveScan)),
+            .runtimes: XcodeReviewMeasure(count: runtimes.count,
+                estimatedBytes: runtimes.allSatisfy { $0.logicalBytes != nil }
+                    ? runtimes.reduce(0) { $0 + ($1.logicalBytes ?? 0) } : nil,
+                complete: inventoryComplete(runtimeScan)),
+            .deviceSupport: XcodeReviewMeasure(count: deviceSupport.count,
+                estimatedBytes: deviceSupport.reduce(0) { $0 + $1.logicalBytes },
+                complete: inventoryComplete(deviceSupportScan)),
+            .otherData: XcodeReviewMeasure(count: additionalData.count,
+                estimatedBytes: additionalData.reduce(0) { $0 + $1.logicalBytes },
+                complete: inventoryComplete(additionalDataScan))
+        ])
+    }
+
+    private func beginComparison() {
+        comparisonBefore = reviewSnapshot
+        comparisonAfter = nil
+        comparisonRefreshPending = false
+        comparisonExtrasDone = false
+    }
+
+    private func finishComparisonIfReady() {
+        guard comparisonRefreshPending, comparisonExtrasDone, !store.isScanning else { return }
+        comparisonAfter = reviewSnapshot
+        comparisonRefreshPending = false
+    }
+
+    private func clearComparison() {
+        comparisonBefore = nil
+        comparisonAfter = nil
+        comparisonRefreshPending = false
+        comparisonExtrasDone = false
+    }
+
     private func refreshExtras() async {
+        cancelReadOnlyScans()
+        selectedCachePaths.removeAll()
         let refreshID = UUID()
         extraRefreshID = refreshID
+        let sharedControl = ScanControl { progress in
+            Task { @MainActor in
+                if extraRefreshID == refreshID { sharedCacheProgress = progress }
+            }
+        }
+        let additionalControl = ScanControl { progress in
+            Task { @MainActor in
+                if extraRefreshID == refreshID { additionalDataProgress = progress }
+            }
+        }
+        sharedCacheControl = sharedControl
+        additionalDataControl = additionalControl
         archiveScan = .scanning
         simulatorScan = .scanning
         runtimeScan = .scanning
         deviceSupportScan = .scanning
+        sharedCacheScan = .scanning
+        additionalDataScan = .scanning
         archives = []
         simulators = []
         runtimes = []
         deviceSupport = []
+        sharedCaches = []
+        additionalData = []
         archiveWarnings = []
         deviceSupportWarnings = []
+        sharedCacheWarnings = []
+        additionalDataWarnings = []
+        sharedCacheProgress = nil
+        additionalDataProgress = nil
         simulatorInventoryError = nil
         runtimeError = nil
         operationError = nil
@@ -886,6 +1173,18 @@ struct XcodeWorkspaceView: View {
                 let start = ProcessInfo.processInfo.systemUptime
                 let inventory = XcodeStorage.deviceSupportInventory()
                 return .deviceSupport(inventory, ProcessInfo.processInfo.systemUptime - start)
+            }
+            let derivedRoots = [XcodeStorage.defaultDerivedDataRoot] + preferences.derivedDataRoots
+            group.addTask(priority: .utility) {
+                let start = ProcessInfo.processInfo.systemUptime
+                let report = XcodeStorage.sharedCacheInventory(derivedDataRoots: derivedRoots,
+                                                                control: sharedControl)
+                return .sharedCaches(report, ProcessInfo.processInfo.systemUptime - start)
+            }
+            group.addTask(priority: .utility) {
+                let start = ProcessInfo.processInfo.systemUptime
+                let report = XcodeStorage.additionalDataInventory(control: additionalControl)
+                return .additionalData(report, ProcessInfo.processInfo.systemUptime - start)
             }
             group.addTask(priority: .utility) {
                 let start = ProcessInfo.processInfo.systemUptime
@@ -928,12 +1227,23 @@ struct XcodeWorkspaceView: View {
                     deviceSupportWarnings = inventory.warnings
                     deviceSupportScan = inventory.warnings.contains("Cannot read \(XcodeStorage.defaultDeviceSupportRoot.path)")
                         ? .unavailable(seconds) : inventory.isComplete ? .complete(seconds) : .partial(seconds)
+                case .sharedCaches(let report, let seconds):
+                    sharedCaches = report.items
+                    sharedCacheWarnings = report.warnings
+                    sharedCacheScan = readOnlyStatus(report, seconds: seconds)
+                    sharedCacheProgress = nil
+                case .additionalData(let report, let seconds):
+                    additionalData = report.items
+                    additionalDataWarnings = report.warnings
+                    additionalDataScan = readOnlyStatus(report, seconds: seconds)
+                    additionalDataProgress = nil
                 }
             }
         }
     }
 
     private func deleteSelectedSimulators() {
+        beginComparison()
         let ids = selectedSimulatorIDs.sorted()
         selectedSimulatorIDs.removeAll()
         Task {
@@ -945,6 +1255,24 @@ struct XcodeWorkspaceView: View {
             }.value
             await refreshExtras()
             operationError = failures.isEmpty ? operationError : failures.joined(separator: "\n")
+            comparisonAfter = reviewSnapshot
+        }
+    }
+
+    private func deleteSelectedCaches() {
+        let selected = selectedCachePaths
+        let roots = [XcodeStorage.defaultDerivedDataRoot] + preferences.derivedDataRoots
+        let entries = sharedCaches.filter { selected.contains($0.url.path) }
+            .compactMap { XcodeStorage.cacheDeletionEntry(for: $0, derivedDataRoots: roots) }
+        selectedCachePaths.removeAll()
+        guard !entries.isEmpty else {
+            operationError = L("xcodeCacheSelectionChanged")
+            return
+        }
+        if entries.count != selected.count { operationError = L("xcodeCacheSelectionChanged") }
+        beginComparison()
+        Task {
+            await store.deleteXcodeCaches(entries)
         }
     }
 }

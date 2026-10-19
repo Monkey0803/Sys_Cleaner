@@ -27,7 +27,9 @@ public enum FileSafety {
                               size: Int64(info.st_size), modifiedSeconds: Int64(info.st_mtimespec.tv_sec),
                               modifiedNanoseconds: Int64(info.st_mtimespec.tv_nsec),
                               linkCount: UInt64(info.st_nlink),
-                              allocatedBytes: Int64(info.st_blocks) * 512)
+                              allocatedBytes: Int64(info.st_blocks) * 512,
+                              changedSeconds: Int64(info.st_ctimespec.tv_sec),
+                              changedNanoseconds: Int64(info.st_ctimespec.tv_nsec))
         return (stamp, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR))
     }
 

@@ -895,7 +895,7 @@ public enum FileScanner {
             guard !control.isCancelled, FileSafety.stamp(at: url) == stamp else { return nil }
             total += stamp.size
             allocated += stamp.allocatedBytes ?? 0
-            let part = "\(url.path.dropFirst(root.path.count))|\(stamp.device)|\(stamp.inode)|\(stamp.size)|\(stamp.modifiedSeconds)|\(stamp.modifiedNanoseconds)"
+            let part = "\(url.path.dropFirst(root.path.count))|\(stamp.device)|\(stamp.inode)|\(stamp.size)|\(stamp.modifiedSeconds)|\(stamp.modifiedNanoseconds)|\(stamp.changedSeconds ?? 0)|\(stamp.changedNanoseconds ?? 0)"
             hasher.update(data: Data(part.utf8))
         }
         return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), total, allocated)

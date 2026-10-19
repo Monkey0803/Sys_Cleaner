@@ -304,6 +304,107 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: trash.path))
     }
 
+    func testTrashHistoryAllowsTrashChangeTimeToDrift() throws {
+        let scope = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleanerRestoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scope, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scope) }
+        let original = scope.appendingPathComponent("sample")
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        try Data("original".utf8).write(to: original.appendingPathComponent("sample.txt"))
+        var destination: NSURL?
+        try FileManager.default.trashItem(at: original, resultingItemURL: &destination)
+        let trash = try XCTUnwrap(destination as URL?)
+        defer { try? FileManager.default.removeItem(at: trash) }
+        let stamp = try XCTUnwrap(FileSafety.stamp(at: trash))
+        let signature = try XCTUnwrap(FileScanner.directorySignature(trash)?.digest)
+        let recorded = FileStamp(device: stamp.device, inode: stamp.inode, size: stamp.size,
+                                 modifiedSeconds: stamp.modifiedSeconds,
+                                 modifiedNanoseconds: stamp.modifiedNanoseconds,
+                                 linkCount: stamp.linkCount, allocatedBytes: stamp.allocatedBytes,
+                                 changedSeconds: (stamp.changedSeconds ?? 0) - 1,
+                                 changedNanoseconds: stamp.changedNanoseconds)
+        let item = CleanupHistoryItem(path: original.path, estimatedBytes: 8,
+                                      success: true, message: "movedToTrash", trashPath: trash.path,
+                                      scopePath: scope.path, trashStamp: recorded,
+                                      trashSignature: signature)
+        XCTAssertNil(FileRestoration.restore(item, category: .large))
+        XCTAssertEqual(try Data(contentsOf: original.appendingPathComponent("sample.txt")),
+                       Data("original".utf8))
+    }
+
+    func testTrashHistoryRejectsDirectoryContentChangedAfterMove() throws {
+        let scope = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleanerRestoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scope, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scope) }
+        let original = scope.appendingPathComponent("sample")
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        let child = original.appendingPathComponent("data.txt")
+        try Data("original".utf8).write(to: child)
+        var trashPath: URL?
+        defer { if let trashPath { try? FileManager.default.removeItem(at: trashPath) } }
+        var destination: NSURL?
+        try FileManager.default.trashItem(at: original, resultingItemURL: &destination)
+        let trash = try XCTUnwrap(destination as URL?)
+        trashPath = trash
+        let stamp = try XCTUnwrap(FileSafety.stamp(at: trash))
+        let signature = try XCTUnwrap(FileScanner.directorySignature(trash)?.digest)
+        let history = CleanupHistoryItem(path: original.path, estimatedBytes: 8,
+                                         success: true, message: "movedToTrash", trashPath: trash.path,
+                                         scopePath: scope.path, trashStamp: stamp,
+                                         trashSignature: signature)
+        let trashedChild = trash.appendingPathComponent("data.txt")
+        let previousModification = try XCTUnwrap(FileSafety.stamp(at: trashedChild))
+        try Data("modified".utf8).write(to: trashedChild)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970:
+            Double(previousModification.modifiedSeconds) + Double(previousModification.modifiedNanoseconds) / 1e9)],
+            ofItemAtPath: trashedChild.path)
+        XCTAssertEqual(FileRestoration.restore(history, category: .large), "restoreChanged")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: original.path))
+    }
+
+    func testXcodeReviewComparisonRequiresCompleteCategoryOnBothSides() {
+        let before = XcodeReviewSnapshot(measures: [
+            .projects: XcodeReviewMeasure(count: 3, estimatedBytes: 900, complete: true),
+            .sharedCaches: XcodeReviewMeasure(count: 2, estimatedBytes: 300, complete: false)
+        ])
+        let after = XcodeReviewSnapshot(measures: [
+            .projects: XcodeReviewMeasure(count: 2, estimatedBytes: 500, complete: true),
+            .sharedCaches: XcodeReviewMeasure(count: 1, estimatedBytes: 100, complete: true)
+        ])
+        let projects = before.comparison(to: after, category: .projects)
+        XCTAssertEqual(projects?.before.count, 3)
+        XCTAssertEqual(projects?.after.count, 2)
+        XCTAssertEqual(projects?.before.estimatedBytes, 900)
+        XCTAssertEqual(projects?.after.estimatedBytes, 500)
+        XCTAssertNil(before.comparison(to: after, category: .sharedCaches))
+        XCTAssertNil(before.comparison(to: after, category: .archives))
+    }
+
+    func testDeleteResultDistinguishesSafetySkipFromOperationFailure() {
+        let path = URL(fileURLWithPath: "/tmp/example")
+        XCTAssertEqual(DeleteResult(url: path, success: true, message: "movedToTrash").status, .success)
+        XCTAssertEqual(DeleteResult(url: path, success: false, message: "changed").status, .skipped)
+        XCTAssertEqual(DeleteResult(url: path, success: false, message: "fileInUse").status, .skipped)
+        XCTAssertEqual(DeleteResult(url: path, success: false, message: "disk full").status, .failed)
+    }
+
+    func testCapacityObservationDoesNotTreatCrossVolumeBatchAsOneVolume() {
+        func entry(device: UInt64, name: String) -> ScanEntry {
+            ScanEntry(url: URL(fileURLWithPath: "/tmp/\(name)"),
+                      scope: URL(fileURLWithPath: "/tmp"), category: .large,
+                      stamp: FileStamp(device: device, inode: 1, size: 10,
+                                       modifiedSeconds: 1, modifiedNanoseconds: 0, linkCount: 1),
+                      estimatedBytes: 10)
+        }
+        XCTAssertNil(DeletionCapacityScope.commonScope(for: []))
+        XCTAssertEqual(DeletionCapacityScope.commonScope(for: [entry(device: 1, name: "a"),
+                                                              entry(device: 1, name: "b")])?.path, "/tmp")
+        XCTAssertNil(DeletionCapacityScope.commonScope(for: [entry(device: 1, name: "a"),
+                                                            entry(device: 2, name: "b")]))
+    }
+
     func testPartialFailureKeepsOtherFiles() throws {
         let first = try file("first", "one")
         let second = try file("second", "two")
@@ -945,6 +1046,227 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(report.entries.isEmpty)
         XCTAssertEqual(report.omittedCount, 1)
         XCTAssertEqual(report.warnings, ["Invalid root \(root.path)"])
+        let productsRoot = XcodeStorage.defaultXcodeRoot
+            .appendingPathComponent("Products/SysCleaner-XcodeTests-\(UUID().uuidString)/DerivedData")
+        defer { try? FileManager.default.removeItem(at: productsRoot.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: productsRoot, withIntermediateDirectories: true)
+        XCTAssertFalse(XcodeStorage.isAllowedDerivedDataRoot(productsRoot))
+    }
+
+    func testXcodeSharedCachesAreReadOnlyAndExcludeProjectDirectories() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let cache = root.appendingPathComponent("ModuleCache.noindex")
+        let project = root.appendingPathComponent("Project-abcdefghijklmnopqrstuvwxabcd")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 37).write(to: cache.appendingPathComponent("module.pcm"))
+        try Data().write(to: cache.appendingPathComponent("info.plist"))
+        try Data(repeating: 1, count: 99).write(to: project.appendingPathComponent("build.o"))
+
+        let report = XcodeStorage.sharedCacheInventory(derivedDataRoots: [root, root])
+        XCTAssertTrue(report.isComplete)
+        XCTAssertEqual(report.items.map { $0.url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) },
+                       [cache.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))])
+        XCTAssertEqual(report.items[0].logicalBytes, 37)
+        XCTAssertGreaterThanOrEqual(report.items[0].allocatedBytes, 37)
+        XCTAssertTrue(report.items[0].isComplete)
+        XCTAssertEqual(XcodeStorage.derivedDataEntries(roots: [root]).entries.count, 1)
+        XCTAssertFalse(XcodeStorage.isAllowedDerivedDataRoot(
+            XcodeStorage.defaultDerivedDataRoot.appendingPathComponent("ModuleCache.noindex")))
+    }
+
+    func testXcodeAdditionalDataListsOnlyConfirmedDirectoriesAndSkipsSymlinks() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let developer = parent.appendingPathComponent("Developer")
+        let xcode = developer.appendingPathComponent("Xcode")
+        let logs = xcode.appendingPathComponent("DeviceLogs")
+        let downloads = developer.appendingPathComponent("DVTDownloads")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 11).write(to: logs.appendingPathComponent("log.txt"))
+        try Data(repeating: 1, count: 23).write(to: downloads.appendingPathComponent("payload"))
+        try FileManager.default.createSymbolicLink(at: xcode.appendingPathComponent("Products"),
+                                                     withDestinationURL: downloads)
+
+        let report = XcodeStorage.additionalDataInventory(xcodeRoot: xcode, developerRoot: developer)
+        XCTAssertEqual(Set(report.items.map { $0.url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }),
+                       Set([logs, downloads].map { $0.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }))
+        XCTAssertEqual(report.items.reduce(0) { $0 + $1.logicalBytes }, 34)
+        XCTAssertEqual(report.warnings, ["Cannot verify \(xcode.appendingPathComponent("Products").path)"])
+        XCTAssertFalse(report.isComplete)
+    }
+
+    func testXcodeAdditionalDataReportsUnreadableDirectory() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let developer = parent.appendingPathComponent("Developer")
+        let xcode = developer.appendingPathComponent("Xcode")
+        let logs = xcode.appendingPathComponent("DeviceLogs")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: logs.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: logs.path) }
+        guard (try? FileManager.default.contentsOfDirectory(atPath: logs.path)) == nil else {
+            throw XCTSkip("This process can read directories without permission")
+        }
+        let report = XcodeStorage.additionalDataInventory(xcodeRoot: xcode, developerRoot: developer)
+        XCTAssertFalse(report.isComplete)
+        XCTAssertEqual(report.warnings, ["Cannot verify \(logs.path)"])
+        XCTAssertEqual(report.items.count, 1)
+        XCTAssertFalse(report.items[0].isComplete)
+    }
+
+    func testXcodeReadOnlyScanCanCancelWithoutCountingMoreDirectories() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let cache = root.appendingPathComponent("CompilationCache.noindex")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 5).write(to: cache.appendingPathComponent("entry"))
+        let control = ScanControl()
+        control.cancel()
+        let report = XcodeStorage.sharedCacheInventory(derivedDataRoots: [root], control: control)
+        XCTAssertTrue(report.cancelled)
+        XCTAssertTrue(report.items.isEmpty)
+        XCTAssertFalse(report.isComplete)
+    }
+
+    func testXcodeReadOnlyScanReportsProgressAndStopsDuringLargeDirectory() throws {
+        final class CancellationBox: @unchecked Sendable {
+            var control: ScanControl?
+            var observedFiles = 0
+        }
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let cache = root.appendingPathComponent("ModuleCache.noindex")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        for index in 0..<200 {
+            try Data([UInt8(index % 255)]).write(to: cache.appendingPathComponent("entry-\(index)"))
+        }
+        let box = CancellationBox()
+        let control = ScanControl { progress in
+            if progress.processedFiles == 0 && progress.processedDirectories == 0 {
+                Thread.sleep(forTimeInterval: 0.25)
+            } else if progress.processedFiles > 0 {
+                box.observedFiles = progress.processedFiles
+                box.control?.cancel()
+            }
+        }
+        box.control = control
+        let report = XcodeStorage.sharedCacheInventory(derivedDataRoots: [root], control: control)
+        XCTAssertGreaterThan(box.observedFiles, 0)
+        XCTAssertLessThan(box.observedFiles, 200)
+        XCTAssertTrue(report.cancelled)
+        XCTAssertEqual(report.items.count, 1)
+        XCTAssertFalse(report.items[0].isComplete)
+    }
+
+    func testXcodeReadOnlyScanMarksChangedDirectoryPartial() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let cache = root.appendingPathComponent("SymbolCache.noindex")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data([1]).write(to: cache.appendingPathComponent("first"))
+        let second = cache.appendingPathComponent("second")
+        let control = ScanControl { progress in
+            if progress.processedFiles == 0 && progress.processedDirectories == 0 {
+                Thread.sleep(forTimeInterval: 0.25)
+            } else if progress.processedFiles > 0 {
+                try? Data([2]).write(to: second)
+            }
+        }
+        let report = XcodeStorage.sharedCacheInventory(derivedDataRoots: [root], control: control)
+        XCTAssertFalse(report.isComplete)
+        XCTAssertFalse(report.items[0].isComplete)
+        XCTAssertEqual(report.warnings, ["Cannot verify \(cache.path)"])
+    }
+
+    func testXcodeVerifiedSharedCacheRefusesRecentAndChangedDataThenRestoresFromTrash() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let cache = root.appendingPathComponent("ModuleCache.noindex")
+        let file = cache.appendingPathComponent("module.pcm")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 64).write(to: file)
+
+        let recentItem = try XCTUnwrap(XcodeStorage.sharedCacheInventory(derivedDataRoots: [root]).items.first)
+        let recentEntry = try XCTUnwrap(XcodeStorage.cacheDeletionEntry(for: recentItem,
+                                                                         derivedDataRoots: [root]))
+        XCTAssertNil(XcodeStorage.cacheDeletionEntry(for: recentItem, derivedDataRoots: []))
+        XCTAssertEqual(FileDeletion.refusal(for: recentEntry), "recentlyUsed")
+        XCTAssertFalse(try XCTUnwrap(FileDeletion.execute([recentEntry], mode: .permanent).first).success)
+
+        let oldDate = Date().addingTimeInterval(-3600)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: file.path)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: cache.path)
+        let oldItem = try XCTUnwrap(XcodeStorage.sharedCacheInventory(derivedDataRoots: [root]).items.first)
+        let oldEntry = try XCTUnwrap(XcodeStorage.cacheDeletionEntry(for: oldItem,
+                                                                      derivedDataRoots: [root]))
+        try Data(repeating: 2, count: 64).write(to: file)
+        XCTAssertEqual(FileDeletion.refusal(for: oldEntry), "recentlyUsed")
+
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: file.path)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: cache.path)
+        XCTAssertEqual(FileDeletion.refusal(for: oldEntry), "changed")
+        let safeItem = try XCTUnwrap(XcodeStorage.sharedCacheInventory(derivedDataRoots: [root]).items.first)
+        let safeEntry = try XCTUnwrap(XcodeStorage.cacheDeletionEntry(for: safeItem,
+                                                                       derivedDataRoots: [root]))
+        let openFile = try FileHandle(forReadingFrom: file)
+        XCTAssertEqual(FileDeletion.refusal(for: safeEntry), "fileInUse")
+        try openFile.close()
+        if FileDeletion.refusal(for: safeEntry) == "fileInUse" {
+            throw XCTSkip("Xcode or an Xcode build process is active")
+        }
+        let result = try XCTUnwrap(FileDeletion.execute([safeEntry], mode: .trash).first)
+        XCTAssertTrue(result.success, result.message)
+        XCTAssertNotNil(result.trashSignature)
+        let trashed = try XCTUnwrap(result.trashURL)
+        let history = CleanupHistoryItem(path: cache.path, estimatedBytes: safeEntry.estimatedBytes,
+                                         success: true, message: result.message, trashPath: trashed.path,
+                                         scopePath: root.path, trashStamp: FileSafety.stamp(at: trashed),
+                                         trashSignature: result.trashSignature)
+        XCTAssertNil(FileRestoration.restore(history, category: .developerCache))
+        XCTAssertTrue(FileSafety.isDirectory(cache))
+    }
+
+    func testXcodeUnverifiedSharedCacheStaysReadOnly() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let cache = root.appendingPathComponent("SymbolCache.noindex")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data([1]).write(to: cache.appendingPathComponent("symbol"))
+        let item = try XCTUnwrap(XcodeStorage.sharedCacheInventory(derivedDataRoots: [root]).items.first)
+        XCTAssertNil(XcodeStorage.cacheDeletionEntry(for: item, derivedDataRoots: [root]))
+    }
+
+    func testXcodeSharedCacheSymlinkNeverBecomesDeletable() throws {
+        let parent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleaner-XcodeTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("DerivedData")
+        let outside = parent.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("ModuleCache.noindex")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+        let report = XcodeStorage.sharedCacheInventory(derivedDataRoots: [root])
+        XCTAssertTrue(report.items.isEmpty)
+        XCTAssertFalse(report.isComplete)
+        XCTAssertEqual(report.warnings, ["Cannot verify \(link.path)"])
     }
 
     func testXcodeScanReportsDirectoryChangedWhileMeasuring() throws {

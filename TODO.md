@@ -4,25 +4,30 @@
 
 ## Xcode 后续路线图
 
-### P1：扩充只读审阅
+### P1：完成只读审阅交互验收
 
-- [ ] 调查并只读展示 DerivedData 内的共享缓存候选，例如 CompilationCache.noindex、ModuleCache.noindex、SDKStatCaches.noindex、SDKExplicitPrecompiledModules 和 SymbolCache.noindex。逐项提供可获取的真实路径、逻辑大小、磁盘占用估算、扫描状态与 Finder 入口；无法可靠取得最近使用时间时不猜测。
-- [ ] 调查 DeviceLogs、DocumentationCache、DocumentationIndex、Products、DVTDownloads 和 XCTestDevices 等位置，明确其用途及是否由多个 Xcode 共用；首轮仅展示已确认的真实目录和读取警告，不提供删除入口。用存在、缺失、不可读和符号链接目录验证边界。
-- [ ] 新增类别分别反馈进度、耗时、取消和部分结果；重新扫描时丢弃旧结果。用大量文件的测试目录和真实 App 页面验证响应性、分类总计及跨类别不重复计量。
+- [x] 取消按钮在只读扫描期间可用、结束后保留并禁用；仓库 App 在隔离目录的约 11 秒扫描中核对可用状态，浅色和深色概览均核对禁用状态。添加或移除自定义 DerivedData 路径时同步复扫只读类别，隔离路径加入后共享缓存 5 → 6 项、移除后 6 → 5 项。外观已恢复为“跟随系统”。
+- [x] 在浅色、深色外观中用隔离目录的进行中扫描对照取消按钮悬停与指针移出的反馈；按钮在扫描结束后恢复禁用态，外观已恢复为“跟随系统”。
 
 ### P2：审慎加入缓存清理
 
-- [ ] 逐类用隔离测试数据证明候选缓存可重建，并核对仍在使用、最近改动、多个 Xcode 共用和自定义位置的影响；只将通过验证的用户目录缓存加入明确白名单。归档、运行时、iOS 设备支持文件、Products、DVTDownloads 和测试设备数据保持只读。
-- [ ] 对白名单缓存逐目录选择，执行前复核真实路径、目录身份和内容变化，拒绝符号链接、越界路径及正在被 Xcode 或构建进程使用的目录；默认仅移入废纸篓，失败时不转为永久删除。验证拒删、移入废纸篓、恢复和复扫。
+- [x] 在本机多个 Xcode 版本的隔离构建中验证四类 DerivedData 共享缓存可重建，验证记录见 `docs/XcodeCacheValidation.md`。默认和自定义 DerivedData 路径共用同一白名单；归档、运行时、iOS 设备支持文件、Products、DVTDownloads、测试设备数据及未验证的 SymbolCache 保持只读。
+- [x] 白名单缓存逐目录勾选，删除前复核路径、身份、目录内容、近期修改和进程占用；只移入废纸篓。核心测试验证拒删及恢复；仓库 App 在隔离自定义路径验证移入废纸篓、清理记录恢复和复扫，测试路径已移除。
 
 ### P3：清理结果反馈
 
-- [ ] 在现有清理前后卷可用容量观测的基础上，关联 Xcode 分类复扫结果，展示成功、跳过和失败的逐项原因；说明其他进程和 APFS 共享块会影响容量变化。用成功、部分成功、目录变化及跨卷样本验证。
-- [ ] 在审阅清单中对比本次清理前后的类别数量和估算大小；关闭或重新扫描后不把旧结果误作本次结果。在仓库 App 中检查浅色、深色页面及 Finder 入口。
+- [x] 现有卷可用容量观测与 Xcode 分类复扫结果分别展示；结果逐项区分成功、安全跳过和操作失败及原因，明确废纸篓、其他进程和 APFS 共享块会影响容量变化。核心测试覆盖成功、部分失败、目录变化、跨卷容量不可合并；仓库 App 隔离缓存清理显示成功 1 项、跳过和失败各 0 项及复扫对比。
+- [x] 在审阅清单中对比本次清理前后的类别数量和估算大小；关闭或重新扫描后清除旧对比。仓库 App 的隔离缓存清理显示共享缓存 6 → 5 项；浅色、深色页面已检查，Finder 入口打开了对应缓存目录。
 
 参考：[Apple 归档说明](https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases)、[Xcode 组件管理](https://developer.apple.com/documentation/Xcode/downloading-and-installing-additional-xcode-components)、[Xcode Locations 设置](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings)。
 
 ## 已完成记录
+
+### P1：扩充只读审阅
+
+- [x] 只读展示 DerivedData 根目录的 CompilationCache.noindex、ModuleCache.noindex、SDKStatCaches.noindex、SDKExplicitPrecompiledModules 和 SymbolCache.noindex。逐项显示真实路径、逻辑大小、磁盘占用估算、扫描状态及 Finder 入口；未可靠取得最近使用时间时不猜测。将这些目录从项目构建数据中排除，避免跨类别重复计量。
+- [x] 只读展示已确认存在的 DeviceLogs、DocumentationCache、DocumentationIndex、Products、DVTDownloads 和 XCTestDevices 目录。用途说明保持审慎，不推断所属 Xcode 版本，也不提供删除入口；隔离测试覆盖存在、缺失、不可读、符号链接及目录变化。
+- [x] 新类别分别反馈进度、耗时、取消和部分结果；连续重扫时旧任务不能覆盖新结果。大量文件目录测试覆盖进度与取消；66 项核心测试、规定的 Debug 构建通过，重开仓库 App 核对分类总计、只读清单、Finder 入口和连续重扫。新增按钮的双外观悬停验收单列在上方。
 
 ### P0：确认扫描覆盖范围
 

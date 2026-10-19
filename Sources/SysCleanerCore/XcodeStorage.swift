@@ -24,6 +24,25 @@ public struct XcodeDeviceSupport: Identifiable, Sendable {
     public var name: String { url.lastPathComponent }
 }
 
+public struct XcodeReadOnlyItem: Identifiable, Sendable {
+    public let url: URL
+    public let name: String
+    public let logicalBytes: Int64
+    public let allocatedBytes: Int64
+    public let isComplete: Bool
+    public let stamp: FileStamp
+    public let directorySignature: String?
+    public var id: String { url.path }
+}
+
+public struct XcodeReadOnlyReport: Sendable {
+    public let items: [XcodeReadOnlyItem]
+    public let warnings: [String]
+    public let cancelled: Bool
+    public let readableSourceCount: Int
+    public var isComplete: Bool { !cancelled && warnings.isEmpty }
+}
+
 public struct XcodeSimulatorRuntime: Identifiable, Sendable {
     public let id: String
     public let runtimeIdentifier: String?
@@ -91,6 +110,137 @@ public enum XcodeStorage {
             .appendingPathComponent("Library/Developer/Xcode/iOS DeviceSupport")
     }
 
+    public static var defaultXcodeRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Developer/Xcode")
+    }
+
+    public static var defaultDeveloperRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Developer")
+    }
+
+    private static let sharedCacheNames = ["CompilationCache.noindex", "ModuleCache.noindex",
+        "SDKStatCaches.noindex", "SDKExplicitPrecompiledModules", "SymbolCache.noindex"]
+    /// Recreated by the isolated Xcode 27.1 build in docs/XcodeCacheValidation.md.
+    public static let rebuildVerifiedCacheNames: Set<String> = ["CompilationCache.noindex", "ModuleCache.noindex",
+        "SDKStatCaches.noindex", "SDKExplicitPrecompiledModules"]
+    private static let additionalXcodeNames = ["DeviceLogs", "DocumentationCache",
+        "DocumentationIndex", "Products"]
+    private static let additionalDeveloperNames = ["DVTDownloads", "XCTestDevices"]
+
+    public static func sharedCacheInventory(derivedDataRoots: [URL],
+                                            control: ScanControl = ScanControl()) -> XcodeReadOnlyReport {
+        var candidates: [(String, URL)] = []
+        var warnings: [String] = []
+        var seenRoots = Set<String>()
+        for supplied in derivedDataRoots {
+            let root = supplied.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: root.path) else { continue }
+            guard isAllowedDerivedDataRoot(root) else {
+                warnings.append("Invalid root \(root.path)")
+                continue
+            }
+            guard seenRoots.insert(root.path).inserted else { continue }
+            for name in sharedCacheNames {
+                candidates.append((name, root.appendingPathComponent(name)))
+            }
+        }
+        return readOnlyInventory(candidates: candidates, warnings: warnings, control: control)
+    }
+
+    public static func additionalDataInventory(xcodeRoot: URL = defaultXcodeRoot,
+                                               developerRoot: URL = defaultDeveloperRoot,
+                                               control: ScanControl = ScanControl()) -> XcodeReadOnlyReport {
+        let candidates = additionalXcodeNames.map { ($0, xcodeRoot.appendingPathComponent($0)) }
+            + additionalDeveloperNames.map { ($0, developerRoot.appendingPathComponent($0)) }
+        return readOnlyInventory(candidates: candidates, warnings: [], control: control)
+    }
+
+    private static func readOnlyInventory(candidates: [(String, URL)], warnings initialWarnings: [String],
+                                          control: ScanControl) -> XcodeReadOnlyReport {
+        var items: [XcodeReadOnlyItem] = []
+        var warnings = initialWarnings
+        var seenPaths = Set<String>()
+        var seenIdentities = Set<String>()
+        var measuredPaths: [String] = []
+        var readableSources = 0
+        if let first = candidates.first { control.begin(.discovering, path: first.1) }
+        for (name, supplied) in candidates where !control.isCancelled {
+            let url = supplied.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: url.path) ||
+                    (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil else { continue }
+            let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
+            let path = resolved.hasSuffix("/") ? String(resolved.dropLast()) : resolved
+            guard !FileSafety.hasSymlinkInPath(url, through: FileManager.default.homeDirectoryForCurrentUser),
+                  let metadata = FileSafety.metadata(at: url), metadata.isDirectory else {
+                warnings.append("Cannot verify \(url.path)")
+                continue
+            }
+            let identity = "\(metadata.stamp.device):\(metadata.stamp.inode)"
+            guard seenPaths.insert(path).inserted, seenIdentities.insert(identity).inserted else { continue }
+            guard !measuredPaths.contains(where: { path.hasPrefix($0 + "/") || $0.hasPrefix(path + "/") }) else {
+                warnings.append("Overlapping root \(url.path)")
+                continue
+            }
+            measuredPaths.append(path)
+            readableSources += 1
+            let measured = measuredReadOnlyDirectory(url, control: control)
+            let signature = measured.complete && rebuildVerifiedCacheNames.contains(name)
+                ? FileScanner.directorySignature(url, control: control) : nil
+            let complete = measured.complete &&
+                (!rebuildVerifiedCacheNames.contains(name) ||
+                 (signature != nil && signature?.bytes == measured.logical &&
+                  signature?.allocatedBytes == measured.allocated && FileSafety.stamp(at: url) == metadata.stamp))
+            if !complete && !control.isCancelled { warnings.append("Cannot verify \(url.path)") }
+            items.append(XcodeReadOnlyItem(url: url, name: name, logicalBytes: measured.logical,
+                                           allocatedBytes: measured.allocated, isComplete: complete,
+                                           stamp: metadata.stamp,
+                                           directorySignature: complete ? signature?.digest : nil))
+        }
+        return XcodeReadOnlyReport(items: items.sorted { $0.logicalBytes > $1.logicalBytes },
+                                   warnings: warnings, cancelled: control.isCancelled,
+                                   readableSourceCount: readableSources)
+    }
+
+    public static func cacheDeletionEntry(for item: XcodeReadOnlyItem,
+                                          derivedDataRoots: [URL]) -> ScanEntry? {
+        guard item.isComplete, rebuildVerifiedCacheNames.contains(item.name),
+              item.url.lastPathComponent == item.name, let signature = item.directorySignature else { return nil }
+        let root = item.url.deletingLastPathComponent().standardizedFileURL
+        guard derivedDataRoots.contains(where: { $0.standardizedFileURL.path == root.path }),
+              isAllowedDerivedDataRoot(root),
+              !FileSafety.hasSymlinkInPath(item.url, through: root) else { return nil }
+        return ScanEntry(url: item.url, scope: root, category: .developerCache, stamp: item.stamp,
+                         estimatedBytes: item.logicalBytes, allocatedBytes: item.allocatedBytes,
+                         note: "verifiedSharedCache", isDirectory: true, directorySignature: signature)
+    }
+
+    private static func measuredReadOnlyDirectory(_ root: URL,
+                                                   control: ScanControl) -> (logical: Int64, allocated: Int64, complete: Bool) {
+        var logical: Int64 = 0
+        var allocated: Int64 = 0
+        var complete = true
+        guard let before = FileSafety.stamp(at: root) else { return (0, 0, false) }
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil,
+                errorHandler: { _, _ in complete = false; return true }) else { return (0, 0, false) }
+        for case let url as URL in enumerator {
+            if control.isCancelled { complete = false; break }
+            guard let info = FileSafety.metadata(at: url) else {
+                complete = false
+                enumerator.skipDescendants()
+                continue
+            }
+            if info.isDirectory {
+                control.visited(url)
+            } else {
+                logical += info.stamp.size
+                allocated += info.stamp.allocatedBytes ?? 0
+                control.visited(url, bytes: info.stamp.size)
+            }
+        }
+        if FileSafety.stamp(at: root) != before { complete = false }
+        return (logical, allocated, complete)
+    }
+
     public static func isAllowedDerivedDataRoot(_ suppliedRoot: URL) -> Bool {
         let root = suppliedRoot.standardizedFileURL
         let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().standardizedFileURL
@@ -99,6 +249,9 @@ public enum XcodeStorage {
               !FileSafety.hasSymlinkInPath(root, through: home) else { return false }
         let protectedRoots = [defaultArchivesRoot, defaultDeviceSupportRoot,
                               home.appendingPathComponent("Library/Developer/CoreSimulator/Devices")]
+            + sharedCacheNames.map { defaultDerivedDataRoot.appendingPathComponent($0) }
+            + additionalXcodeNames.map { defaultXcodeRoot.appendingPathComponent($0) }
+            + additionalDeveloperNames.map { defaultDeveloperRoot.appendingPathComponent($0) }
         return !protectedRoots.contains { protected in
             let path = protected.standardizedFileURL.path
             return root.path == path || root.path.hasPrefix(path + "/")
@@ -176,7 +329,8 @@ public enum XcodeStorage {
             scannedRoots.append(root.path)
             for child in children where !control.isCancelled {
                 let child = URL(fileURLWithPath: child.path, isDirectory: false)
-                guard FileSafety.isDirectory(child), isProjectDirectory(child),
+                guard !sharedCacheNames.contains(child.lastPathComponent),
+                      FileSafety.isDirectory(child), isProjectDirectory(child),
                       !excludedPaths.contains(where: { child.path == $0 || child.path.hasPrefix($0 + "/") }),
                       FileSafety.isSafeLocation(child, scope: root, category: .developerCache),
                       let before = FileSafety.stamp(at: child) else { continue }

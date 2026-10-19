@@ -16,8 +16,11 @@ public enum FileDeletion {
                 case .trash:
                     var destination: NSURL?
                     try FileManager.default.trashItem(at: entry.url, resultingItemURL: &destination)
+                    let trash = destination as URL?
                     return DeleteResult(url: entry.url, success: true, message: "movedToTrash",
-                                        trashURL: destination as URL?)
+                                        trashURL: trash,
+                                        trashSignature: entry.isDirectory
+                                            ? trash.flatMap { FileScanner.directorySignature($0)?.digest } : nil)
                 case .permanent:
                     try FileManager.default.removeItem(at: entry.url)
                     return DeleteResult(url: entry.url, success: true, message: "deleted")
@@ -43,10 +46,20 @@ public enum FileDeletion {
         if entry.isDirectory {
             if entry.category == .developerCache {
                 guard entry.scope.lastPathComponent == "DerivedData",
+                      XcodeStorage.isAllowedDerivedDataRoot(entry.scope),
                       entry.url.deletingLastPathComponent().standardizedFileURL.path == entry.scope.standardizedFileURL.path,
-                      !directoryInUse(entry.url),
-                      let signature = FileScanner.directorySignature(entry.url),
-                      signature.digest == entry.directorySignature else { return "changedOrRunning" }
+                      (entry.note == "verifiedSharedCache"
+                       ? XcodeStorage.rebuildVerifiedCacheNames.contains(entry.url.lastPathComponent)
+                       : XcodeStorage.isProjectDirectory(entry.url)) else { return "unsafePath" }
+                let isSharedCache = entry.note == "verifiedSharedCache"
+                if isSharedCache && recentlyModifiedOrUnverifiable(entry.url) { return "recentlyUsed" }
+                if xcodeBuildRunning() || directoryInUse(entry.url) {
+                    return isSharedCache ? "fileInUse" : "changedOrRunning"
+                }
+                guard let signature = FileScanner.directorySignature(entry.url),
+                      signature.digest == entry.directorySignature else {
+                    return isSharedCache ? "changed" : "changedOrRunning"
+                }
             } else {
                 guard entry.category == .uninstall,
                       let identifier = Bundle(url: entry.url)?.bundleIdentifier,
@@ -71,6 +84,36 @@ public enum FileDeletion {
             if isOpenByAnotherProcess(entry.url) { return "fileInUse" }
         }
         return nil
+    }
+
+    private static func recentlyModifiedOrUnverifiable(_ root: URL) -> Bool {
+        let cutoff = Date().timeIntervalSince1970 - 900
+        var hadError = false
+        guard let rootStamp = FileSafety.stamp(at: root),
+              Double(rootStamp.modifiedSeconds) < cutoff,
+              let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil,
+                errorHandler: { _, _ in hadError = true; return false }) else { return true }
+        for case let url as URL in enumerator {
+            guard let info = FileSafety.metadata(at: url),
+                  Double(info.stamp.modifiedSeconds) < cutoff else { return true }
+        }
+        return hadError
+    }
+
+    private static func xcodeBuildRunning() -> Bool {
+        if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == "com.apple.dt.Xcode" }) {
+            return true
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-x", "xcodebuild"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus != 1
+        } catch { return true }
     }
 
     private static func directoryInUse(_ directory: URL) -> Bool {
@@ -124,7 +167,24 @@ public enum FileRestoration {
         else { return "unsafePath" }
         var existing = stat()
         guard lstat(original.path, &existing) != 0 else { return "restoreConflict" }
-        guard FileSafety.stamp(at: trash) == expectedStamp else { return "restoreChanged" }
+        guard let currentStamp = FileSafety.stamp(at: trash) else { return "restoreChanged" }
+        // macOS may update a trashed item's change time while managing Trash.
+        // Keep its filesystem identity and modification time checks, but do not
+        // use change time to reject restoring that same item.
+        guard currentStamp.device == expectedStamp.device,
+              currentStamp.inode == expectedStamp.inode,
+              currentStamp.size == expectedStamp.size,
+              currentStamp.modifiedSeconds == expectedStamp.modifiedSeconds,
+              currentStamp.modifiedNanoseconds == expectedStamp.modifiedNanoseconds,
+              currentStamp.linkCount == expectedStamp.linkCount else { return "restoreChanged" }
+        if !FileSafety.isDirectory(trash) && currentStamp != expectedStamp {
+            return "restoreChanged"
+        }
+        if let expectedSignature = item.trashSignature {
+            guard FileScanner.directorySignature(trash)?.digest == expectedSignature else {
+                return "restoreChanged"
+            }
+        }
         do {
             try FileManager.default.moveItem(at: trash, to: original)
             return nil

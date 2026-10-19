@@ -475,8 +475,7 @@ final class CleanerStore: ObservableObject {
         isDeleting = true
         let deletedCategory = category
         Task.detached(priority: .userInitiated) { [weak self] in
-            let capacityURL = chosen.allSatisfy { $0.stamp.device == chosen[0].stamp.device } ?
-                chosen[0].scope : nil
+            let capacityURL = DeletionCapacityScope.commonScope(for: chosen)
             let before = capacityURL.flatMap(observedAvailableCapacity)
             let outcomes = FileDeletion.execute(chosen, mode: mode)
             let after = capacityURL.flatMap(observedAvailableCapacity)
@@ -484,6 +483,21 @@ final class CleanerStore: ObservableObject {
             await self?.finishDelete(outcomes, selected: chosen, category: deletedCategory,
                                      mode: mode, availableSpaceDelta: delta)
         }
+    }
+
+    func deleteXcodeCaches(_ chosen: [ScanEntry]) async {
+        guard category == .developerCache, !chosen.isEmpty, !isDeleting,
+              chosen.allSatisfy({ $0.note == "verifiedSharedCache" && $0.category == .developerCache }) else { return }
+        isDeleting = true
+        let outcome = await Task.detached(priority: .userInitiated) {
+            let capacityURL = DeletionCapacityScope.commonScope(for: chosen)
+            let before = capacityURL.flatMap(observedAvailableCapacity)
+            let results = FileDeletion.execute(chosen, mode: .trash)
+            let after = capacityURL.flatMap(observedAvailableCapacity)
+            return (results, before.flatMap { initial in after.map { $0 - initial } })
+        }.value
+        finishDelete(outcome.0, selected: chosen, category: .developerCache,
+                     mode: .trash, availableSpaceDelta: outcome.1)
     }
 
     private func finishScan(_ report: ScanReport, category scannedCategory: ScanCategory, scanID: UUID) {
@@ -571,11 +585,14 @@ final class CleanerStore: ObservableObject {
         let scopes = selected.reduce(into: [URL: String]()) { scopes, entry in
             scopes[entry.url] = entry.scope.path
         }
+        let directories = Set(selected.filter(\.isDirectory).map(\.url))
         let items = outcomes.map { result in
             CleanupHistoryItem(path: result.url.path, estimatedBytes: sizes[result.url] ?? 0,
                                success: result.success, message: result.message,
                                trashPath: result.trashURL?.path, scopePath: scopes[result.url],
-                               trashStamp: result.trashURL.flatMap { FileSafety.stamp(at: $0) })
+                               trashStamp: directories.contains(result.url) && result.trashSignature == nil
+                                   ? nil : result.trashURL.flatMap { FileSafety.stamp(at: $0) },
+                               trashSignature: result.trashSignature)
         }
         cleanupHistory.insert(CleanupHistoryRecord(category: deletedCategory.rawValue,
                                                    mode: mode == .trash ? "trash" : "permanent",
