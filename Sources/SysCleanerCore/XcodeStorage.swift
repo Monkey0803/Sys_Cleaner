@@ -9,6 +9,31 @@ public struct XcodeArchive: Identifiable, Sendable {
     public var id: String { url.path }
 }
 
+public struct XcodeStorageInventory<Item: Sendable>: Sendable {
+    public let items: [Item]
+    public let warnings: [String]
+    public var isComplete: Bool { warnings.isEmpty }
+}
+
+public struct XcodeDeviceSupport: Identifiable, Sendable {
+    public let url: URL
+    public let logicalBytes: Int64
+    public let allocatedBytes: Int64
+    public let modified: Date?
+    public var id: String { url.path }
+    public var name: String { url.lastPathComponent }
+}
+
+public struct XcodeSimulatorRuntime: Identifiable, Sendable {
+    public let id: String
+    public let name: String
+    public let version: String
+    public let build: String
+    public let state: String
+    public let logicalBytes: Int64?
+    public let lastUsed: Date?
+}
+
 public struct XcodeSimulator: Identifiable, Sendable {
     public let id: String
     public let name: String
@@ -51,6 +76,11 @@ public enum XcodeStorage {
     public static var defaultArchivesRoot: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Developer/Xcode/Archives")
+    }
+
+    public static var defaultDeviceSupportRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Developer/Xcode/iOS DeviceSupport")
     }
 
     private static func projectMetadata(in derivedData: URL) -> (path: String?, lastUsed: Date?) {
@@ -138,11 +168,25 @@ public enum XcodeStorage {
     }
 
     public static func archives(at root: URL = defaultArchivesRoot) -> [XcodeArchive] {
+        archiveInventory(at: root).items
+    }
+
+    public static func archiveInventory(at root: URL = defaultArchivesRoot) -> XcodeStorageInventory<XcodeArchive> {
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            return XcodeStorageInventory(items: [], warnings: [])
+        }
         guard let days = try? FileManager.default.contentsOfDirectory(at: root,
-                includingPropertiesForKeys: nil) else { return [] }
-        return days.flatMap { day -> [XcodeArchive] in
+                includingPropertiesForKeys: nil) else {
+            return XcodeStorageInventory(items: [], warnings: ["Cannot read \(root.path)"])
+        }
+        var warnings: [String] = []
+        let archives = days.flatMap { day -> [XcodeArchive] in
+            guard FileSafety.isDirectory(day) else { return [] }
             guard let children = try? FileManager.default.contentsOfDirectory(at: day,
-                    includingPropertiesForKeys: nil) else { return [] }
+                    includingPropertiesForKeys: nil) else {
+                warnings.append("Cannot read \(day.path)")
+                return []
+            }
             return children.compactMap { url in
                 guard url.pathExtension == "xcarchive", FileSafety.isDirectory(url) else { return nil }
                 let infoURL = url.appendingPathComponent("Info.plist")
@@ -153,24 +197,83 @@ public enum XcodeStorage {
                 let name = (app?["ApplicationPath"] as? String).map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
                     ?? url.deletingPathExtension().lastPathComponent
                 let size = directorySize(url)
+                if !size.complete { warnings.append("Cannot verify \(url.path)") }
                 return XcodeArchive(url: url, name: name, created: info?["CreationDate"] as? Date,
-                                    logicalBytes: size.0, allocatedBytes: size.1)
+                                    logicalBytes: size.logical, allocatedBytes: size.allocated)
             }
         }.sorted { ($0.created ?? .distantPast) > ($1.created ?? .distantPast) }
+        return XcodeStorageInventory(items: archives, warnings: warnings)
     }
 
-    private static func directorySize(_ root: URL) -> (Int64, Int64) {
+    public static func deviceSupportInventory(
+        at root: URL = defaultDeviceSupportRoot
+    ) -> XcodeStorageInventory<XcodeDeviceSupport> {
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            return XcodeStorageInventory(items: [], warnings: [])
+        }
+        guard let children = try? FileManager.default.contentsOfDirectory(at: root,
+                includingPropertiesForKeys: nil) else {
+            return XcodeStorageInventory(items: [], warnings: ["Cannot read \(root.path)"])
+        }
+        var warnings: [String] = []
+        let items = children.compactMap { url -> XcodeDeviceSupport? in
+            guard FileSafety.isDirectory(url) else { return nil }
+            let size = directorySize(url)
+            if !size.complete { warnings.append("Cannot verify \(url.path)") }
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            return XcodeDeviceSupport(url: url, logicalBytes: size.logical,
+                                      allocatedBytes: size.allocated, modified: modified)
+        }.sorted { $0.logicalBytes > $1.logicalBytes }
+        return XcodeStorageInventory(items: items, warnings: warnings)
+    }
+
+    private static func directorySize(_ root: URL) -> (logical: Int64, allocated: Int64, complete: Bool) {
         var logical: Int64 = 0
         var allocated: Int64 = 0
-        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return (0, 0) }
+        var complete = true
+        guard let enumerator = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: nil, errorHandler: { _, _ in
+                complete = false
+                return true
+            }) else { return (0, 0, false) }
         for case let url as URL in enumerator {
-            guard let info = FileSafety.metadata(at: url) else { enumerator.skipDescendants(); continue }
+            guard let info = FileSafety.metadata(at: url) else {
+                complete = false
+                enumerator.skipDescendants()
+                continue
+            }
             if !info.isDirectory {
                 logical += info.stamp.size
                 allocated += info.stamp.allocatedBytes ?? 0
             }
         }
-        return (logical, allocated)
+        return (logical, allocated, complete)
+    }
+
+    public static func parseRuntimeImages(_ data: Data) throws -> [XcodeSimulatorRuntime] {
+        struct Image: Decodable {
+            let identifier: String
+            let runtimeIdentifier: String?
+            let version: String?
+            let build: String?
+            let state: String?
+            let sizeBytes: Int64?
+            let lastUsedAt: Date?
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([String: Image].self, from: data).values.map { image in
+            let platform = image.runtimeIdentifier?.components(separatedBy: ".").last?
+                .components(separatedBy: "-").first ?? "Simulator"
+            return XcodeSimulatorRuntime(id: image.identifier, name: platform,
+                                         version: image.version ?? "", build: image.build ?? "",
+                                         state: image.state ?? "", logicalBytes: image.sizeBytes,
+                                         lastUsed: image.lastUsedAt)
+        }.sorted { ($0.logicalBytes ?? 0) > ($1.logicalBytes ?? 0) }
+    }
+
+    public static func runtimeImages() throws -> [XcodeSimulatorRuntime] {
+        try parseRuntimeImages(runSimctl(["runtime", "list", "-j"]))
     }
 
     public static func parseSimulators(_ data: Data) throws -> [XcodeSimulator] {

@@ -990,10 +990,42 @@ final class CoreTests: XCTestCase {
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: archive.appendingPathComponent("Info.plist"))
         try Data(repeating: 1, count: 77).write(to: archive.appendingPathComponent("binary"))
+        try Data().write(to: archivesRoot.appendingPathComponent(".DS_Store"))
         let result = XcodeStorage.archives(at: archivesRoot)
         XCTAssertEqual(result.count, 1)
         XCTAssertEqual(result[0].name, "Example")
         XCTAssertGreaterThanOrEqual(result[0].logicalBytes, 77)
         XCTAssertEqual(result[0].created, Date(timeIntervalSince1970: 1000))
+        XCTAssertTrue(XcodeStorage.archiveInventory(at: archivesRoot).isComplete)
+    }
+
+    func testXcodeRuntimeImagesParseReadOnlyMetadata() throws {
+        let json = """
+        {"00000000-0000-0000-0000-000000000001":{
+          "identifier":"00000000-0000-0000-0000-000000000001",
+          "runtimeIdentifier":"com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+          "version":"27.0","build":"24A434","state":"Ready",
+          "sizeBytes":8192,"lastUsedAt":"2026-10-16T06:51:28Z"}}
+        """
+        let runtimes = try XcodeStorage.parseRuntimeImages(Data(json.utf8))
+        XCTAssertEqual(runtimes.count, 1)
+        XCTAssertEqual(runtimes[0].name, "iOS")
+        XCTAssertEqual(runtimes[0].version, "27.0")
+        XCTAssertEqual(runtimes[0].logicalBytes, 8192)
+        XCTAssertNotNil(runtimes[0].lastUsed)
+    }
+
+    func testDeviceSupportInventoryMeasuresFoldersAndReportsMissingRoot() throws {
+        let supportRoot = root.appendingPathComponent("iOS DeviceSupport")
+        let device = supportRoot.appendingPathComponent("iPhone A 27.0")
+        try FileManager.default.createDirectory(at: device, withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 100).write(to: device.appendingPathComponent("symbols"))
+        let inventory = XcodeStorage.deviceSupportInventory(at: supportRoot)
+        XCTAssertTrue(inventory.isComplete)
+        XCTAssertEqual(inventory.items.count, 1)
+        XCTAssertEqual(inventory.items[0].name, "iPhone A 27.0")
+        XCTAssertEqual(inventory.items[0].logicalBytes, 100)
+        XCTAssertTrue(XcodeStorage.deviceSupportInventory(
+            at: root.appendingPathComponent("missing")).items.isEmpty)
     }
 }

@@ -4,9 +4,16 @@ import SwiftUI
 struct XcodeWorkspaceView: View {
     @EnvironmentObject private var store: CleanerStore
     @EnvironmentObject private var preferences: AppPreferences
-    @State private var section: Section = .projects
+    @State private var section: Section = .overview
     @State private var archives: [XcodeArchive] = []
     @State private var simulators: [XcodeSimulator] = []
+    @State private var runtimes: [XcodeSimulatorRuntime] = []
+    @State private var deviceSupport: [XcodeDeviceSupport] = []
+    @State private var archiveWarnings: [String] = []
+    @State private var deviceSupportWarnings: [String] = []
+    @State private var runtimeError: String?
+    @State private var simulatorInventoryError: String?
+    @State private var extrasLoaded = false
     @State private var selectedSimulatorIDs = Set<String>()
     @State private var showingTrashConfirmation = false
     @State private var showingSimulatorConfirmation = false
@@ -17,8 +24,17 @@ struct XcodeWorkspaceView: View {
     @State private var projectSort: ProjectSort = .size
 
     private enum Section: String, CaseIterable, Identifiable {
-        case projects, archives, simulators
+        case overview, projects, archives, simulators
         var id: Self { self }
+    }
+
+    private struct ExtraInventory: Sendable {
+        let archives: XcodeStorageInventory<XcodeArchive>
+        let simulators: [XcodeSimulator]
+        let runtimes: [XcodeSimulatorRuntime]
+        let deviceSupport: XcodeStorageInventory<XcodeDeviceSupport>
+        let simulatorError: String?
+        let runtimeError: String?
     }
 
     private enum ProjectFilter: String {
@@ -92,6 +108,7 @@ struct XcodeWorkspaceView: View {
             }
             .padding(20)
             Picker("xcodeSection", selection: $section) {
+                Text("xcodeOverview").tag(Section.overview)
                 Text("xcodeProjects").tag(Section.projects)
                 Text("xcodeArchives").tag(Section.archives)
                 Text("xcodeSimulators").tag(Section.simulators)
@@ -102,6 +119,7 @@ struct XcodeWorkspaceView: View {
             .padding(.bottom, 12)
             Divider()
             switch section {
+            case .overview: overviewView
             case .projects: projectsView
             case .archives: archivesView
             case .simulators: simulatorsView
@@ -131,6 +149,119 @@ struct XcodeWorkspaceView: View {
             let names = simulators.filter { selectedSimulatorIDs.contains($0.id) }.map(\.name).joined(separator: "、")
             Text(String(format: L("xcodeSimulatorIrreversible"), selectedSimulatorIDs.count, names))
         }
+    }
+
+    private var overviewView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("xcodeOverviewExplain")
+                    .font(.caption).foregroundStyle(.secondary)
+                if store.isScanning || loadingExtras { ProgressView("scanning") }
+                overviewRow("xcodeProjects", count: store.entries.count,
+                            bytes: store.entries.reduce(0) { $0 + $1.estimatedBytes },
+                            status: store.isScanning ? L("scanning") : store.hasScanned
+                                ? L(store.hasPartialResults ? "partialResults" : "completeResults")
+                                : L("xcodeNotScanned"))
+                overviewRow("xcodeArchives", count: archives.count,
+                            bytes: archives.reduce(0) { $0 + $1.logicalBytes },
+                            status: extrasLoaded ? L(archiveWarnings.isEmpty ? "completeResults" : "partialResults")
+                                : L("xcodeNotScanned"))
+                overviewRow("xcodeSimulators", count: simulators.count,
+                            bytes: simulators.allSatisfy { $0.dataBytes != nil }
+                                ? simulators.reduce(0) { $0 + ($1.dataBytes ?? 0) } : nil,
+                            status: extrasLoaded ? L(simulatorInventoryError == nil ? "completeResults" : "xcodeUnavailable")
+                                : L("xcodeNotScanned"))
+                overviewRow("xcodeRuntimes", count: runtimes.count,
+                            bytes: runtimes.allSatisfy { $0.logicalBytes != nil }
+                                ? runtimes.reduce(0) { $0 + ($1.logicalBytes ?? 0) } : nil,
+                            status: extrasLoaded ? L(runtimeError == nil ? "completeResults" : "xcodeUnavailable")
+                                : L("xcodeNotScanned"))
+                overviewRow("xcodeDeviceSupport", count: deviceSupport.count,
+                            bytes: deviceSupport.reduce(0) { $0 + $1.logicalBytes },
+                            status: extrasLoaded
+                                ? L(deviceSupportWarnings.isEmpty ? "completeResults" : "partialResults")
+                                : L("xcodeNotScanned"))
+                HStack {
+                    Text("xcodeOtherArtifacts")
+                    Spacer()
+                    Text("xcodeNotCovered").foregroundStyle(.secondary)
+                }
+                .font(.callout).padding(10)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                Text("xcodeOtherArtifactsHelp").font(.caption).foregroundStyle(.secondary)
+
+                if !runtimes.isEmpty {
+                    Text("xcodeRuntimes").font(.headline)
+                    Text("xcodeRuntimesReadOnly").font(.caption).foregroundStyle(.secondary)
+                    ForEach(runtimes) { runtime in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("\(runtime.name) \(runtime.version) (\(runtime.build))")
+                                Text(runtime.state).font(.caption).foregroundStyle(.secondary)
+                                if let lastUsed = runtime.lastUsed {
+                                    Text(String(format: L("xcodeLastUsed"), lastUsed.formatted()))
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Text(runtime.logicalBytes.map {
+                                ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+                            } ?? L("notMeasured"))
+                        }
+                        .padding(10)
+                        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+                if !deviceSupport.isEmpty {
+                    Text("xcodeDeviceSupport").font(.headline)
+                    Text("xcodeDeviceSupportReadOnly").font(.caption).foregroundStyle(.secondary)
+                    ForEach(deviceSupport) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.name)
+                                Text(item.url.path).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                            }
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: item.logicalBytes, countStyle: .file))
+                            Button { store.reveal(item.url) } label: { Image(systemName: "folder") }
+                                .help(L("showInFinder"))
+                        }
+                        .padding(10)
+                        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+                ForEach(archiveWarnings + deviceSupportWarnings, id: \.self) { warning in
+                    Text(localizedWarning(warning)).font(.caption).foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+                if let runtimeError {
+                    Text(runtimeError).font(.caption).foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+        }
+    }
+
+    private func overviewRow(_ title: LocalizedStringKey, count: Int, bytes: Int64?, status: String) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(String(format: L("xcodeOverviewCount"), count))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(status).font(.caption)
+                Text(bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+                     ?? L("notMeasured"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var projectsView: some View {
@@ -173,6 +304,9 @@ struct XcodeWorkspaceView: View {
                         }
                     }
                 }.padding(.horizontal, 20)
+            }
+            if store.hasScanned && !store.isScanning {
+                ScanCompletionSummaryView()
             }
             if store.isScanning {
                 VStack(spacing: 10) {
@@ -411,14 +545,41 @@ struct XcodeWorkspaceView: View {
 
     private func refreshExtras() async {
         loadingExtras = true
-        let result = await Task.detached(priority: .utility) { () -> ([XcodeArchive], [XcodeSimulator], String?) in
-            let archives = XcodeStorage.archives()
-            do { return (archives, try XcodeStorage.simulators(), nil) }
-            catch { return (archives, [], error.localizedDescription) }
+        let result = await Task.detached(priority: .utility) { () -> ExtraInventory in
+            let archives = XcodeStorage.archiveInventory()
+            let support = XcodeStorage.deviceSupportInventory()
+            let simulators: [XcodeSimulator]
+            let simulatorError: String?
+            do {
+                simulators = try XcodeStorage.simulators()
+                simulatorError = nil
+            } catch {
+                simulators = []
+                simulatorError = error.localizedDescription
+            }
+            let runtimes: [XcodeSimulatorRuntime]
+            let runtimeError: String?
+            do {
+                runtimes = try XcodeStorage.runtimeImages()
+                runtimeError = nil
+            } catch {
+                runtimes = []
+                runtimeError = error.localizedDescription
+            }
+            return ExtraInventory(archives: archives, simulators: simulators,
+                                  runtimes: runtimes, deviceSupport: support,
+                                  simulatorError: simulatorError, runtimeError: runtimeError)
         }.value
-        archives = result.0
-        simulators = result.1
-        operationError = result.2
+        archives = result.archives.items
+        archiveWarnings = result.archives.warnings
+        simulators = result.simulators
+        runtimes = result.runtimes
+        deviceSupport = result.deviceSupport.items
+        deviceSupportWarnings = result.deviceSupport.warnings
+        simulatorInventoryError = result.simulatorError
+        operationError = result.simulatorError
+        runtimeError = result.runtimeError
+        extrasLoaded = true
         selectedSimulatorIDs.formIntersection(Set(simulators.filter(\.canDelete).map(\.id)))
         loadingExtras = false
     }

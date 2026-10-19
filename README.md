@@ -5,10 +5,10 @@ Native macOS 14+ file cleanup app, built with SwiftUI. English and 简体中文 
 ## Features
 
 - Space analysis with an animated pie chart and a read-only mounted-volume overview: click slices or legend entries to drill down or preview files; large-file filters and content-verified duplicates.
-- User cache and log review; project-grouped Xcode DerivedData with custom locations, project search, attribution filters and sorting, read-only archive inventory, and individually confirmed shutdown-simulator deletion.
+- User cache and log review. The Xcode overview summarizes estimated sizes and scan status for DerivedData, archives, simulator devices, simulator runtimes, and iOS Device Support. DerivedData is grouped by project, with custom locations, search, attribution filters, and sorting. Archives, runtimes, and Device Support are read-only; shutdown simulator devices require individual confirmation before deletion. Other Xcode caches and test clones are explicitly marked as uncovered.
 - App bundle removal plus files in exact bundle-ID paths under the user's Library; choose or drop a `.app` to review it.
 - Read-only candidates from selected user Library data folders, excluding identifiers of installed apps and their extensions, services, and login items. Verify candidates manually in Finder; Preferences and logs are excluded.
-- Scan stage, processed counts, and current path; independent scan state when switching categories.
+- Scan stage, processed counts, and current path. Completed scans show their source, result and actionable counts, omissions and warnings, plus a size-estimate explanation. Scan state remains independent when switching categories.
 - Search, sorting, type/status filters, and Quick Look for scanned results; per-group selection and persistent ignore controls for duplicate files. Exclude selected paths from future scans in Settings.
 - Per-item cleanup reasons, Trash by default, separate permanent deletion, per-item results, and local cleanup history. History can restore items that this app moved to Trash when their identity is still verifiable, without overwriting an occupied original path.
 - Finder Services entry for a selected `.app`: use **Review App in Sys Cleaner** to open its App Uninstall review.

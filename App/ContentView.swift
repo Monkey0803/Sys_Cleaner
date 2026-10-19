@@ -44,6 +44,9 @@ struct ContentView: View {
                     XcodeWorkspaceView()
                 } else {
                 header
+                if store.hasScanned && !store.isScanning {
+                    ScanCompletionSummaryView()
+                }
                 Divider()
                 if store.isScanning {
                     VStack(spacing: 12) {
@@ -847,6 +850,61 @@ struct ContentView: View {
     private func localizedDate(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
             .locale(preferences.language.locale))
+    }
+}
+
+struct ScanCompletionSummaryView: View {
+    @EnvironmentObject private var store: CleanerStore
+    @EnvironmentObject private var preferences: AppPreferences
+
+    private var scope: String {
+        switch store.category {
+        case .space, .large, .duplicates: store.root.path
+        case .systemCache: L("scanScopeCaches")
+        case .developerCache:
+            ([XcodeStorage.defaultDerivedDataRoot] + preferences.derivedDataRoots)
+                .map(\.path).joined(separator: " · ")
+        case .uninstall: L("scanScopeApps")
+        case .orphans: L("scanScopeOrphans")
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Label("scanSummaryTitle", systemImage: "checklist")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(store.hasPartialResults ? "partialResults" : "completeResults")
+                    .foregroundStyle(store.hasPartialResults ? .orange : .secondary)
+            }
+            Text(String(format: L("scanSummaryScope"), scope))
+                .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+            if store.category == .space {
+                Text(String(format: L("scanSummarySpaceFiles"), store.summaryCount))
+            } else if store.category == .uninstall && store.reviewedApplicationName == nil {
+                Text(String(format: L("scanSummaryApps"), store.entries.count))
+            } else {
+                Text(String(format: L("scanSummaryCounts"), store.entries.count,
+                            store.entries.filter(\.canDelete).count))
+            }
+            if store.scanMetrics.omittedCount > 0 {
+                Text(String(format: L("omittedItemsCount"), store.scanMetrics.omittedCount))
+                    .foregroundStyle(.orange)
+            }
+            if !store.warnings.isEmpty {
+                Text(String(format: L("scanSummaryWarnings"), store.warnings.count))
+                    .foregroundStyle(.orange)
+            }
+            if !preferences.excludedPaths.isEmpty {
+                Text(String(format: L("scanSummaryExclusions"), preferences.excludedPaths.count))
+            }
+            Text("scanSummaryEstimateHelp").foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20).padding(.vertical, 10)
+        .background(.quaternary.opacity(0.35))
     }
 }
 
