@@ -32,6 +32,7 @@ final class CleanerStore: ObservableObject {
     }
     @Published private(set) var visibleEntries: [ScanEntry] = []
     @Published private(set) var visibleDuplicateGroups: [[ScanEntry]] = []
+    private var visibleEntryIDs: Set<UUID> = []
     @Published private(set) var visibleSpaceChildren: [SpaceItem] = []
     @Published private(set) var sortSelection = AppPreferences.shared.sortSelection(for: .space) {
         didSet {
@@ -138,6 +139,7 @@ final class CleanerStore: ObservableObject {
     }
 
     var selectedEntries: [ScanEntry] { entries.filter { selectedIDs.contains($0.id) && $0.canDelete } }
+    var hasHiddenSelection: Bool { !selectedIDs.isSubset(of: visibleEntryIDs) }
     var estimatedSelectedBytes: Int64 { selectedEntries.reduce(0) { $0 + $1.estimatedBytes } }
     var selectedAllocatedBytes: Int64? {
         let selected = selectedEntries
@@ -209,6 +211,7 @@ final class CleanerStore: ObservableObject {
         let filtered = ScanResultFiltering.entries(entries, category: category,
                                                    query: resultQuery, filter: resultFilter)
         let sorted = ScanSorting.entries(filtered, category: category, selection: sortSelection)
+        visibleEntryIDs = Set(sorted.map(\.id))
         visibleDuplicateGroups = category == .duplicates ? ScanResultGrouping.duplicateGroups(sorted) : []
         visibleEntries = sorted
     }
@@ -456,7 +459,7 @@ final class CleanerStore: ObservableObject {
 
     func delete(_ mode: DeleteMode) {
         let chosen = selectedEntries
-        guard !chosen.isEmpty, !isDeleting else { return }
+        guard !chosen.isEmpty, !hasHiddenSelection, !isDeleting else { return }
         isDeleting = true
         let deletedCategory = category
         Task.detached(priority: .userInitiated) { [weak self] in

@@ -169,6 +169,7 @@
 "noMatchingResults" = "No matching results";
 "adjustSearchOrFilter" = "Try another search or filter.";
 "clearSearchAndFilter" = "Clear search and filter";
+"reviewHiddenSelection" = "Clear filters to review selected items";
 "visibleResultCount" = "Showing %d of %d";
 "duplicateGroupSummary" = "%d identical files · %@ each";
 "previousPage" = "Previous";

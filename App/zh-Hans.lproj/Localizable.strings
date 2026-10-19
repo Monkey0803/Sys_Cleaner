@@ -169,6 +169,7 @@
 "noMatchingResults" = "没有匹配结果";
 "adjustSearchOrFilter" = "尝试更改搜索或筛选条件。";
 "clearSearchAndFilter" = "清除搜索和筛选";
+"reviewHiddenSelection" = "清除筛选，核对已选项";
 "visibleResultCount" = "显示 %d / %d 项";
 "duplicateGroupSummary" = "%d 个相同文件 · 每个 %@";
 "previousPage" = "上一页";

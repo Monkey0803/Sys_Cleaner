@@ -690,14 +690,23 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .help(L("allocatedSizeHelp"))
             }
+            if store.hasHiddenSelection {
+                Button("reviewHiddenSelection") {
+                    store.resultQuery = ""
+                    store.resultFilter = .all
+                }
+                .buttonStyle(.link)
+            }
             Spacer()
             Button("moveToTrash") { pendingMode = .trash; showingConfirmation = true }
-                .disabled(store.selectedEntries.isEmpty || store.isDeleting || store.isScanning)
+                .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
+                          store.isDeleting || store.isScanning)
             Button("deletePermanently", role: .destructive) {
                 pendingMode = .permanent
                 showingConfirmation = true
             }
-            .disabled(store.selectedEntries.isEmpty || store.isDeleting || store.isScanning)
+            .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
+                      store.isDeleting || store.isScanning)
         }
         .padding(16)
         .background(.bar)
@@ -995,7 +1004,7 @@ private struct PieRevealMask: Shape {
     }
 }
 
-private struct ClearableSearchField: NSViewRepresentable {
+struct ClearableSearchField: NSViewRepresentable {
     let placeholder: String
     @Binding var text: String
 

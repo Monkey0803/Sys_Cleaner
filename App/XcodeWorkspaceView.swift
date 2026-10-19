@@ -142,8 +142,7 @@ struct XcodeWorkspaceView: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
             HStack {
-                TextField("xcodeSearchProjects", text: $projectQuery)
-                    .textFieldStyle(.roundedBorder)
+                ClearableSearchField(placeholder: L("xcodeSearchProjects"), text: $projectQuery)
                     .onChange(of: projectQuery) { _, _ in pruneHiddenProjectSelection() }
                 Picker("xcodeProjectFilter", selection: $projectFilter) {
                     Text("xcodeFilterAll").tag(ProjectFilter.all)
@@ -181,7 +180,10 @@ struct XcodeWorkspaceView: View {
                     if let progress = store.scanProgress {
                         Text(L("scanStage_\(progress.stage.rawValue)"))
                         Text(String(format: L("scanProgressCounts"), progress.processedFiles,
-                                    progress.processedDirectories, progress.currentPath))
+                                    progress.processedDirectories,
+                                    ByteCountFormatter.string(fromByteCount: progress.processedBytes,
+                                                              countStyle: .file)))
+                        Text(progress.currentPath)
                             .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
                     }
                     Button("cancel") { store.cancel() }
