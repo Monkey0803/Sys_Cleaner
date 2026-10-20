@@ -85,9 +85,10 @@ enum RustSpaceScanner {
         if FileSafety.isCloudPlaceholder(root) { return false }
         let path = root.standardizedFileURL.path
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let ancestorPrefix = path == "/" ? path : path + "/"
         for cloud in [home + "/Library/Mobile Documents", home + "/Library/CloudStorage"] {
             guard FileManager.default.fileExists(atPath: cloud) else { continue }
-            if path == cloud || path.hasPrefix(cloud + "/") || cloud.hasPrefix(path + "/") {
+            if path == cloud || path.hasPrefix(cloud + "/") || cloud.hasPrefix(ancestorPrefix) {
                 return false
             }
         }

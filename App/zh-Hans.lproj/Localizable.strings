@@ -370,5 +370,6 @@
 "volumeReclaimableHelp" = "系统可清除容量由 macOS 管理；包含快照等内容，可能延迟更新，不能全部由本应用直接清理。";
 "chooseVolumeFolder" = "选择此磁盘中的文件夹…";
 "scanIncomplete" = "部分位置未能读取；请检查访问权限并重新扫描。";
+"cloudExcludedFromLocalScan" = "已排除云端托管文件夹。iCloud Drive 请在独立页面查看；其他云盘暂不在此扫描。";
 "installedAppsIncomplete" = "无法完整核对已安装应用，已暂停残留候选判断，避免误报。";
 "observedAvailableUnavailable" = "此磁盘未提供可用容量读数；请在访达中核对实际变化。";

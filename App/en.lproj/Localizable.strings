@@ -370,5 +370,6 @@
 "volumeReclaimableHelp" = "macOS manages purgeable space, including snapshots. Values can update later and cannot all be removed by this app.";
 "chooseVolumeFolder" = "Choose a folder on this volume…";
 "scanIncomplete" = "Some locations could not be read. Check access and scan again.";
+"cloudExcludedFromLocalScan" = "Cloud-managed folders are excluded. Review iCloud Drive separately; other cloud providers are not scanned here.";
 "installedAppsIncomplete" = "Installed apps could not be checked completely. Orphan detection was stopped to avoid false positives.";
 "observedAvailableUnavailable" = "This volume did not provide an available-capacity reading. Check the actual change in Finder.";

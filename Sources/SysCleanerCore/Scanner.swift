@@ -79,6 +79,7 @@ private final class DirectoryWorkQueue: @unchecked Sendable {
     struct Item {
         let url: URL
         let index: Int
+        let mayContainCloud: Bool
     }
 
     private let condition = NSCondition()
@@ -87,7 +88,8 @@ private final class DirectoryWorkQueue: @unchecked Sendable {
     private let control: ScanControl
 
     init(root: URL, index: Int, control: ScanControl) {
-        pending = [Item(url: root, index: index)]
+        pending = [Item(url: root, index: index,
+                        mayContainCloud: FileSafety.mayContainCloudRoot(root))]
         self.control = control
     }
 
@@ -100,9 +102,9 @@ private final class DirectoryWorkQueue: @unchecked Sendable {
         return control.isCancelled ? nil : pending.popLast()
     }
 
-    func add(_ directory: URL, index: Int) {
+    func add(_ directory: URL, index: Int, mayContainCloud: Bool) {
         condition.lock()
-        pending.append(Item(url: directory, index: index))
+        pending.append(Item(url: directory, index: index, mayContainCloud: mayContainCloud))
         outstanding += 1
         condition.signal()
         condition.unlock()
@@ -246,7 +248,7 @@ public enum FileScanner {
                                   coalescedProgress: Bool = false,
                                   onDirectory: @escaping (URL, Int?) -> Int = { _, _ in 0 },
                                   onFile: @escaping (URL, URL, Int, FileStamp) -> Void) {
-        guard !isExcluded(root, paths: excludedPaths) else { return }
+        guard !FileSafety.isCloudManagedPath(root), !isExcluded(root, paths: excludedPaths) else { return }
         guard let rootInfo = FileSafety.metadata(at: root), rootInfo.isDirectory else {
             appendWarning("Cannot read \(root.path)", to: &warnings)
             control.recordOmitted()
@@ -255,10 +257,12 @@ public enum FileScanner {
         let rootIndex = onDirectory(root, nil)
         control.visited(root)
         if !parallel {
-            var stack = [DirectoryWorkQueue.Item(url: root, index: rootIndex)]
+            var stack = [DirectoryWorkQueue.Item(url: root, index: rootIndex,
+                                                 mayContainCloud: FileSafety.mayContainCloudRoot(root))]
             while let item = stack.popLast(), !control.isCancelled {
                 autoreleasepool {
                     let directory = item.url
+                    let mayContainCloud = item.mayContainCloud
                     let children: [URL]
                     do {
                         children = try FileManager.default.contentsOfDirectory(at: directory,
@@ -276,7 +280,9 @@ public enum FileScanner {
                     for child in children where !control.isCancelled {
                         let candidate = usesRequestedPath ? child :
                             directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
-                        if candidate.lastPathComponent == ".Trash" || isExcluded(candidate, paths: excludedPaths) { continue }
+                        if candidate.lastPathComponent == ".Trash" ||
+                            (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
+                            isExcluded(candidate, paths: excludedPaths) { continue }
                         guard let info = FileSafety.metadata(at: candidate), info.stamp.device == rootInfo.stamp.device else { continue }
                         let url = info.isDirectory
                             ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
@@ -290,7 +296,9 @@ public enum FileScanner {
                             if url.pathExtension == "app" && !includeApps { continue }
                             let index = onDirectory(url, item.index)
                             control.visited(url)
-                            stack.append(DirectoryWorkQueue.Item(url: url, index: index))
+                            stack.append(DirectoryWorkQueue.Item(
+                                url: url, index: index,
+                                mayContainCloud: mayContainCloud && FileSafety.mayContainCloudRoot(url)))
                         } else if info.stamp.linkCount == 1 || includeHardLinks {
                             onFile(url, directory, item.index, info.stamp)
                             control.visited(url, bytes: info.stamp.size)
@@ -308,6 +316,7 @@ public enum FileScanner {
             while let item = work.next() {
                 autoreleasepool {
                     let directory = item.url
+                    let mayContainCloud = item.mayContainCloud
                     defer { work.finished() }
                     let children: [URL]
                     do {
@@ -351,7 +360,9 @@ public enum FileScanner {
                         // FileManager may return /private/tmp for a directory requested through /tmp.
                         let candidate = usesRequestedPath ? child :
                             directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
-                        if candidate.lastPathComponent == ".Trash" || isExcluded(candidate, paths: excludedPaths) { continue }
+                        if candidate.lastPathComponent == ".Trash" ||
+                            (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
+                            isExcluded(candidate, paths: excludedPaths) { continue }
                         guard let info = FileSafety.metadata(at: candidate),
                               info.stamp.device == rootInfo.stamp.device else { continue }
                         let url = info.isDirectory
@@ -368,7 +379,8 @@ public enum FileScanner {
                             let index = onDirectory(url, item.index)
                             lock.unlock()
                             reportProgress(url, bytes: nil)
-                            work.add(url, index: index)
+                            work.add(url, index: index,
+                                     mayContainCloud: mayContainCloud && FileSafety.mayContainCloudRoot(url))
                         } else if info.stamp.linkCount == 1 || includeHardLinks {
                             lock.lock()
                             onFile(url, directory, item.index, info.stamp)
@@ -675,13 +687,14 @@ public enum FileScanner {
     static func scanApplications(roots: [URL], control: ScanControl = ScanControl(),
                                  excludedPaths: [String] = []) -> [ScanEntry] {
         var entries: [ScanEntry] = []
-        for root in roots where !control.isCancelled {
+        for root in roots where !control.isCancelled && !FileSafety.isCloudManagedPath(root) &&
+            !isExcluded(root, paths: excludedPaths) {
             guard let apps = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
                 if FileManager.default.fileExists(atPath: root.path) { control.recordOmitted() }
                 continue
             }
             for app in apps where app.pathExtension.lowercased() == "app" && !control.isCancelled &&
-                !isExcluded(app, paths: excludedPaths) {
+                !FileSafety.isCloudManagedPath(app) && !isExcluded(app, paths: excludedPaths) {
                 guard let identifier = Bundle(url: app)?.bundleIdentifier,
                       let stamp = FileSafety.stamp(at: app), FileSafety.isDirectory(app),
                       FileSafety.isSafeLocation(app, scope: root, category: .uninstall) else { continue }
@@ -790,7 +803,8 @@ public enum FileScanner {
                                              control: ScanControl, warnings: inout [String],
                                              excludedPaths: [String]) -> [ScanEntry] {
         var entries: [ScanEntry] = []
-        for root in roots where !control.isCancelled {
+        for root in roots where !control.isCancelled && !FileSafety.isCloudManagedPath(root) &&
+            !isExcluded(root, paths: excludedPaths) {
             guard let children = try? FileManager.default.contentsOfDirectory(at: root,
                                                                                includingPropertiesForKeys: nil) else {
                 if FileManager.default.fileExists(atPath: root.path) {
@@ -799,7 +813,8 @@ public enum FileScanner {
                 }
                 continue
             }
-            for child in children where !control.isCancelled && !isExcluded(child, paths: excludedPaths) {
+            for child in children where !control.isCancelled && !FileSafety.isCloudManagedPath(child) &&
+                !isExcluded(child, paths: excludedPaths) {
                 let name = child.lastPathComponent
                 let identifier: String
                 if root.lastPathComponent == "Preferences" {

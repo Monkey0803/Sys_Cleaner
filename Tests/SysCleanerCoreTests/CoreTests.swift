@@ -41,6 +41,36 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(unknown.note, "icloudUnknown")
     }
 
+    func testCloudManagedPathExcludesOnlyCloudTrees() {
+        let home = root.appendingPathComponent("user", isDirectory: true)
+        let mobile = home.appendingPathComponent("Library/Mobile Documents", isDirectory: true)
+        let providers = home.appendingPathComponent("Library/CloudStorage", isDirectory: true)
+        let roots = [mobile.path, providers.path]
+        XCTAssertTrue(FileSafety.isCloudManagedPath(mobile, roots: roots))
+        XCTAssertTrue(FileSafety.isCloudManagedPath(mobile.appendingPathComponent("com~apple~CloudDocs/file"), roots: roots))
+        XCTAssertTrue(FileSafety.isCloudManagedPath(providers.appendingPathComponent("Provider/file"), roots: roots))
+        XCTAssertFalse(FileSafety.isCloudManagedPath(home.appendingPathComponent("Library/Caches/file"), roots: roots))
+        XCTAssertFalse(FileSafety.isCloudManagedPath(home.appendingPathComponent("Library/Mobile Documents Copy"), roots: roots))
+        XCTAssertTrue(FileSafety.mayContainCloudRoot(home, roots: roots))
+        XCTAssertTrue(FileSafety.mayContainCloudRoot(home.appendingPathComponent("Library"), roots: roots))
+        XCTAssertFalse(FileSafety.mayContainCloudRoot(home.appendingPathComponent("Documents"), roots: roots))
+    }
+
+    func testLocalScannersDoNotEnterICloudDrive() {
+        let cloud = ICloudDrive.root
+        for category in [ScanCategory.space, .large, .duplicates] {
+            let report = FileScanner.scan(ScanRequest(category: category, root: cloud))
+            XCTAssertEqual(report.scannedFileCount, 0, "\(category)")
+            XCTAssertTrue(report.entries.isEmpty, "\(category)")
+            if category == .space { XCTAssertNil(report.spaceTree) }
+        }
+        XCTAssertTrue(FileScanner.scanCaches(category: .systemCache, locations: [cloud]).entries.isEmpty)
+        XCTAssertTrue(FileScanner.scanApplications(roots: [cloud]).isEmpty)
+        XCTAssertTrue(FileScanner.scanOrphanCandidates(roots: [cloud], installedIdentifiers: []).isEmpty)
+        XCTAssertFalse(FileSafety.isSafeLocation(cloud.appendingPathComponent("file"),
+                                                 scope: cloud.deletingLastPathComponent(), category: .large))
+    }
+
     func testICloudScanUsesMetadataAndSkipsLinksWithoutDownloading() throws {
         let nested = root.appendingPathComponent("folder", isDirectory: true)
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)

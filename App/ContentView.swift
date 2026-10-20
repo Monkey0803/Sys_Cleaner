@@ -1102,6 +1102,9 @@ struct ScanCompletionSummaryView: View {
             if !preferences.excludedPaths.isEmpty {
                 Text(String(format: L("scanSummaryExclusions"), preferences.excludedPaths.count))
             }
+            if store.category != .icloud {
+                Text("cloudExcludedFromLocalScan").foregroundStyle(.secondary)
+            }
             Text("scanSummaryEstimateHelp").foregroundStyle(.secondary)
         }
         .font(.caption)

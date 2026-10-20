@@ -173,6 +173,7 @@ public enum XcodeStorage {
         if let first = candidates.first { control.begin(.discovering, path: first.1) }
         for (name, supplied) in candidates where !control.isCancelled {
             let url = supplied.standardizedFileURL
+            if FileSafety.isCloudManagedPath(url) { continue }
             guard FileManager.default.fileExists(atPath: url.path) ||
                     (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil else { continue }
             let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
@@ -252,6 +253,7 @@ public enum XcodeStorage {
         let root = suppliedRoot.standardizedFileURL
         let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().standardizedFileURL
         guard root.lastPathComponent == "DerivedData", root.path.hasPrefix(home.path + "/"),
+              !FileSafety.isCloudManagedPath(root),
               FileSafety.isDirectory(root),
               !FileSafety.hasSymlinkInPath(root, through: home) else { return false }
         let protectedRoots = [defaultArchivesRoot, defaultDeviceSupportRoot,
@@ -313,6 +315,7 @@ public enum XcodeStorage {
             left.path.count == right.path.count ? left.path < right.path : left.path.count < right.path.count
         }) where !control.isCancelled {
             let root = suppliedRoot.resolvingSymlinksInPath().standardizedFileURL
+            if FileSafety.isCloudManagedPath(root) { continue }
             guard FileManager.default.fileExists(atPath: suppliedRoot.path) else {
                 if suppliedRoot.standardizedFileURL.path != defaultDerivedDataRoot.standardizedFileURL.path {
                     warnings.append("Cannot read \(suppliedRoot.path)")
@@ -379,6 +382,7 @@ public enum XcodeStorage {
     public static func isAllowedArchivesRoot(_ suppliedRoot: URL) -> Bool {
         let root = suppliedRoot.standardizedFileURL
         guard root.path != "/", root.path != FileManager.default.homeDirectoryForCurrentUser.path,
+              !FileSafety.isCloudManagedPath(root),
               FileSafety.isDirectory(root),
               !FileSafety.hasSymlinkInPath(root, through: URL(fileURLWithPath: "/")) else { return false }
         let otherSources = [defaultDerivedDataRoot, defaultDeviceSupportRoot,

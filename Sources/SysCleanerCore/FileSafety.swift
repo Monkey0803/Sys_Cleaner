@@ -3,6 +3,22 @@ import Darwin
 import Foundation
 
 public enum FileSafety {
+    static let cloudManagedRoots: [String] = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        return [home + "/Library/Mobile Documents", home + "/Library/CloudStorage"]
+    }()
+
+    static func isCloudManagedPath(_ url: URL, roots: [String] = cloudManagedRoots) -> Bool {
+        let path = url.path
+        return roots.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    static func mayContainCloudRoot(_ url: URL, roots: [String] = cloudManagedRoots) -> Bool {
+        let path = url.path
+        let prefix = path == "/" ? path : path + "/"
+        return roots.contains { $0.hasPrefix(prefix) }
+    }
+
     public static func isApplicationRunning(_ app: URL, identifier: String) -> Bool {
         return NSWorkspace.shared.runningApplications.contains { running in
             matchesRunningApplication(app, identifier: identifier,
@@ -46,6 +62,7 @@ public enum FileSafety {
         let path = url.resolvingSymlinksInPath().standardizedFileURL.path
         let base = scope.resolvingSymlinksInPath().standardizedFileURL.path
         guard path != base, path.hasPrefix(base + "/"),
+              !isCloudManagedPath(URL(fileURLWithPath: path)),
               !path.split(separator: "/").contains(".."),
               !path.contains("/.Trash/") else { return false }
 
