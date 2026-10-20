@@ -53,6 +53,8 @@ final class CleanerStore: ObservableObject {
     @Published var summaryCount = 0
     @Published var summaryBytes: Int64 = 0
     @Published private(set) var scanMetrics = ScanMetrics()
+    @Published private(set) var cloudCurrentCount = 0
+    @Published private(set) var cloudRemoteCount = 0
     @Published private(set) var volumes: [VolumeSummary] = CleanerStore.readVolumeSummaries()
     @Published var warnings: [String] = []
     @Published var selectedIDs: Set<UUID> = []
@@ -78,6 +80,12 @@ final class CleanerStore: ObservableObject {
     }
     @Published var spaceFolder: URL? {
         didSet { refreshSpaceChildren() }
+    }
+    @Published var cloudFolder: URL = ICloudDrive.root {
+        didSet {
+            selectedIDs = []
+            refreshVisibleEntries()
+        }
     }
     @Published private(set) var reviewedApplicationName: String?
 
@@ -225,7 +233,10 @@ final class CleanerStore: ObservableObject {
     private func refreshVisibleEntries() {
         let filtered = ScanResultFiltering.entries(entries, category: category,
                                                    query: resultQuery, filter: resultFilter)
-        let sorted = ScanSorting.entries(filtered, category: category, selection: sortSelection)
+        let browsing = category == .icloud && resultQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? filtered.filter { $0.url.deletingLastPathComponent().standardizedFileURL == cloudFolder.standardizedFileURL }
+            : filtered
+        let sorted = ScanSorting.entries(browsing, category: category, selection: sortSelection)
         visibleEntryIDs = Set(sorted.map(\.id))
         visibleDuplicateGroups = category == .duplicates ? ScanResultGrouping.duplicateGroups(sorted) : []
         visibleEntries = sorted
@@ -494,6 +505,29 @@ final class CleanerStore: ObservableObject {
         }
     }
 
+    func evictCloud() {
+        let chosen = selectedEntries
+        guard category == .icloud, !chosen.isEmpty, !hasHiddenSelection,
+              !isDeleting, !isScanning else { return }
+        isDeleting = true
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let before = observedAvailableCapacity(ICloudDrive.root)
+            let outcomes = chosen.map { ICloudDrive.evict($0) }
+            let after = observedAvailableCapacity(ICloudDrive.root)
+            let delta = before.flatMap { initial in after.map { $0 - initial } }
+            await self?.finishCloudEviction(outcomes, availableSpaceDelta: delta)
+        }
+    }
+
+    private func finishCloudEviction(_ outcomes: [DeleteResult], availableSpaceDelta: Int64?) {
+        results = outcomes
+        lastAvailableSpaceDelta = availableSpaceDelta
+        selectedIDs = []
+        isDeleting = false
+        showResults = true
+        scan()
+    }
+
     func deleteXcodeCaches(_ chosen: [ScanEntry]) async {
         guard category == .developerCache, !chosen.isEmpty, !isDeleting,
               chosen.allSatisfy({ $0.note == "verifiedSharedCache" && $0.category == .developerCache }) else { return }
@@ -531,6 +565,14 @@ final class CleanerStore: ObservableObject {
         }
         if category == scannedCategory {
             entries = report.entries
+            if scannedCategory == .icloud {
+                cloudCurrentCount = report.entries.filter { $0.note == "icloudCurrent" }.count
+                cloudRemoteCount = report.entries.filter { $0.note == "icloudRemote" }.count
+                if cloudFolder != ICloudDrive.root &&
+                    !report.entries.contains(where: { $0.url == cloudFolder && $0.isDirectory }) {
+                    cloudFolder = ICloudDrive.root
+                }
+            }
             spaceTree = report.spaceTree
             spaceItems = report.spaceTree == nil ? report.spaceItems : []
             summaryCount = report.scannedFileCount
@@ -684,6 +726,10 @@ final class CleanerStore: ObservableObject {
 
     private func restore(_ result: CategoryResult) {
         entries = result.entries
+        if category == .icloud {
+            cloudCurrentCount = result.entries.filter { $0.note == "icloudCurrent" }.count
+            cloudRemoteCount = result.entries.filter { $0.note == "icloudRemote" }.count
+        }
         spaceItems = result.spaceItems
         spaceTree = result.spaceTree
         summaryCount = result.summaryCount
@@ -729,6 +775,7 @@ extension ScanCategory {
         case .developerCache: "hammer"
         case .uninstall: "app.badge"
         case .orphans: "questionmark.folder"
+        case .icloud: "icloud"
         }
     }
 }

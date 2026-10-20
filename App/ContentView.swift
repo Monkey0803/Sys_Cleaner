@@ -18,6 +18,9 @@ struct ContentView: View {
     @State private var showingVolumeOverview = true
     @State private var hoveredVolumeID: String?
     @State private var duplicateGroupPage = 0
+    @State private var cloudPage = 0
+    @State private var showingCloudConfirmation = false
+    private let cloudItemsPerPage = 200
     private let duplicateGroupsPerPage = 200
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -28,6 +31,7 @@ struct ContentView: View {
                     categoryRow(.space)
                     categoryRow(.large)
                     categoryRow(.duplicates)
+                    categoryRow(.icloud)
                 }
                 Section(L("cleanup")) {
                     categoryRow(.systemCache)
@@ -48,7 +52,9 @@ struct ContentView: View {
                     ScanCompletionSummaryView()
                 }
                 Divider()
-                if store.isScanning {
+                if store.category == .icloud {
+                    cloudContent
+                } else if store.isScanning {
                     VStack(spacing: 12) {
                         ProgressView()
                         Text(L("scanStage_\(store.scanProgress?.stage.rawValue ?? "discovering")"))
@@ -106,7 +112,7 @@ struct ContentView: View {
                     resultsContent
                 }
                 if !store.warnings.isEmpty { warningsView }
-                if store.category != .space && store.category != .orphans { actionBar }
+                if store.category != .space && store.category != .orphans && store.category != .icloud { actionBar }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -148,6 +154,13 @@ struct ContentView: View {
                 Text(String(format: L("confirmCount"), store.selectedEntries.count,
                             fileSize(store.estimatedSelectedBytes)))
             }
+            .alert(L("icloudConfirmTitle"), isPresented: $showingCloudConfirmation) {
+                Button(L("icloudEvict"), role: .destructive) { store.evictCloud() }
+                Button(L("cancel"), role: .cancel) {}
+            } message: {
+                Text(String(format: L("icloudConfirmDetail"), store.selectedEntries.count,
+                            fileSize(store.selectedAllocatedBytes ?? 0)))
+            }
             .sheet(isPresented: $store.showResults) { resultsSheet }
             .sheet(isPresented: $store.showHistory) { historySheet }
             .alert(item: $inspectedEntry) { entry in
@@ -161,6 +174,8 @@ struct ContentView: View {
         .onChange(of: store.olderThanDays) { _, _ in store.invalidateScan() }
         .onChange(of: preferences.language) { _, _ in store.refreshSorting() }
         .onChange(of: store.category) { _, _ in duplicateGroupPage = 0 }
+        .onChange(of: store.cloudFolder) { _, _ in cloudPage = 0 }
+        .onChange(of: store.visibleEntries.count) { _, _ in cloudPage = 0 }
         .onChange(of: store.resultQuery) { _, _ in duplicateGroupPage = 0 }
         .onChange(of: store.resultFilter) { _, _ in duplicateGroupPage = 0 }
         .onChange(of: store.sortSelection) { _, _ in duplicateGroupPage = 0 }
@@ -363,6 +378,7 @@ struct ContentView: View {
         case .developerCache: "developerCacheDescription"
         case .uninstall: "uninstallDescription"
         case .orphans: "orphansDescription"
+        case .icloud: "icloudDescription"
         }
     }
 
@@ -524,6 +540,150 @@ struct ContentView: View {
                 .padding(.vertical, 8)
             }
         }
+        }
+    }
+
+    private var cloudContent: some View {
+        VStack(spacing: 0) {
+            if store.isScanning {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("icloudScanning")
+                    if let progress = store.scanProgress {
+                        Text(progress.currentPath).font(.caption.monospaced())
+                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                    Button("cancel") { store.cancel() }.hoverHighlight()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !store.hasScanned {
+                ContentUnavailableView {
+                    Label("icloud", systemImage: "icloud")
+                } description: {
+                    Text("icloudStartPrompt")
+                } actions: {
+                    scanButton
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if store.entries.isEmpty {
+                ContentUnavailableView {
+                    Label(store.warnings.isEmpty ? "icloudEmptyTitle" : "icloudUnavailableTitle",
+                          systemImage: store.warnings.isEmpty ? "icloud" : "icloud.slash")
+                } description: {
+                    Text(store.warnings.isEmpty ? "icloudEmpty" : "icloudUnavailableDetail")
+                } actions: {
+                    scanButton
+                    if !store.warnings.isEmpty {
+                        Button("fullDiskAccess") { store.openFullDiskAccess() }.hoverHighlight()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HStack(spacing: 12) {
+                    Button { store.cloudFolder = store.cloudFolder.deletingLastPathComponent() } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .hoverHighlight()
+                    .disabled(store.cloudFolder == ICloudDrive.root || store.isDeleting)
+                    Text(store.cloudFolder.path).font(.caption.monospaced())
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(String(format: L("icloudStatusSummary"),
+                                store.cloudCurrentCount,
+                                store.cloudRemoteCount,
+                                fileSize(store.scanMetrics.allocatedBytes ?? 0)))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20).padding(.vertical, 8)
+                if store.visibleEntries.isEmpty {
+                    ContentUnavailableView(store.resultQuery.isEmpty ? "icloudFolderEmpty" : "noMatchingResults",
+                                           systemImage: store.resultQuery.isEmpty ? "folder" : "magnifyingglass")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(Array(store.visibleEntries.dropFirst(cloudPage * cloudItemsPerPage)
+                            .prefix(cloudItemsPerPage))) { entry in
+                            cloudRow(entry)
+                        }
+                    }
+                    .listStyle(.inset)
+                    let pageCount = (store.visibleEntries.count + cloudItemsPerPage - 1) / cloudItemsPerPage
+                    if pageCount > 1 {
+                        HStack {
+                            Button("previousPage") { cloudPage -= 1 }
+                                .hoverHighlight().disabled(cloudPage == 0)
+                            Text(String(format: L("icloudPage"), cloudPage + 1, pageCount))
+                                .foregroundStyle(.secondary)
+                            Button("nextPage") { cloudPage += 1 }
+                                .hoverHighlight().disabled(cloudPage + 1 >= pageCount)
+                        }
+                        .padding(8)
+                    }
+                }
+                HStack {
+                    Text(String(format: L("icloudSelected"), store.selectedEntries.count,
+                                fileSize(store.selectedAllocatedBytes ?? 0)))
+                        .foregroundStyle(.secondary)
+                    if store.hasHiddenSelection {
+                        Button("icloudClearHiddenSelection") { store.selectedIDs = [] }
+                            .buttonStyle(.link).hoverHighlight()
+                    }
+                    Spacer()
+                    Button("icloudEvict") { showingCloudConfirmation = true }
+                        .hoverHighlight()
+                        .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection || store.isDeleting)
+                }
+                .padding(16).background(.bar)
+            }
+        }
+    }
+
+    private func cloudRow(_ entry: ScanEntry) -> some View {
+        HStack(spacing: 10) {
+            if entry.canDelete {
+                Toggle("", isOn: Binding(get: { store.selectedIDs.contains(entry.id) }, set: { selected in
+                    if selected { store.selectedIDs.insert(entry.id) }
+                    else { store.selectedIDs.remove(entry.id) }
+                }))
+                .labelsHidden().disabled(store.isDeleting)
+                .accessibilityLabel(entry.url.lastPathComponent)
+            } else {
+                Image(systemName: entry.isDirectory ? "folder" : "lock.fill")
+                    .foregroundStyle(.secondary).frame(width: 22)
+                    .help(L(entry.note))
+            }
+            Image(systemName: entry.isDirectory ? "folder" : "doc")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                if entry.isDirectory {
+                    Button(entry.url.lastPathComponent) {
+                        store.resultQuery = ""
+                        store.cloudFolder = entry.url
+                    }
+                        .buttonStyle(.plain).hoverHighlight().disabled(store.isDeleting)
+                } else {
+                    Text(entry.url.lastPathComponent)
+                }
+                Text(entry.url.path).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                if !entry.isDirectory {
+                    Text(Date(timeIntervalSince1970: Double(entry.stamp.modifiedSeconds)),
+                         format: .dateTime.year().month().day().hour().minute())
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(L(entry.note)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !entry.isDirectory {
+                VStack(alignment: .trailing) {
+                    Text(fileSize(entry.estimatedBytes)).monospacedDigit()
+                    Text(String(format: L("icloudLocalSize"), fileSize(entry.allocatedBytes ?? 0)))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
+                .buttonStyle(.borderless).hoverHighlight()
+                .help(L("revealInFinder"))
         }
     }
 
@@ -817,6 +977,7 @@ struct ContentView: View {
             else if entry.isDirectory { L("reasonAppBundle") }
             else { L("reasonAppRelated") }
         case .orphans: L("reasonOrphanCandidate")
+        case .icloud: L(entry.note)
         }
     }
 
@@ -904,6 +1065,7 @@ struct ScanCompletionSummaryView: View {
                 .map(\.path).joined(separator: " · ")
         case .uninstall: L("scanScopeApps")
         case .orphans: L("scanScopeOrphans")
+        case .icloud: ICloudDrive.root.path
         }
     }
 
@@ -920,6 +1082,9 @@ struct ScanCompletionSummaryView: View {
                 .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
             if store.category == .space {
                 Text(String(format: L("scanSummarySpaceFiles"), store.summaryCount))
+            } else if store.category == .icloud {
+                Text(String(format: L("icloudScanSummary"), store.summaryCount,
+                            store.entries.filter(\.canDelete).count))
             } else if store.category == .uninstall && store.reviewedApplicationName == nil {
                 Text(String(format: L("scanSummaryApps"), store.entries.count))
             } else {

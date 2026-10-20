@@ -149,6 +149,8 @@ public enum FileScanner {
         let root = request.root.resolvingSymlinksInPath().standardizedFileURL
         control.begin(request.category == .uninstall ? .measuringApps : .discovering, path: root)
         switch request.category {
+        case .icloud:
+            return ICloudDrive.scan(control: control)
         case .space:
             return scanSpace(root: root, control: control, excludedPaths: request.excludedPaths,
                              useRust: request.useRustSpaceScanner, helperURL: request.rustHelperURL)

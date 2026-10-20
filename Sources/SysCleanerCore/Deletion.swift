@@ -32,6 +32,7 @@ public enum FileDeletion {
     }
 
     public static func refusal(for entry: ScanEntry) -> String? {
+        guard entry.category != .icloud else { return "protected" }
         guard entry.canDelete, entry.risk != .protected else { return "protected" }
         guard FileSafety.isSafeLocation(entry.url, scope: entry.scope, category: entry.category),
               FileSafety.isDirectory(entry.scope),

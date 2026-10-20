@@ -11,6 +11,7 @@
 		091E81BB9397A7C35D7CFB52 /* XcodeReviewComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E7AFC13C406BB7C4416C21F /* XcodeReviewComparison.swift */; };
 		17282EAC48104789ACB76FB4 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D4285D6F8EBB45A49282921B /* InfoPlist.strings */; };
 		22D20911B15411DE7585F70E /* FileSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */; };
+		22D20911B15411DE7585F70F /* ICloudDrive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2649F5D7DA4605F0DD2F1DC9 /* ICloudDrive.swift */; };
 		3F4FD4CBA332D2A17F89538D /* ServicesMenu.strings in Resources */ = {isa = PBXBuildFile; fileRef = AEE592AC1E4C054E2F714C4A /* ServicesMenu.strings */; };
 		51BED6A4CBE686C9EAEA312D /* SpacePie.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E912A313219445FB1AD75 /* SpacePie.swift */; };
 		51BED6A4CBE686C9EAEA312E /* SpaceTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E912A313219445FB1AD76 /* SpaceTree.swift */; };
@@ -41,6 +42,7 @@
 		15ECDEAAF36853260AE8F6D9 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		257C3E77B75C4A0EA2A9DE1C /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafety.swift; sourceTree = "<group>"; };
+		2649F5D7DA4605F0DD2F1DC9 /* ICloudDrive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ICloudDrive.swift; sourceTree = "<group>"; };
 		273146B4DC39873970B43C59 /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		33DD818F0C85ADD3F05B4EAB /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/ServicesMenu.strings; sourceTree = "<group>"; };
 		49B61AAC3F7BCA34CBDFF63F /* Sys Cleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sys Cleaner.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -123,6 +125,7 @@
 			children = (
 				FCAC6287E4E224CD89FB6F00 /* Deletion.swift */,
 				2649F5D7DA4605F0DD2F1DC8 /* FileSafety.swift */,
+				2649F5D7DA4605F0DD2F1DC9 /* ICloudDrive.swift */,
 				FA30EEF2908C3F8BC514782C /* Models.swift */,
 				604A3CC2CFEA33D15C0BFFFF /* Scanner.swift */,
 				70D4A44D0BC7439BA7A16F40 /* RustSpaceScanner.swift */,
@@ -220,6 +223,7 @@
 				8201A730F69E8B6AD9693A32 /* SysCleanerApp.swift in Sources */,
 				A914E1BE757716AD1051FA7F /* Deletion.swift in Sources */,
 				22D20911B15411DE7585F70E /* FileSafety.swift in Sources */,
+				22D20911B15411DE7585F70F /* ICloudDrive.swift in Sources */,
 				BD4D948DEFB37C0BBFA0857B /* Models.swift in Sources */,
 				521E44ED2127BA5861BE65A5 /* Scanner.swift in Sources */,
 				70D4A44D0BC7439BA7A16F41 /* RustSpaceScanner.swift in Sources */,

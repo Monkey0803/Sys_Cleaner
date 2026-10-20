@@ -20,6 +20,105 @@ final class CoreTests: XCTestCase {
         return url
     }
 
+    func testICloudStateOnlyAllowsCurrentUploadedConflictFreeFiles() {
+        let safe = ICloudDrive.State(isUbiquitous: true, download: .current,
+                                     uploaded: true, uploading: false, conflicts: false)
+        XCTAssertTrue(safe.canEvict)
+        XCTAssertEqual(safe.note, "icloudCurrent")
+        XCTAssertFalse(ICloudDrive.State(isUbiquitous: true, download: .remote,
+                                          uploaded: true, uploading: false, conflicts: false).canEvict)
+        XCTAssertFalse(ICloudDrive.State(isUbiquitous: true, download: .stale,
+                                          uploaded: true, uploading: false, conflicts: false).canEvict)
+        XCTAssertFalse(ICloudDrive.State(isUbiquitous: true, download: .current,
+                                          uploaded: false, uploading: true, conflicts: false).canEvict)
+        XCTAssertFalse(ICloudDrive.State(isUbiquitous: true, download: .current,
+                                          uploaded: true, uploading: false, conflicts: true).canEvict)
+        XCTAssertFalse(ICloudDrive.State(isUbiquitous: false, download: .current,
+                                          uploaded: true, uploading: false, conflicts: false).canEvict)
+        let unknown = ICloudDrive.State(isUbiquitous: true, download: .current,
+                                        uploaded: nil, uploading: nil, conflicts: nil)
+        XCTAssertFalse(unknown.canEvict)
+        XCTAssertEqual(unknown.note, "icloudUnknown")
+    }
+
+    func testICloudScanUsesMetadataAndSkipsLinksWithoutDownloading() throws {
+        let nested = root.appendingPathComponent("folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let local = try file("local.bin", String(repeating: "a", count: 4096))
+        let remote = nested.appendingPathComponent("remote.bin")
+        try Data([1, 2, 3]).write(to: remote)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"),
+                                                   withDestinationURL: local)
+        let safe = ICloudDrive.State(isUbiquitous: true, download: .current,
+                                     uploaded: true, uploading: false, conflicts: false)
+        let online = ICloudDrive.State(isUbiquitous: true, download: .remote,
+                                       uploaded: true, uploading: false, conflicts: false)
+        var seen: [URL] = []
+        let report = ICloudDrive.scan(at: root) { url in
+            seen.append(url)
+            return url == remote || url == nested ? online : safe
+        }
+        XCTAssertFalse(report.cancelled)
+        XCTAssertEqual(report.scannedFileCount, 2)
+        XCTAssertEqual(report.entries.count, 3)
+        XCTAssertEqual(report.entries.first { $0.url == remote }?.allocatedBytes, 0)
+        XCTAssertFalse(report.entries.first { $0.url == remote }!.canDelete)
+        XCTAssertTrue(report.entries.first { $0.url == local }!.canDelete)
+        XCTAssertFalse(report.entries.first { $0.url == nested }!.canDelete)
+        XCTAssertFalse(seen.contains { $0.lastPathComponent == "link" })
+        XCTAssertEqual(report.omittedCount, 1)
+    }
+
+    func testICloudEvictionRechecksStateAndFileIdentity() throws {
+        let url = try file("safe.bin", String(repeating: "a", count: 4096))
+        let safe = ICloudDrive.State(isUbiquitous: true, download: .current,
+                                     uploaded: true, uploading: false, conflicts: false)
+        let stamp = try XCTUnwrap(FileSafety.stamp(at: url))
+        let entry = ScanEntry(url: url, scope: root, category: .icloud, stamp: stamp,
+                              estimatedBytes: stamp.size, canDelete: true)
+        XCTAssertEqual(FileDeletion.refusal(for: entry), "protected")
+        var called = false
+        let success = ICloudDrive.evict(entry, scope: root, readState: { _ in safe },
+                                        perform: { _ in called = true })
+        XCTAssertTrue(success.success)
+        XCTAssertTrue(called)
+        called = false
+        let remote = ICloudDrive.State(isUbiquitous: true, download: .remote,
+                                       uploaded: true, uploading: false, conflicts: false)
+        XCTAssertEqual(ICloudDrive.evict(entry, scope: root, readState: { _ in remote },
+                                       perform: { _ in called = true }).message, "changed")
+        XCTAssertFalse(called)
+        try Data("changed".utf8).write(to: url)
+        XCTAssertEqual(ICloudDrive.evict(entry, scope: root, readState: { _ in safe },
+                                       perform: { _ in called = true }).message, "changed")
+        XCTAssertFalse(called)
+    }
+
+    func testICloudMissingRootAndCancellation() {
+        let missing = root.appendingPathComponent("missing")
+        let report = ICloudDrive.scan(at: missing)
+        XCTAssertEqual(report.warnings, ["icloudUnavailable"])
+        XCTAssertEqual(report.omittedCount, 1)
+        let control = ScanControl()
+        control.cancel()
+        XCTAssertTrue(ICloudDrive.scan(control: control, at: root).cancelled)
+    }
+
+    func testICloudUnreadableFolderReportsPartialResults() throws {
+        let nested = root.appendingPathComponent("blocked", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let visible = try file("visible.txt", "visible")
+        let report = ICloudDrive.scan(at: root, readState: { _ in nil }, listChildren: { directory in
+            if directory == nested { throw CocoaError(.fileReadNoPermission) }
+            return try FileManager.default.contentsOfDirectory(at: directory,
+                                                                 includingPropertiesForKeys: nil)
+        })
+        XCTAssertEqual(report.scannedFileCount, 1)
+        XCTAssertTrue(report.entries.contains { $0.url == visible })
+        XCTAssertEqual(report.omittedCount, 1)
+        XCTAssertTrue(report.warnings.contains { $0.contains("blocked") })
+    }
+
     private func sortableEntry(_ name: String, size: Int64, modified: Int64,
                                category: ScanCategory = .large, group: String? = nil,
                                note: String = "", isDirectory: Bool = false,

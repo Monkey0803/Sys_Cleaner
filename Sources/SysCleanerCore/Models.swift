@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
-    case space, large, duplicates, systemCache, developerCache, uninstall, orphans
+    case space, large, duplicates, systemCache, developerCache, uninstall, orphans, icloud
     public var id: String { rawValue }
 }
 
