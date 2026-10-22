@@ -1,0 +1,1420 @@
+{
+  "baselineCommit": "d19a3eb",
+  "method": "release production; 6 workers; sequential ABBAAB; wait4 ru_maxrss bytes; first run is not a cold-cache guarantee",
+  "binarySHA256": {
+    "baseline": "9534cf113dbce8a4ada1afa4822d455b8e3bcbb9b5e39f6cccf82c6b9a52732d",
+    "candidate": "6685cd24976340ea7c876687e02225493853db1ddbf2e21b7712019fc931dcc6"
+  },
+  "runs": [
+    {
+      "root": "/Applications",
+      "version": "baseline",
+      "seconds": 24.278,
+      "peakRSSBytes": 324173824,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "candidate",
+      "seconds": 23.7,
+      "peakRSSBytes": 94732288,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "candidate",
+      "seconds": 23.303,
+      "peakRSSBytes": 92471296,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "baseline",
+      "seconds": 24.117,
+      "peakRSSBytes": 407388160,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "baseline",
+      "seconds": 23.79,
+      "peakRSSBytes": 307904512,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "candidate",
+      "seconds": 24.444,
+      "peakRSSBytes": 93519872,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "baseline",
+      "seconds": 42.823,
+      "peakRSSBytes": 846381056,
+      "exit": 0,
+      "output": {
+        "allocated": 339931578368,
+        "cancelled": false,
+        "directories": 524086,
+        "files": 2190501,
+        "logical": 334773981452,
+        "omitted": 52401
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "candidate",
+      "seconds": 42.707,
+      "peakRSSBytes": 159186944,
+      "exit": 0,
+      "output": {
+        "allocated": 339935490048,
+        "cancelled": false,
+        "directories": 524086,
+        "files": 2190501,
+        "logical": 334784308743,
+        "omitted": 52402
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "candidate",
+      "seconds": 45.654,
+      "peakRSSBytes": 150372352,
+      "exit": 0,
+      "output": {
+        "allocated": 339954319360,
+        "cancelled": false,
+        "directories": 524086,
+        "files": 2190512,
+        "logical": 334806782794,
+        "omitted": 52403
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "baseline",
+      "seconds": 46.511,
+      "peakRSSBytes": 791953408,
+      "exit": 0,
+      "output": {
+        "allocated": 339948007424,
+        "cancelled": false,
+        "directories": 524086,
+        "files": 2190511,
+        "logical": 334803394619,
+        "omitted": 52401
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "baseline",
+      "seconds": 45.459,
+      "peakRSSBytes": 776208384,
+      "exit": 0,
+      "output": {
+        "allocated": 339946676224,
+        "cancelled": false,
+        "directories": 524086,
+        "files": 2190515,
+        "logical": 334805770314,
+        "omitted": 52401
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "candidate",
+      "seconds": 43.348,
+      "peakRSSBytes": 149241856,
+      "exit": 0,
+      "output": {
+        "allocated": 339949383680,
+        "cancelled": false,
+        "directories": 524086,
+        "files": 2190515,
+        "logical": 334810592109,
+        "omitted": 52403
+      },
+      "stderr": ""
+    }
+  ],
+  "notes": [
+    "The initial candidate uses shallow streaming enumeration in batches of 256 and reverse-index aggregation, with six workers.",
+    "The candidate in this timed cohort stopped the current shallow enumerator after a read error; final code continues past an item error unless cancelled. Final parity validation is recorded separately.",
+    "The home directory is live. Files, bytes and omitted counts varied between runs; timings there do not prove equal-snapshot speedup."
+  ],
+  "prefetchExperiment": [
+    {
+      "root": "/Applications",
+      "version": "stream",
+      "seconds": 22.547,
+      "peakRSSBytes": 93929472,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "no-prefetch",
+      "seconds": 23.638,
+      "peakRSSBytes": 93241344,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "no-prefetch",
+      "seconds": 22.72,
+      "peakRSSBytes": 93339648,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Applications",
+      "version": "stream",
+      "seconds": 22.926,
+      "peakRSSBytes": 92504064,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "stream",
+      "seconds": 40.131,
+      "peakRSSBytes": 155074560,
+      "exit": 0,
+      "output": {
+        "allocated": 339950714880,
+        "cancelled": false,
+        "directories": 523900,
+        "files": 2190114,
+        "logical": 334812716943,
+        "omitted": 52407
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "no-prefetch",
+      "seconds": 38.992,
+      "peakRSSBytes": 155009024,
+      "exit": 0,
+      "output": {
+        "allocated": 339949744128,
+        "cancelled": false,
+        "directories": 523900,
+        "files": 2190113,
+        "logical": 334811898518,
+        "omitted": 52405
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "no-prefetch",
+      "seconds": 39.498,
+      "peakRSSBytes": 155549696,
+      "exit": 0,
+      "output": {
+        "allocated": 339948339200,
+        "cancelled": false,
+        "directories": 523900,
+        "files": 2190114,
+        "logical": 334812008825,
+        "omitted": 52405
+      },
+      "stderr": ""
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "version": "stream",
+      "seconds": 40.289,
+      "peakRSSBytes": 156418048,
+      "exit": 0,
+      "output": {
+        "allocated": 339950764032,
+        "cancelled": false,
+        "directories": 523900,
+        "files": 2190115,
+        "logical": 334813332669,
+        "omitted": 52407
+      },
+      "stderr": ""
+    }
+  ],
+  "environment": {
+    "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2\nBuildVersion:\t\t26B5112a",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx27.2.0",
+    "machine": "Darwin arm64"
+  },
+  "finalSourceSHA256": {
+    "Sources/SysCleanerCore/Scanner.swift": "5ccc0e9c2bac5c535535d3b4ed2328b84649ce732bb92cc364a0d7cb220413a2",
+    "Tests/SysCleanerCoreTests/CoreTests.swift": "40e3b8b3c7fae5cbe3e1925c372f2c1dfc4ba85f63ed93a285bf7960ba15800f"
+  },
+  "summary": {
+    "/Applications": {
+      "baseline": {
+        "medianSeconds": 24.117,
+        "medianPeakRSSBytes": 324173824
+      },
+      "candidate": {
+        "medianSeconds": 23.7,
+        "medianPeakRSSBytes": 93519872
+      }
+    },
+    "/Users/huxiaohui": {
+      "baseline": {
+        "medianSeconds": 45.459,
+        "medianPeakRSSBytes": 791953408
+      },
+      "candidate": {
+        "medianSeconds": 43.348,
+        "medianPeakRSSBytes": 150372352
+      }
+    }
+  },
+  "finalValidation": {
+    "binarySHA256": "656cbd9be81df4935dae5af90615cac4ef1be60645c12937bbc3d701c8c80774",
+    "runs": [
+      {
+        "root": "/Applications",
+        "seconds": 22.616,
+        "peakRSSBytes": 90898432,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "root": "/Users/huxiaohui",
+        "seconds": 42.385,
+        "peakRSSBytes": 144146432,
+        "exit": 0,
+        "output": {
+          "allocated": 339966267392,
+          "cancelled": false,
+          "directories": 523900,
+          "files": 2190118,
+          "logical": 334828321689,
+          "omitted": 52407
+        }
+      }
+    ],
+    "fixture": {
+      "allocated": 12288,
+      "cancelled": false,
+      "directories": 4,
+      "files": 3,
+      "logical": 68,
+      "omitted": 1,
+      "parity": true
+    },
+    "applicationsManifest": {
+      "parity": true,
+      "directoryCount": 244050,
+      "sha256": "cc396351ba7824020e8e698771d965e17362dcb6a2ab7cab86acd8be994d2a9c",
+      "totals": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      }
+    }
+  },
+  "validation": {
+    "swiftTests": {
+      "executed": 88,
+      "failed": 0,
+      "skipped": 0
+    },
+    "appBuild": {
+      "configuration": "Debug",
+      "scheme": "Sys Cleaner",
+      "derivedDataPath": "DerivedData",
+      "result": "passed"
+    },
+    "actualApp": {
+      "app": "/Users/huxiaohui/Documents/YostarWork/Github/Mac/Sys_Cleaner/DerivedData/Build/Products/Debug/Sys Cleaner.app/Contents/MacOS/Sys Cleaner",
+      "pid": 88412,
+      "sampleIntervalSeconds": 0.25,
+      "samples": [
+        {
+          "seconds": 0.003,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 0.264,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 0.523,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 0.785,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 1.044,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 1.306,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 1.569,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 1.829,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 2.093,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 2.355,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 2.614,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 2.874,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 3.137,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 3.399,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 3.66,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 3.922,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 4.183,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 4.448,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 4.711,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 4.969,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 5.228,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 5.485,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 5.746,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 6.005,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 6.271,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 6.534,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 6.795,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 7.058,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 7.32,
+          "rssBytes": 114671616
+        },
+        {
+          "seconds": 7.698,
+          "rssBytes": 116981760
+        },
+        {
+          "seconds": 7.962,
+          "rssBytes": 120094720
+        },
+        {
+          "seconds": 8.218,
+          "rssBytes": 122142720
+        },
+        {
+          "seconds": 8.48,
+          "rssBytes": 122470400
+        },
+        {
+          "seconds": 8.744,
+          "rssBytes": 123174912
+        },
+        {
+          "seconds": 9.005,
+          "rssBytes": 123797504
+        },
+        {
+          "seconds": 9.267,
+          "rssBytes": 126992384
+        },
+        {
+          "seconds": 9.527,
+          "rssBytes": 127729664
+        },
+        {
+          "seconds": 9.787,
+          "rssBytes": 127959040
+        },
+        {
+          "seconds": 10.049,
+          "rssBytes": 128286720
+        },
+        {
+          "seconds": 10.313,
+          "rssBytes": 128761856
+        },
+        {
+          "seconds": 10.573,
+          "rssBytes": 129302528
+        },
+        {
+          "seconds": 10.833,
+          "rssBytes": 131678208
+        },
+        {
+          "seconds": 11.089,
+          "rssBytes": 132268032
+        },
+        {
+          "seconds": 11.35,
+          "rssBytes": 132579328
+        },
+        {
+          "seconds": 11.613,
+          "rssBytes": 133693440
+        },
+        {
+          "seconds": 11.877,
+          "rssBytes": 134103040
+        },
+        {
+          "seconds": 12.139,
+          "rssBytes": 134283264
+        },
+        {
+          "seconds": 12.399,
+          "rssBytes": 134561792
+        },
+        {
+          "seconds": 12.657,
+          "rssBytes": 135036928
+        },
+        {
+          "seconds": 12.918,
+          "rssBytes": 135708672
+        },
+        {
+          "seconds": 13.178,
+          "rssBytes": 136904704
+        },
+        {
+          "seconds": 13.438,
+          "rssBytes": 137609216
+        },
+        {
+          "seconds": 13.697,
+          "rssBytes": 142213120
+        },
+        {
+          "seconds": 13.959,
+          "rssBytes": 143048704
+        },
+        {
+          "seconds": 14.219,
+          "rssBytes": 143818752
+        },
+        {
+          "seconds": 14.477,
+          "rssBytes": 143933440
+        },
+        {
+          "seconds": 14.737,
+          "rssBytes": 144211968
+        },
+        {
+          "seconds": 15.001,
+          "rssBytes": 144474112
+        },
+        {
+          "seconds": 15.261,
+          "rssBytes": 144621568
+        },
+        {
+          "seconds": 15.521,
+          "rssBytes": 146669568
+        },
+        {
+          "seconds": 15.781,
+          "rssBytes": 147193856
+        },
+        {
+          "seconds": 16.041,
+          "rssBytes": 147390464
+        },
+        {
+          "seconds": 16.301,
+          "rssBytes": 147587072
+        },
+        {
+          "seconds": 16.557,
+          "rssBytes": 148127744
+        },
+        {
+          "seconds": 16.817,
+          "rssBytes": 148799488
+        },
+        {
+          "seconds": 17.077,
+          "rssBytes": 149553152
+        },
+        {
+          "seconds": 17.34,
+          "rssBytes": 149913600
+        },
+        {
+          "seconds": 17.601,
+          "rssBytes": 150224896
+        },
+        {
+          "seconds": 17.86,
+          "rssBytes": 150503424
+        },
+        {
+          "seconds": 18.121,
+          "rssBytes": 150945792
+        },
+        {
+          "seconds": 18.384,
+          "rssBytes": 151126016
+        },
+        {
+          "seconds": 18.646,
+          "rssBytes": 147390464
+        },
+        {
+          "seconds": 18.908,
+          "rssBytes": 147652608
+        },
+        {
+          "seconds": 19.17,
+          "rssBytes": 148111360
+        },
+        {
+          "seconds": 19.427,
+          "rssBytes": 148520960
+        },
+        {
+          "seconds": 19.687,
+          "rssBytes": 149094400
+        },
+        {
+          "seconds": 19.946,
+          "rssBytes": 149798912
+        },
+        {
+          "seconds": 20.214,
+          "rssBytes": 150192128
+        },
+        {
+          "seconds": 20.476,
+          "rssBytes": 150355968
+        },
+        {
+          "seconds": 20.737,
+          "rssBytes": 150716416
+        },
+        {
+          "seconds": 20.993,
+          "rssBytes": 151175168
+        },
+        {
+          "seconds": 21.254,
+          "rssBytes": 152010752
+        },
+        {
+          "seconds": 21.513,
+          "rssBytes": 160989184
+        },
+        {
+          "seconds": 21.772,
+          "rssBytes": 161464320
+        },
+        {
+          "seconds": 22.032,
+          "rssBytes": 161808384
+        },
+        {
+          "seconds": 22.296,
+          "rssBytes": 162168832
+        },
+        {
+          "seconds": 22.557,
+          "rssBytes": 163266560
+        },
+        {
+          "seconds": 22.818,
+          "rssBytes": 164118528
+        },
+        {
+          "seconds": 23.075,
+          "rssBytes": 164331520
+        },
+        {
+          "seconds": 23.338,
+          "rssBytes": 164528128
+        },
+        {
+          "seconds": 23.597,
+          "rssBytes": 164937728
+        },
+        {
+          "seconds": 23.86,
+          "rssBytes": 157728768
+        },
+        {
+          "seconds": 24.115,
+          "rssBytes": 158187520
+        },
+        {
+          "seconds": 24.375,
+          "rssBytes": 159563776
+        },
+        {
+          "seconds": 24.635,
+          "rssBytes": 159596544
+        },
+        {
+          "seconds": 24.894,
+          "rssBytes": 159744000
+        },
+        {
+          "seconds": 25.155,
+          "rssBytes": 161529856
+        },
+        {
+          "seconds": 25.419,
+          "rssBytes": 162250752
+        },
+        {
+          "seconds": 25.758,
+          "rssBytes": 162299904
+        },
+        {
+          "seconds": 26.062,
+          "rssBytes": 162316288
+        },
+        {
+          "seconds": 26.322,
+          "rssBytes": 162398208
+        },
+        {
+          "seconds": 26.583,
+          "rssBytes": 162447360
+        },
+        {
+          "seconds": 26.844,
+          "rssBytes": 162856960
+        },
+        {
+          "seconds": 27.103,
+          "rssBytes": 163250176
+        },
+        {
+          "seconds": 27.366,
+          "rssBytes": 163397632
+        },
+        {
+          "seconds": 27.648,
+          "rssBytes": 163577856
+        },
+        {
+          "seconds": 27.906,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 28.17,
+          "rssBytes": 163790848
+        },
+        {
+          "seconds": 28.429,
+          "rssBytes": 163807232
+        },
+        {
+          "seconds": 28.687,
+          "rssBytes": 163872768
+        },
+        {
+          "seconds": 28.948,
+          "rssBytes": 163938304
+        },
+        {
+          "seconds": 29.215,
+          "rssBytes": 164003840
+        },
+        {
+          "seconds": 29.476,
+          "rssBytes": 164118528
+        },
+        {
+          "seconds": 29.747,
+          "rssBytes": 164610048
+        },
+        {
+          "seconds": 30.019,
+          "rssBytes": 165642240
+        },
+        {
+          "seconds": 30.281,
+          "rssBytes": 165724160
+        },
+        {
+          "seconds": 30.54,
+          "rssBytes": 165789696
+        },
+        {
+          "seconds": 30.804,
+          "rssBytes": 166084608
+        },
+        {
+          "seconds": 31.065,
+          "rssBytes": 166117376
+        },
+        {
+          "seconds": 31.323,
+          "rssBytes": 168607744
+        },
+        {
+          "seconds": 31.582,
+          "rssBytes": 169459712
+        },
+        {
+          "seconds": 31.851,
+          "rssBytes": 169508864
+        },
+        {
+          "seconds": 32.109,
+          "rssBytes": 169689088
+        },
+        {
+          "seconds": 32.371,
+          "rssBytes": 170016768
+        },
+        {
+          "seconds": 32.632,
+          "rssBytes": 170835968
+        },
+        {
+          "seconds": 32.918,
+          "rssBytes": 171130880
+        },
+        {
+          "seconds": 33.179,
+          "rssBytes": 171196416
+        },
+        {
+          "seconds": 33.438,
+          "rssBytes": 171261952
+        },
+        {
+          "seconds": 33.701,
+          "rssBytes": 184909824
+        },
+        {
+          "seconds": 33.964,
+          "rssBytes": 214401024
+        },
+        {
+          "seconds": 34.22,
+          "rssBytes": 214712320
+        },
+        {
+          "seconds": 34.476,
+          "rssBytes": 214712320
+        },
+        {
+          "seconds": 34.735,
+          "rssBytes": 214712320
+        },
+        {
+          "seconds": 34.997,
+          "rssBytes": 214712320
+        },
+        {
+          "seconds": 35.255,
+          "rssBytes": 214695936
+        },
+        {
+          "seconds": 35.519,
+          "rssBytes": 214401024
+        },
+        {
+          "seconds": 35.777,
+          "rssBytes": 214204416
+        },
+        {
+          "seconds": 36.035,
+          "rssBytes": 214204416
+        },
+        {
+          "seconds": 36.296,
+          "rssBytes": 214204416
+        },
+        {
+          "seconds": 36.554,
+          "rssBytes": 198656000
+        },
+        {
+          "seconds": 36.811,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 37.069,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 37.328,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 37.584,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 37.842,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 38.099,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 38.358,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 38.613,
+          "rssBytes": 198262784
+        },
+        {
+          "seconds": 38.871,
+          "rssBytes": 198082560
+        },
+        {
+          "seconds": 39.127,
+          "rssBytes": 198082560
+        },
+        {
+          "seconds": 39.38,
+          "rssBytes": 198082560
+        },
+        {
+          "seconds": 39.638,
+          "rssBytes": 198082560
+        },
+        {
+          "seconds": 39.896,
+          "rssBytes": 198033408
+        },
+        {
+          "seconds": 40.151,
+          "rssBytes": 198033408
+        },
+        {
+          "seconds": 40.413,
+          "rssBytes": 198033408
+        },
+        {
+          "seconds": 40.677,
+          "rssBytes": 198033408
+        },
+        {
+          "seconds": 40.938,
+          "rssBytes": 198033408
+        },
+        {
+          "seconds": 41.197,
+          "rssBytes": 197836800
+        },
+        {
+          "seconds": 41.455,
+          "rssBytes": 194953216
+        },
+        {
+          "seconds": 41.716,
+          "rssBytes": 194953216
+        },
+        {
+          "seconds": 41.975,
+          "rssBytes": 182222848
+        },
+        {
+          "seconds": 42.252,
+          "rssBytes": 164659200
+        },
+        {
+          "seconds": 42.51,
+          "rssBytes": 158941184
+        },
+        {
+          "seconds": 42.771,
+          "rssBytes": 158892032
+        },
+        {
+          "seconds": 43.03,
+          "rssBytes": 158892032
+        },
+        {
+          "seconds": 43.288,
+          "rssBytes": 158892032
+        },
+        {
+          "seconds": 43.545,
+          "rssBytes": 158892032
+        },
+        {
+          "seconds": 43.803,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 44.063,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 44.322,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 44.583,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 44.844,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 45.1,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 45.364,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 45.625,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 45.888,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 46.149,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 46.411,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 46.666,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 46.93,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 47.191,
+          "rssBytes": 158973952
+        },
+        {
+          "seconds": 47.449,
+          "rssBytes": 158957568
+        },
+        {
+          "seconds": 47.707,
+          "rssBytes": 158957568
+        },
+        {
+          "seconds": 47.968,
+          "rssBytes": 158957568
+        },
+        {
+          "seconds": 48.233,
+          "rssBytes": 158957568
+        },
+        {
+          "seconds": 48.494,
+          "rssBytes": 158957568
+        },
+        {
+          "seconds": 48.749,
+          "rssBytes": 158957568
+        },
+        {
+          "seconds": 49.012,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 49.27,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 49.53,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 49.788,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 50.046,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 50.304,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 50.561,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 50.816,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 51.07,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 51.327,
+          "rssBytes": 163627008
+        },
+        {
+          "seconds": 51.584,
+          "rssBytes": 164691968
+        },
+        {
+          "seconds": 51.842,
+          "rssBytes": 190922752
+        },
+        {
+          "seconds": 52.1,
+          "rssBytes": 205111296
+        },
+        {
+          "seconds": 52.357,
+          "rssBytes": 205111296
+        },
+        {
+          "seconds": 52.619,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 52.877,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 53.134,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 53.39,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 53.649,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 53.909,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 54.182,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 54.44,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 54.696,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 54.954,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 55.21,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 55.469,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 55.73,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 55.992,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 56.252,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 56.515,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 56.774,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 57.036,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 57.293,
+          "rssBytes": 205062144
+        },
+        {
+          "seconds": 57.551,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 57.814,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 58.072,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 58.326,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 58.586,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 58.84,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 59.101,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 59.36,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 59.618,
+          "rssBytes": 204996608
+        },
+        {
+          "seconds": 59.883,
+          "rssBytes": 185073664
+        },
+        {
+          "seconds": 60.14,
+          "rssBytes": 179093504
+        },
+        {
+          "seconds": 60.395,
+          "rssBytes": 179060736
+        },
+        {
+          "seconds": 60.669,
+          "rssBytes": 179060736
+        },
+        {
+          "seconds": 60.926,
+          "rssBytes": 179060736
+        },
+        {
+          "seconds": 61.186,
+          "rssBytes": 181043200
+        },
+        {
+          "seconds": 61.444,
+          "rssBytes": 186531840
+        },
+        {
+          "seconds": 61.705,
+          "rssBytes": 190218240
+        },
+        {
+          "seconds": 61.964,
+          "rssBytes": 190627840
+        },
+        {
+          "seconds": 62.222,
+          "rssBytes": 190627840
+        },
+        {
+          "seconds": 62.485,
+          "rssBytes": 190578688
+        }
+      ],
+      "peakRSSBytes": 214712320,
+      "scanRoot": "/Applications",
+      "displayedFiles": 1469776,
+      "displayedLogical": "188.56 GB",
+      "displayedAllocated": "166.34 GB",
+      "displayedOmitted": 5371,
+      "resultObservedBySeconds": 44.829,
+      "stillScanningAtSeconds": 24.502,
+      "navigation": [
+        "/Applications",
+        "/Applications/Unity",
+        "/Applications"
+      ],
+      "cancelRoot": "/Users/huxiaohui",
+      "cancelObservedWithinSeconds": 0.477,
+      "cancelResult": "idle with Start Scan button",
+      "automationNote": "UI connection timed out after changing folder; process sampling showed idle main loop. Connection recovered; home scan and cancellation then verified."
+    }
+  }
+}

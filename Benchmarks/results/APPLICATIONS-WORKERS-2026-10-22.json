@@ -1,0 +1,62 @@
+[
+  {
+    "version": "six",
+    "seconds": 29.265,
+    "peakRSSBytes": 122159104,
+    "exit": 0,
+    "output": {
+      "allocated": 166340460544,
+      "cancelled": false,
+      "directories": 244050,
+      "files": 1469776,
+      "logical": 188556433579,
+      "omitted": 5371
+    },
+    "stderr": ""
+  },
+  {
+    "version": "eight",
+    "seconds": 29.3,
+    "peakRSSBytes": 152059904,
+    "exit": 0,
+    "output": {
+      "allocated": 166340460544,
+      "cancelled": false,
+      "directories": 244050,
+      "files": 1469776,
+      "logical": 188556433579,
+      "omitted": 5371
+    },
+    "stderr": ""
+  },
+  {
+    "version": "eight",
+    "seconds": 31.989,
+    "peakRSSBytes": 123109376,
+    "exit": 0,
+    "output": {
+      "allocated": 166340460544,
+      "cancelled": false,
+      "directories": 244050,
+      "files": 1469776,
+      "logical": 188556433579,
+      "omitted": 5371
+    },
+    "stderr": ""
+  },
+  {
+    "version": "six",
+    "seconds": 32.627,
+    "peakRSSBytes": 120602624,
+    "exit": 0,
+    "output": {
+      "allocated": 166340460544,
+      "cancelled": false,
+      "directories": 244050,
+      "files": 1469776,
+      "logical": 188556433579,
+      "omitted": 5371
+    },
+    "stderr": ""
+  }
+]

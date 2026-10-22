@@ -1,0 +1,155 @@
+{
+  "manifestEqual": true,
+  "stableRoot": "/Users/huxiaohui/Documents/YostarWork/Git",
+  "stableResult": {
+    "allocated": 11621158912,
+    "cancelled": false,
+    "directories": 6803,
+    "files": 59623,
+    "logical": 11451896948,
+    "omitted": 0
+  },
+  "binaries": {
+    "stream": "656cbd9be81df4935dae5af90615cac4ef1be60645c12937bbc3d701c8c80774",
+    "batch": "83ca24a605b7341f3a7d8b7722cdfaf95003adffbb57204f6a62d5f2d337e058"
+  },
+  "runs": [
+    {
+      "root": "/Applications",
+      "variant": "stream",
+      "seconds": 23.36,
+      "userCPUSeconds": 74.993865,
+      "systemCPUSeconds": 39.885233,
+      "peakRSSBytes": 95911936,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      }
+    },
+    {
+      "root": "/Applications",
+      "variant": "batch",
+      "seconds": 22.863,
+      "userCPUSeconds": 76.200792,
+      "systemCPUSeconds": 40.425376,
+      "peakRSSBytes": 93470720,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      }
+    },
+    {
+      "root": "/Applications",
+      "variant": "batch",
+      "seconds": 22.935,
+      "userCPUSeconds": 76.235605,
+      "systemCPUSeconds": 40.294535,
+      "peakRSSBytes": 94404608,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      }
+    },
+    {
+      "root": "/Applications",
+      "variant": "stream",
+      "seconds": 23.322,
+      "userCPUSeconds": 76.084872,
+      "systemCPUSeconds": 41.10541,
+      "peakRSSBytes": 93519872,
+      "exit": 0,
+      "output": {
+        "allocated": 166340460544,
+        "cancelled": false,
+        "directories": 244050,
+        "files": 1469776,
+        "logical": 188556433579,
+        "omitted": 5371
+      }
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "variant": "stream",
+      "seconds": 51.147,
+      "userCPUSeconds": 128.821006,
+      "systemCPUSeconds": 85.013616,
+      "peakRSSBytes": 146423808,
+      "exit": 0,
+      "output": {
+        "allocated": 340014194688,
+        "cancelled": false,
+        "directories": 524018,
+        "files": 2190969,
+        "logical": 334867541665,
+        "omitted": 52468
+      }
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "variant": "batch",
+      "seconds": 44.475,
+      "userCPUSeconds": 125.65767,
+      "systemCPUSeconds": 80.746496,
+      "peakRSSBytes": 146751488,
+      "exit": 0,
+      "output": {
+        "allocated": 340013481984,
+        "cancelled": false,
+        "directories": 524024,
+        "files": 2190973,
+        "logical": 334868651242,
+        "omitted": 52470
+      }
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "variant": "batch",
+      "seconds": 41.458,
+      "userCPUSeconds": 122.054371,
+      "systemCPUSeconds": 76.749638,
+      "peakRSSBytes": 156073984,
+      "exit": 0,
+      "output": {
+        "allocated": 340021850112,
+        "cancelled": false,
+        "directories": 524024,
+        "files": 2190975,
+        "logical": 334877091982,
+        "omitted": 52469
+      }
+    },
+    {
+      "root": "/Users/huxiaohui",
+      "variant": "stream",
+      "seconds": 41.085,
+      "userCPUSeconds": 122.29757,
+      "systemCPUSeconds": 76.219853,
+      "peakRSSBytes": 152600576,
+      "exit": 0,
+      "output": {
+        "allocated": 340020740096,
+        "cancelled": false,
+        "directories": 524024,
+        "files": 2190974,
+        "logical": 334877105352,
+        "omitted": 52468
+      }
+    }
+  ],
+  "decision": "Not adopted: timing ranges overlap; home changes during scan."
+}

@@ -125,7 +125,6 @@ private struct SpaceDirectoryUsage {
     var allocated: Int64 = 0
     var otherLogical: Int64 = 0
     var otherAllocated: Int64 = 0
-    var remainingChildren = 0
 
     mutating func addFile(logical: Int64, allocated: Int64, isOther: Bool) {
         self.logical += logical
@@ -139,7 +138,6 @@ private struct SpaceDirectoryUsage {
     mutating func addChild(_ child: SpaceDirectoryUsage) {
         logical += child.logical
         allocated += child.allocated
-        remainingChildren -= 1
     }
 
 }
@@ -318,22 +316,26 @@ public enum FileScanner {
                     let directory = item.url
                     let mayContainCloud = item.mayContainCloud
                     defer { work.finished() }
-                    let children: [URL]
-                    do {
-                        children = try manager.contentsOfDirectory(at: directory,
-                                                                   includingPropertiesForKeys: nil)
-                    } catch {
+                    func reportReadError(_ url: URL, _ error: Error?) {
                         lock.lock()
                         if localWarnings.count < 50 {
-                            appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
+                            let detail = error.map { ": \($0.localizedDescription)" } ?? ""
+                            appendWarning("Cannot read \(url.path)\(detail)", to: &localWarnings)
                         }
                         control.recordOmitted()
                         lock.unlock()
+                    }
+                    guard let children = manager.enumerator(at: directory,
+                                                             includingPropertiesForKeys: nil,
+                                                             options: [.skipsSubdirectoryDescendants],
+                                                             errorHandler: { url, error in
+                        reportReadError(url, error)
+                        return !control.isCancelled
+                    }) else {
+                        reportReadError(directory, nil)
                         return
                     }
-                    let usesRequestedPath = children.first.map {
-                        $0.deletingLastPathComponent().path == directory.path
-                    } ?? true
+                    var usesRequestedPath: Bool?
                     var progressFiles = 0
                     var progressDirectories = 0
                     var progressBytes: Int64 = 0
@@ -356,36 +358,50 @@ public enum FileScanner {
                             progressBytes = 0
                         }
                     }
-                    for child in children where !control.isCancelled {
-                        // FileManager may return /private/tmp for a directory requested through /tmp.
-                        let candidate = usesRequestedPath ? child :
-                            directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
-                        if candidate.lastPathComponent == ".Trash" ||
-                            (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
-                            isExcluded(candidate, paths: excludedPaths) { continue }
-                        guard let info = FileSafety.metadata(at: candidate),
-                              info.stamp.device == rootInfo.stamp.device else { continue }
-                        let url = info.isDirectory
-                            ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
-                        if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
-                            && info.stamp.size < minimumFileBytes {
-                            reportProgress(url, bytes: info.stamp.size)
-                            continue
-                        }
-                        if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
-                        if info.isDirectory {
-                            if url.pathExtension == "app" && !includeApps { continue }
-                            lock.lock()
-                            let index = onDirectory(url, item.index)
-                            lock.unlock()
-                            reportProgress(url, bytes: nil)
-                            work.add(url, index: index,
-                                     mayContainCloud: mayContainCloud && FileSafety.mayContainCloudRoot(url))
-                        } else if info.stamp.linkCount == 1 || includeHardLinks {
-                            lock.lock()
-                            onFile(url, directory, item.index, info.stamp)
-                            lock.unlock()
-                            reportProgress(url, bytes: info.stamp.size)
+                    // Keep directory enumeration and temporary objects bounded even
+                    // when a single folder contains hundreds of thousands of entries.
+                    var exhausted = false
+                    while !exhausted && !control.isCancelled {
+                        autoreleasepool {
+                            for _ in 0..<256 {
+                                guard !control.isCancelled, let child = children.nextObject() as? URL else {
+                                    exhausted = true
+                                    break
+                                }
+                                // FileManager may return /private/tmp for a directory requested through /tmp.
+                                if usesRequestedPath == nil {
+                                    usesRequestedPath = child.deletingLastPathComponent().path == directory.path
+                                }
+                                let candidate = usesRequestedPath == true ? child :
+                                    directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
+                                if candidate.lastPathComponent == ".Trash" ||
+                                    (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
+                                    isExcluded(candidate, paths: excludedPaths) { continue }
+                                guard let info = FileSafety.metadata(at: candidate),
+                                      info.stamp.device == rootInfo.stamp.device else { continue }
+                                let url = info.isDirectory
+                                    ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
+                                if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
+                                    && info.stamp.size < minimumFileBytes {
+                                    reportProgress(url, bytes: info.stamp.size)
+                                    continue
+                                }
+                                if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
+                                if info.isDirectory {
+                                    if url.pathExtension == "app" && !includeApps { continue }
+                                    lock.lock()
+                                    let index = onDirectory(url, item.index)
+                                    lock.unlock()
+                                    reportProgress(url, bytes: nil)
+                                    work.add(url, index: index,
+                                             mayContainCloud: mayContainCloud && FileSafety.mayContainCloudRoot(url))
+                                } else if info.stamp.linkCount == 1 || includeHardLinks {
+                                    lock.lock()
+                                    onFile(url, directory, item.index, info.stamp)
+                                    lock.unlock()
+                                    reportProgress(url, bytes: info.stamp.size)
+                                }
+                            }
                         }
                     }
                     if progressFiles + progressDirectories > 0 {
@@ -417,7 +433,6 @@ public enum FileScanner {
             let index = directories.count
             directories.append(SpaceDirectoryUsage(name: url.lastPathComponent,
                                                    parentIndex: parentIndex ?? 0))
-            if let parentIndex { directories[parentIndex].remainingChildren += 1 }
             return index
         }
         let recordFile: (URL, URL, Int, Int64, Int64?) -> Void = { url, parent, parentIndex, bytes, allocatedBytes in
@@ -509,7 +524,7 @@ public enum FileScanner {
         if !usedRust {
             walkFiles(under: root, control: control, warnings: &warnings,
                       includeApps: true, includeHardLinks: true, parallel: true,
-                      workers: 6,
+                      workers: min(8, max(1, ProcessInfo.processInfo.activeProcessorCount)),
                       excludedPaths: excludedPaths,
                       coalescedProgress: true,
                       onDirectory: recordDirectory) { url, parent, parentIndex, stamp in
@@ -520,15 +535,13 @@ public enum FileScanner {
             return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
                               omittedCount: control.omittedCount)
         }
-        // Workers discover siblings in an arbitrary order. Propagate totals only after
-        // every child directory has contributed to its parent.
-        var ready = directories.indices.filter { directories[$0].remainingChildren == 0 }
-        while let index = ready.popLast() {
-            guard index != 0 else { continue }
+        // Every directory is recorded before its children are queued. Reverse
+        // discovery order therefore visits descendants before their ancestors.
+        for index in directories.indices.dropFirst().reversed() {
             let parentIndex = directories[index].parentIndex
+            assert(parentIndex < index)
             let child = directories[index]
             directories[parentIndex].addChild(child)
-            if directories[parentIndex].remainingChildren == 0 { ready.append(parentIndex) }
         }
         let nodes = directories.map { directory in
             SpaceTree.Directory(name: directory.name, parentIndex: directory.parentIndex,

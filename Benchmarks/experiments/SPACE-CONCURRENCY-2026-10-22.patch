@@ -1,0 +1,11 @@
+--- a/Sources/SysCleanerCore/Scanner.swift
++++ b/Sources/SysCleanerCore/Scanner.swift
+@@ -524,7 +524,7 @@
+         if !usedRust {
+             walkFiles(under: root, control: control, warnings: &warnings,
+                       includeApps: true, includeHardLinks: true, parallel: true,
+-                      workers: min(8, max(1, ProcessInfo.processInfo.activeProcessorCount)),
++                      workers: min(24, max(1, Int(ProcessInfo.processInfo.environment["SCAN_BENCHMARK_WORKERS"] ?? "6") ?? 6)),
+                       excludedPaths: excludedPaths,
+                       coalescedProgress: true,
+                       onDirectory: recordDirectory) { url, parent, parentIndex, stamp in

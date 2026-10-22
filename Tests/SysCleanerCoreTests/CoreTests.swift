@@ -590,8 +590,12 @@ final class CoreTests: XCTestCase {
         try "hidden".write(to: blocked.appendingPathComponent("file"), atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: blocked.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: blocked.path) }
+        _ = try file("readable-sibling", "visible")
         let report = FileScanner.scan(ScanRequest(category: .space, root: root))
         XCTAssertTrue(report.warnings.contains { $0.contains("Cannot read") })
+        XCTAssertEqual(report.omittedCount, 1)
+        XCTAssertEqual(report.scannedFileCount, 1)
+        XCTAssertEqual(report.scannedBytes, 7)
     }
 
     func testOpenFileIsRefused() throws {
@@ -636,6 +640,67 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(complete[nested.path], 1_048_576)
     }
 
+    func testSpaceScanCountsEveryFileAcrossLargeDirectoryBatches() throws {
+        let payload = Data([7])
+        for index in 0..<600 {
+            try payload.write(to: root.appendingPathComponent("item-\(index)"))
+        }
+        let nested = root.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
+        try Data(repeating: 3, count: 1_048_576).write(to: nested.appendingPathComponent("large"))
+
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        let tree = try XCTUnwrap(report.spaceTree)
+        XCTAssertEqual(report.scannedFileCount, 601)
+        XCTAssertEqual(report.scannedBytes, 1_049_176)
+        XCTAssertEqual(tree.children(of: root).first(where: { $0.isOther })?.bytes, 600)
+        XCTAssertEqual(tree.children(of: root).first(where: { $0.isFolder })?.bytes, 1_048_576)
+        XCTAssertEqual(tree.children(of: nested).first?.bytes, 1_048_576)
+    }
+
+    func testSpaceEnumerationKeepsHiddenFilesAndSkipsTrashAndSidecars() throws {
+        _ = try file(".hidden", "visible")
+        _ = try file("._sidecar", "ignored")
+        let trash = root.appendingPathComponent(".Trash")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: false)
+        try Data([7]).write(to: trash.appendingPathComponent("ignored"))
+
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        XCTAssertEqual(report.scannedFileCount, 1)
+        XCTAssertEqual(report.scannedBytes, 7)
+        XCTAssertEqual(report.spaceTree?.directoryCount, 1)
+    }
+
+    func testSpaceScanStopsBetweenLargeDirectoryBatches() throws {
+        final class CancellationBox: @unchecked Sendable {
+            var control: ScanControl?
+            var cancelledAtFileCount: Int?
+        }
+        for index in 0..<600 {
+            try Data([7]).write(to: root.appendingPathComponent("item-\(index)"))
+        }
+        let box = CancellationBox()
+        let control = ScanControl { progress in
+            if progress.processedFiles == 0 {
+                // Allow the next batch to publish through progress throttling.
+                Thread.sleep(forTimeInterval: 0.25)
+            } else if box.cancelledAtFileCount == nil {
+                box.cancelledAtFileCount = progress.processedFiles
+                box.control?.cancel()
+            }
+        }
+        box.control = control
+
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root), control: control)
+        XCTAssertTrue(report.cancelled)
+        XCTAssertGreaterThan(report.scannedFileCount, 0)
+        XCTAssertLessThan(report.scannedFileCount, 600)
+        // Cancellation during progress publication must still flush every
+        // file already processed in the current batch.
+        XCTAssertEqual(report.scannedFileCount, box.cancelledAtFileCount)
+        XCTAssertEqual(report.scannedBytes, Int64(report.scannedFileCount))
+    }
+
     func testEmptySpaceTreeHasNoDisplayItems() throws {
         let report = FileScanner.scan(ScanRequest(category: .space, root: root))
         let tree = try XCTUnwrap(report.spaceTree)
@@ -662,12 +727,13 @@ final class CoreTests: XCTestCase {
     }
 
     func testSpaceFoldersRemainNavigableThroughTmpAlias() throws {
-        let alias = URL(fileURLWithPath: "/private/tmp")
+        let alias = URL(fileURLWithPath: "/tmp")
         let canonical = alias.resolvingSymlinksInPath().standardizedFileURL
         guard alias.path != canonical.path else { return }
         let folder = alias.appendingPathComponent("SysCleanerAlias-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
-        let nested = folder.appendingPathComponent("nested")
+        let nestedName = "nested % # 文件夹"
+        let nested = folder.appendingPathComponent(nestedName)
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
         try Data([1]).write(to: nested.appendingPathComponent("file"))
         let report = FileScanner.scan(ScanRequest(category: .space, root: folder))
@@ -676,7 +742,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(report.spaceItems.first(where: { $0.isFolder })?.bytes, 1)
         let tree = try XCTUnwrap(report.spaceTree)
         XCTAssertEqual(tree.children(of: scannedRoot).first(where: { $0.isFolder })?.bytes, 1)
-        XCTAssertEqual(tree.children(of: scannedRoot.appendingPathComponent("nested"))
+        XCTAssertEqual(tree.children(of: scannedRoot.appendingPathComponent(nestedName))
             .first(where: { $0.isOther })?.bytes, 1)
     }
 

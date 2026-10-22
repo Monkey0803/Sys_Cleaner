@@ -1,0 +1,41 @@
+--- a/Sources/SysCleanerCore/Scanner.swift
++++ b/Sources/SysCleanerCore/Scanner.swift
+@@ -311,6 +311,8 @@
+         var localWarnings: [String] = []
+         DispatchQueue.concurrentPerform(iterations: workers) { _ in
+             let manager = FileManager()
++            var pendingFiles: [(URL, FileStamp)] = []
++            pendingFiles.reserveCapacity(256)
+             while let item = work.next() {
+                 autoreleasepool {
+                     let directory = item.url
+@@ -363,6 +365,18 @@
+                     var exhausted = false
+                     while !exhausted && !control.isCancelled {
+                         autoreleasepool {
++                            // Flush processed files even when progress cancels the
++                            // scan; hold the shared result lock once per batch.
++                            defer {
++                                if !pendingFiles.isEmpty {
++                                    lock.lock()
++                                    for (url, stamp) in pendingFiles {
++                                        onFile(url, directory, item.index, stamp)
++                                    }
++                                    lock.unlock()
++                                    pendingFiles.removeAll(keepingCapacity: true)
++                                }
++                            }
+                             for _ in 0..<256 {
+                                 guard !control.isCancelled, let child = children.nextObject() as? URL else {
+                                     exhausted = true
+@@ -396,9 +410,7 @@
+                                     work.add(url, index: index,
+                                              mayContainCloud: mayContainCloud && FileSafety.mayContainCloudRoot(url))
+                                 } else if info.stamp.linkCount == 1 || includeHardLinks {
+-                                    lock.lock()
+-                                    onFile(url, directory, item.index, info.stamp)
+-                                    lock.unlock()
++                                    pendingFiles.append((url, info.stamp))
+                                     reportProgress(url, bytes: info.stamp.size)
+                                 }
+                             }

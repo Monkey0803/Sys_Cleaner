@@ -1,0 +1,602 @@
+{
+  "date": "2026-10-22",
+  "decision": "Not adopted: no stable speed benefit across directories.",
+  "measurements": {
+    "pilot": [
+      {
+        "variant": "stream",
+        "seconds": 24.838,
+        "peakRSSBytes": 518356992,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "variant": "bulk",
+        "seconds": 25.1,
+        "peakRSSBytes": 534282240,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "variant": "bulk",
+        "seconds": 24.955,
+        "peakRSSBytes": 542425088,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "variant": "stream",
+        "seconds": 24.911,
+        "peakRSSBytes": 517242880,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      }
+    ],
+    "urlPilot": [
+      {
+        "variant": "stream",
+        "seconds": 22.649,
+        "peakRSSBytes": 93339648,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "variant": "bulk-cf",
+        "seconds": 22.072,
+        "peakRSSBytes": 93339648,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "variant": "bulk-cf",
+        "seconds": 22.624,
+        "peakRSSBytes": 92323840,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "variant": "stream",
+        "seconds": 22.642,
+        "peakRSSBytes": 93011968,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      }
+    ],
+    "relativePilot": [
+      {
+        "root": "/Applications",
+        "variant": "stream",
+        "seconds": 22.828,
+        "peakRSSBytes": 91947008,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "root": "/Applications",
+        "variant": "relative",
+        "seconds": 22.831,
+        "peakRSSBytes": 92880896,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "root": "/Applications",
+        "variant": "relative",
+        "seconds": 23.108,
+        "peakRSSBytes": 92930048,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "root": "/Applications",
+        "variant": "stream",
+        "seconds": 22.722,
+        "peakRSSBytes": 93110272,
+        "exit": 0,
+        "output": {
+          "allocated": 166340460544,
+          "cancelled": false,
+          "directories": 244050,
+          "files": 1469776,
+          "logical": 188556433579,
+          "omitted": 5371
+        }
+      },
+      {
+        "root": "/Users/huxiaohui",
+        "variant": "stream",
+        "seconds": 43.239,
+        "peakRSSBytes": 151207936,
+        "exit": 0,
+        "output": {
+          "allocated": 340031410176,
+          "cancelled": false,
+          "directories": 524013,
+          "files": 2190986,
+          "logical": 334882379034,
+          "omitted": 52487
+        }
+      },
+      {
+        "root": "/Users/huxiaohui",
+        "variant": "relative",
+        "seconds": 40.216,
+        "peakRSSBytes": 155090944,
+        "exit": 0,
+        "output": {
+          "allocated": 340033642496,
+          "cancelled": false,
+          "directories": 524013,
+          "files": 2190987,
+          "logical": 334883959393,
+          "omitted": 52488
+        }
+      }
+    ],
+    "homeRelease": {
+      "root": "/Users/huxiaohui",
+      "order": [
+        "stream",
+        "bulk",
+        "bulk",
+        "stream",
+        "stream",
+        "bulk"
+      ],
+      "binarySHA256": {
+        "stream": "656cbd9be81df4935dae5af90615cac4ef1be60645c12937bbc3d701c8c80774",
+        "bulk": "53ca93fc45f96a490f22e721a068eb6f31dc288269d36aaf15f32b3b483ccb84"
+      },
+      "runs": [
+        {
+          "variant": "stream",
+          "seconds": 40.529,
+          "userCPUSeconds": 121.814,
+          "systemCPUSeconds": 75.822,
+          "peakRSSBytes": 151617536,
+          "exit": 0,
+          "loadBefore": [
+            4.779296875,
+            5.85498046875,
+            5.89794921875
+          ],
+          "output": {
+            "allocated": 340034686976,
+            "cancelled": false,
+            "directories": 524013,
+            "files": 2190989,
+            "logical": 334884918937,
+            "omitted": 52488
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 38.669,
+          "userCPUSeconds": 116.475,
+          "systemCPUSeconds": 67.209,
+          "peakRSSBytes": 153944064,
+          "exit": 0,
+          "loadBefore": [
+            5.96533203125,
+            6.013671875,
+            5.95263671875
+          ],
+          "output": {
+            "allocated": 340033970176,
+            "cancelled": false,
+            "directories": 524013,
+            "files": 2190988,
+            "logical": 334884485057,
+            "omitted": 52488
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 39.881,
+          "userCPUSeconds": 121.34,
+          "systemCPUSeconds": 67.979,
+          "peakRSSBytes": 154861568,
+          "exit": 0,
+          "loadBefore": [
+            6.51904296875,
+            6.1640625,
+            6.0107421875
+          ],
+          "output": {
+            "allocated": 340035424256,
+            "cancelled": false,
+            "directories": 524013,
+            "files": 2190989,
+            "logical": 334886449288,
+            "omitted": 52489
+          }
+        },
+        {
+          "variant": "stream",
+          "seconds": 41.907,
+          "userCPUSeconds": 123.642,
+          "systemCPUSeconds": 77.643,
+          "peakRSSBytes": 148160512,
+          "exit": 0,
+          "loadBefore": [
+            7.62255859375,
+            6.50048828125,
+            6.14013671875
+          ],
+          "output": {
+            "allocated": 340036726784,
+            "cancelled": false,
+            "directories": 524013,
+            "files": 2190989,
+            "logical": 334887179169,
+            "omitted": 52488
+          }
+        },
+        {
+          "variant": "stream",
+          "seconds": 46.968,
+          "userCPUSeconds": 127.509,
+          "systemCPUSeconds": 82.754,
+          "peakRSSBytes": 148094976,
+          "exit": 0,
+          "loadBefore": [
+            7.2744140625,
+            6.59228515625,
+            6.19287109375
+          ],
+          "output": {
+            "allocated": 340055433216,
+            "cancelled": false,
+            "directories": 524015,
+            "files": 2190994,
+            "logical": 334904181396,
+            "omitted": 52489
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 45.272,
+          "userCPUSeconds": 132.594,
+          "systemCPUSeconds": 77.735,
+          "peakRSSBytes": 141033472,
+          "exit": 0,
+          "loadBefore": [
+            9.31640625,
+            7.19970703125,
+            6.43359375
+          ],
+          "output": {
+            "allocated": 339990798336,
+            "cancelled": false,
+            "directories": 524015,
+            "files": 2190935,
+            "logical": 334840699313,
+            "omitted": 52461
+          }
+        }
+      ]
+    },
+    "homeDebug": [
+      {
+        "variant": "stream",
+        "seconds": 45.489,
+        "userCPUSeconds": 128.24,
+        "systemCPUSeconds": 81.437,
+        "peakRSSBytes": 150667264,
+        "exit": 0,
+        "output": {
+          "allocated": 339992563712,
+          "cancelled": false,
+          "directories": 524015,
+          "files": 2190929,
+          "logical": 334842048478,
+          "omitted": 52462
+        }
+      },
+      {
+        "variant": "bulk",
+        "seconds": 41.382,
+        "userCPUSeconds": 128.956,
+        "systemCPUSeconds": 69.268,
+        "peakRSSBytes": 153812992,
+        "exit": 0,
+        "output": {
+          "allocated": 339992711168,
+          "cancelled": false,
+          "directories": 524015,
+          "files": 2190929,
+          "logical": 334842494623,
+          "omitted": 52462
+        }
+      },
+      {
+        "variant": "bulk",
+        "seconds": 41.734,
+        "userCPUSeconds": 129.435,
+        "systemCPUSeconds": 68.989,
+        "peakRSSBytes": 151453696,
+        "exit": 0,
+        "output": {
+          "allocated": 339994796032,
+          "cancelled": false,
+          "directories": 524015,
+          "files": 2190930,
+          "logical": 334844785175,
+          "omitted": 52461
+        }
+      },
+      {
+        "variant": "stream",
+        "seconds": 41.236,
+        "userCPUSeconds": 123.97,
+        "systemCPUSeconds": 76.819,
+        "peakRSSBytes": 154714112,
+        "exit": 0,
+        "output": {
+          "allocated": 339997753344,
+          "cancelled": false,
+          "directories": 524015,
+          "files": 2190931,
+          "logical": 334847003919,
+          "omitted": 52463
+        }
+      }
+    ],
+    "stableGit": {
+      "root": "/Users/huxiaohui/Documents/YostarWork/Git",
+      "manifestEqual": true,
+      "runs": [
+        {
+          "variant": "stream",
+          "seconds": 0.97,
+          "userCPUSeconds": 3.41,
+          "systemCPUSeconds": 2.09,
+          "peakRSSBytes": 27541504,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 0.92,
+          "userCPUSeconds": 3.28,
+          "systemCPUSeconds": 1.8,
+          "peakRSSBytes": 26411008,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 0.92,
+          "userCPUSeconds": 3.29,
+          "systemCPUSeconds": 1.76,
+          "peakRSSBytes": 27787264,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "stream",
+          "seconds": 0.93,
+          "userCPUSeconds": 3.22,
+          "systemCPUSeconds": 1.94,
+          "peakRSSBytes": 27705344,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "stream",
+          "seconds": 0.9,
+          "userCPUSeconds": 3.24,
+          "systemCPUSeconds": 1.93,
+          "peakRSSBytes": 26787840,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 0.94,
+          "userCPUSeconds": 3.44,
+          "systemCPUSeconds": 1.93,
+          "peakRSSBytes": 27803648,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 0.89,
+          "userCPUSeconds": 3.31,
+          "systemCPUSeconds": 1.8,
+          "peakRSSBytes": 27197440,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "stream",
+          "seconds": 0.93,
+          "userCPUSeconds": 3.28,
+          "systemCPUSeconds": 1.99,
+          "peakRSSBytes": 26509312,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "stream",
+          "seconds": 0.9,
+          "userCPUSeconds": 3.23,
+          "systemCPUSeconds": 1.91,
+          "peakRSSBytes": 27525120,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        },
+        {
+          "variant": "bulk",
+          "seconds": 0.9,
+          "userCPUSeconds": 3.29,
+          "systemCPUSeconds": 1.79,
+          "peakRSSBytes": 26230784,
+          "exit": 0,
+          "output": {
+            "allocated": 11621158912,
+            "cancelled": false,
+            "directories": 6803,
+            "files": 59623,
+            "logical": 11451896948,
+            "omitted": 0
+          }
+        }
+      ]
+    },
+    "profile": {
+      "Thread_": 32473,
+      "specialized static FileSafety.isCloudPlaceholder": 15879,
+      "__getattrlist  (in": 2309,
+      "getattrlistbulk  (in": 4417,
+      "lstat  (in": 3539
+    }
+  },
+  "binarySHA256": {
+    "stream": "656cbd9be81df4935dae5af90615cac4ef1be60645c12937bbc3d701c8c80774",
+    "bulk": "53ca93fc45f96a490f22e721a068eb6f31dc288269d36aaf15f32b3b483ccb84",
+    "streamDebug": "ae62fdd07dd19eca17bc6d8dba7ae110d194fcb7451feadb3467652b640be46f",
+    "bulkDebug": "d6902540184d7eb4bda07408fd9b8cb51c5aae524c68800d6c660cf8585bb02f"
+  }
+}

@@ -1,6 +1,6 @@
 # 只读遍历基准
 
-此目录不接入 App。`ScanBenchmark matched`、`matched-local` 与 Rust `shared`/`local` 可以比较线程数；`production` 调用现有空间扫描器，空间分析目前固定使用 6 个遍历工作线程。两种语言的 `local` 都在工作线程内汇总后合并，`matched`/`shared` 逐项更新共享结果，用来区分语言和汇总方式的影响。`--no-totals` 只跳过遍历后的目录容量汇总，用来单独计时遍历阶段，不能与 `--manifest` 一起使用。Swift 的 `--check-cloud` 单独测量生产扫描的云端占位检查；`--prefetch-cloud`、`--filemanager-cloud` 和 `--nsurl-cloud` 是属性读取实验，均未在主目录获得稳定提速。6 线程空间扫描的对照见 [results/HOME-SPACE-WORKERS-2026-10-19.md](results/HOME-SPACE-WORKERS-2026-10-19.md)。
+此目录不接入 App。`ScanBenchmark matched`、`matched-local` 与 Rust `shared`/`local` 可以比较线程数；`production` 调用现有空间扫描器，空间分析按可用处理器数使用最多 8 个遍历工作线程；`production` 的线程参数不覆盖 App 的配置。两种语言的 `local` 都在工作线程内汇总后合并，`matched`/`shared` 逐项更新共享结果，用来区分语言和汇总方式的影响。`--no-totals` 只跳过遍历后的目录容量汇总，用来单独计时遍历阶段，不能与 `--manifest` 一起使用。Swift 的 `--check-cloud` 单独测量生产扫描的云端占位检查；`--prefetch-cloud`、`--filemanager-cloud` 和 `--nsurl-cloud` 是属性读取实验，均未在主目录获得稳定提速。当前有界遍历与 8 线程对照见 [results/SPACE-CONCURRENCY-2026-10-22.md](results/SPACE-CONCURRENCY-2026-10-22.md)。此前 6 线程空间扫描的对照见 [results/HOME-SPACE-WORKERS-2026-10-19.md](results/HOME-SPACE-WORKERS-2026-10-19.md)。
 
 空间扫描内存优化的主目录实测见 [results/HOME-SPACE-MEMORY-2026-10-19.md](results/HOME-SPACE-MEMORY-2026-10-19.md)。
 紧凑目录索引的扫描峰值与目录浏览对照见 [results/HOME-SPACE-TREE-2026-10-19.md](results/HOME-SPACE-TREE-2026-10-19.md)。

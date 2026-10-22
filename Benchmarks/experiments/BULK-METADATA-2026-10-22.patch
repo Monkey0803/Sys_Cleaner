@@ -1,0 +1,469 @@
+--- a/Sources/SysCleanerCore/Scanner.swift
++++ b/Sources/SysCleanerCore/Scanner.swift
+@@ -1,4 +1,5 @@
+ import AppKit
++import CoreFoundation
+ import CryptoKit
+ import Foundation
+
+@@ -125,7 +126,6 @@
+     var allocated: Int64 = 0
+     var otherLogical: Int64 = 0
+     var otherAllocated: Int64 = 0
+-    var remainingChildren = 0
+
+     mutating func addFile(logical: Int64, allocated: Int64, isOther: Bool) {
+         self.logical += logical
+@@ -139,7 +139,6 @@
+     mutating func addChild(_ child: SpaceDirectoryUsage) {
+         logical += child.logical
+         allocated += child.allocated
+-        remainingChildren -= 1
+     }
+
+ }
+@@ -313,27 +312,35 @@
+         var localWarnings: [String] = []
+         DispatchQueue.concurrentPerform(iterations: workers) { _ in
+             let manager = FileManager()
++            let metadataBuffer = DirectoryMetadataBuffer()
+             while let item = work.next() {
+                 autoreleasepool {
+                     let directory = item.url
+                     let mayContainCloud = item.mayContainCloud
+                     defer { work.finished() }
+-                    let children: [URL]
+-                    do {
+-                        children = try manager.contentsOfDirectory(at: directory,
+-                                                                   includingPropertiesForKeys: nil)
+-                    } catch {
++                    func reportReadError(_ url: URL, _ error: Error?) {
+                         lock.lock()
+                         if localWarnings.count < 50 {
+-                            appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &localWarnings)
++                            let detail = error.map { ": \($0.localizedDescription)" } ?? ""
++                            appendWarning("Cannot read \(url.path)\(detail)", to: &localWarnings)
+                         }
+                         control.recordOmitted()
+                         lock.unlock()
++                    }
++                    let metadataReader = DirectoryMetadataReader(directory: directory, buffer: metadataBuffer)
++                    let metadataBase = directory as CFURL
++                    let children = metadataReader == nil ? manager.enumerator(at: directory,
++                                                             includingPropertiesForKeys: nil,
++                                                             options: [.skipsSubdirectoryDescendants],
++                                                             errorHandler: { url, error in
++                        reportReadError(url, error)
++                        return !control.isCancelled
++                    }) : nil
++                    guard metadataReader != nil || children != nil else {
++                        reportReadError(directory, nil)
+                         return
+                     }
+-                    let usesRequestedPath = children.first.map {
+-                        $0.deletingLastPathComponent().path == directory.path
+-                    } ?? true
++                    var usesRequestedPath: Bool? = metadataReader == nil ? nil : true
+                     var progressFiles = 0
+                     var progressDirectories = 0
+                     var progressBytes: Int64 = 0
+@@ -356,36 +363,80 @@
+                             progressBytes = 0
+                         }
+                     }
+-                    for child in children where !control.isCancelled {
+-                        // FileManager may return /private/tmp for a directory requested through /tmp.
+-                        let candidate = usesRequestedPath ? child :
+-                            directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
+-                        if candidate.lastPathComponent == ".Trash" ||
+-                            (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
+-                            isExcluded(candidate, paths: excludedPaths) { continue }
+-                        guard let info = FileSafety.metadata(at: candidate),
+-                              info.stamp.device == rootInfo.stamp.device else { continue }
+-                        let url = info.isDirectory
+-                            ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
+-                        if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
+-                            && info.stamp.size < minimumFileBytes {
+-                            reportProgress(url, bytes: info.stamp.size)
+-                            continue
+-                        }
+-                        if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
+-                        if info.isDirectory {
+-                            if url.pathExtension == "app" && !includeApps { continue }
+-                            lock.lock()
+-                            let index = onDirectory(url, item.index)
+-                            lock.unlock()
+-                            reportProgress(url, bytes: nil)
+-                            work.add(url, index: index,
+-                                     mayContainCloud: mayContainCloud && FileSafety.mayContainCloudRoot(url))
+-                        } else if info.stamp.linkCount == 1 || includeHardLinks {
+-                            lock.lock()
+-                            onFile(url, directory, item.index, info.stamp)
+-                            lock.unlock()
+-                            reportProgress(url, bytes: info.stamp.size)
++                    // Keep directory enumeration and temporary objects bounded even
++                    // when a single folder contains hundreds of thousands of entries.
++                    var exhausted = false
++                    while !exhausted && !control.isCancelled {
++                        autoreleasepool {
++                            for _ in 0..<256 {
++                                guard !control.isCancelled else { exhausted = true; break }
++                                let child: URL
++                                let childName: String
++                                let fileStamp: FileStamp?
++                                if let metadataReader {
++                                    do {
++                                        guard let entry = try metadataReader.next() else { exhausted = true; break }
++                                        guard let childURL = CFURLCreateCopyAppendingPathComponent(
++                                            nil, metadataBase, entry.name as CFString, false) else {
++                                            reportReadError(directory, POSIXError(.ENOMEM))
++                                            exhausted = true
++                                            break
++                                        }
++                                        child = childURL as URL
++                                        childName = entry.name
++                                        fileStamp = entry.stamp
++                                    } catch {
++                                        reportReadError(directory, error)
++                                        exhausted = true
++                                        break
++                                    }
++                                } else {
++                                    guard let next = children?.nextObject() as? URL else { exhausted = true; break }
++                                    child = next
++                                    childName = next.lastPathComponent
++                                    fileStamp = nil
++                                }
++                                // FileManager may return /private/tmp for a directory requested through /tmp.
++                                if usesRequestedPath == nil {
++                                    usesRequestedPath = child.deletingLastPathComponent().path == directory.path
++                                }
++                                let candidate = usesRequestedPath == true ? child :
++                                    directory.appendingPathComponent(childName, isDirectory: false)
++                                if childName == ".Trash" ||
++                                    (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
++                                    isExcluded(candidate, paths: excludedPaths) { continue }
++                                let metadata: (stamp: FileStamp, isDirectory: Bool)?
++                                if let fileStamp {
++                                    metadata = (fileStamp, false)
++                                } else if let metadataReader {
++                                    metadata = metadataReader.metadata(named: childName)
++                                } else {
++                                    metadata = FileSafety.metadata(at: candidate)
++                                }
++                                guard let info = metadata, info.stamp.device == rootInfo.stamp.device else { continue }
++                                let url = info.isDirectory
++                                    ? directory.appendingPathComponent(childName, isDirectory: true) : candidate
++                                if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
++                                    && info.stamp.size < minimumFileBytes {
++                                    reportProgress(url, bytes: info.stamp.size)
++                                    continue
++                                }
++                                if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
++                                if info.isDirectory {
++                                    if url.pathExtension == "app" && !includeApps { continue }
++                                    lock.lock()
++                                    let index = onDirectory(url, item.index)
++                                    lock.unlock()
++                                    reportProgress(url, bytes: nil)
++                                    work.add(url, index: index,
++                                             mayContainCloud: mayContainCloud && FileSafety.mayContainCloudRoot(url))
++                                } else if info.stamp.linkCount == 1 || includeHardLinks {
++                                    lock.lock()
++                                    onFile(url, directory, item.index, info.stamp)
++                                    lock.unlock()
++                                    reportProgress(url, bytes: info.stamp.size)
++                                }
++                            }
+                         }
+                     }
+                     if progressFiles + progressDirectories > 0 {
+@@ -417,7 +468,6 @@
+             let index = directories.count
+             directories.append(SpaceDirectoryUsage(name: url.lastPathComponent,
+                                                    parentIndex: parentIndex ?? 0))
+-            if let parentIndex { directories[parentIndex].remainingChildren += 1 }
+             return index
+         }
+         let recordFile: (URL, URL, Int, Int64, Int64?) -> Void = { url, parent, parentIndex, bytes, allocatedBytes in
+@@ -520,15 +570,13 @@
+             return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
+                               omittedCount: control.omittedCount)
+         }
+-        // Workers discover siblings in an arbitrary order. Propagate totals only after
+-        // every child directory has contributed to its parent.
+-        var ready = directories.indices.filter { directories[$0].remainingChildren == 0 }
+-        while let index = ready.popLast() {
+-            guard index != 0 else { continue }
++        // Every directory is recorded before its children are queued. Reverse
++        // discovery order therefore visits descendants before their ancestors.
++        for index in directories.indices.dropFirst().reversed() {
+             let parentIndex = directories[index].parentIndex
++            assert(parentIndex < index)
+             let child = directories[index]
+             directories[parentIndex].addChild(child)
+-            if directories[parentIndex].remainingChildren == 0 { ready.append(parentIndex) }
+         }
+         let nodes = directories.map { directory in
+             SpaceTree.Directory(name: directory.name, parentIndex: directory.parentIndex,
+--- a/Sources/SysCleanerCore/FileSafety.swift
++++ b/Sources/SysCleanerCore/FileSafety.swift
+@@ -38,7 +38,18 @@
+
+     static func metadata(at url: URL) -> (stamp: FileStamp, isDirectory: Bool)? {
+         var info = stat()
+-        guard lstat(url.path, &info) == 0, (info.st_mode & mode_t(S_IFMT)) != mode_t(S_IFLNK) else { return nil }
++        guard lstat(url.path, &info) == 0 else { return nil }
++        return metadata(from: info)
++    }
++
++    static func metadata(named name: String, in directoryDescriptor: Int32) -> (stamp: FileStamp, isDirectory: Bool)? {
++        var info = stat()
++        guard fstatat(directoryDescriptor, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
++        return metadata(from: info)
++    }
++
++    private static func metadata(from info: stat) -> (stamp: FileStamp, isDirectory: Bool)? {
++        guard (info.st_mode & mode_t(S_IFMT)) != mode_t(S_IFLNK) else { return nil }
+         let stamp = FileStamp(device: UInt64(info.st_dev), inode: UInt64(info.st_ino),
+                               size: Int64(info.st_size), modifiedSeconds: Int64(info.st_mtimespec.tv_sec),
+                               modifiedNanoseconds: Int64(info.st_mtimespec.tv_nsec),
+--- /dev/null
++++ b/Sources/SysCleanerCore/DirectoryMetadataReader.swift
+@@ -0,0 +1,131 @@
++import Darwin
++import Foundation
++
++/// One fixed buffer per worker, reused across directories.
++final class DirectoryMetadataBuffer {
++    let bytes = UnsafeMutableRawBufferPointer.allocate(byteCount: 65_536, alignment: 8)
++    deinit { bytes.deallocate() }
++}
++
++/// Reads file stamps with directory entries; unsupported attributes use the
++/// existing per-path metadata lookup. Directories also use that lookup so mount
++/// points and firmlinks retain the same device-boundary behavior as lstat.
++final class DirectoryMetadataReader {
++    struct Entry {
++        let name: String
++        let stamp: FileStamp?
++    }
++
++    private static let common = UInt32(ATTR_CMN_NAME | ATTR_CMN_DEVID | ATTR_CMN_OBJTYPE |
++                                      ATTR_CMN_MODTIME | ATTR_CMN_CHGTIME | ATTR_CMN_FILEID)
++    private static let file = UInt32(ATTR_FILE_LINKCOUNT | ATTR_FILE_ALLOCSIZE | ATTR_FILE_DATALENGTH)
++    private var attributes: attrlist
++    private let buffer: DirectoryMetadataBuffer
++    private let descriptor: Int32
++    private var remaining = 0
++    private var offset = 0
++    private var finished = false
++
++    init?(directory: URL, buffer: DirectoryMetadataBuffer) {
++        let descriptor = directory.withUnsafeFileSystemRepresentation { path in
++            path.map { Darwin.open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) } ?? -1
++        }
++        guard descriptor >= 0 else { return nil }
++        self.descriptor = descriptor
++        self.buffer = buffer
++        var attributes = attrlist()
++        attributes.bitmapcount = UInt16(ATTR_BIT_MAP_COUNT)
++        attributes.commonattr = Self.common | UInt32(ATTR_CMN_RETURNED_ATTRS) | UInt32(ATTR_CMN_ERROR)
++        attributes.fileattr = Self.file
++        self.attributes = attributes
++        // Probe before yielding anything. Unsupported filesystems can safely
++        // fall back to Foundation without replaying already counted entries.
++        let count = getattrlistbulk(descriptor, &self.attributes, buffer.bytes.baseAddress,
++                                    buffer.bytes.count, UInt64(FSOPT_PACK_INVAL_ATTRS))
++        guard count >= 0 else {
++            // All stored properties are initialized, so deinit closes the fd.
++            return nil
++        }
++        remaining = Int(count)
++        finished = count == 0
++    }
++
++    deinit { Darwin.close(descriptor) }
++
++    func metadata(named name: String) -> (stamp: FileStamp, isDirectory: Bool)? {
++        FileSafety.metadata(named: name, in: descriptor)
++    }
++
++    func next() throws -> Entry? {
++        while true {
++            if remaining == 0 {
++                if finished { return nil }
++                let count = getattrlistbulk(descriptor, &attributes, buffer.bytes.baseAddress,
++                                            buffer.bytes.count, UInt64(FSOPT_PACK_INVAL_ATTRS))
++                guard count >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
++                remaining = Int(count)
++                offset = 0
++                if count == 0 { finished = true; return nil }
++            }
++            guard offset <= buffer.bytes.count - MemoryLayout<UInt32>.size else { throw POSIXError(.EIO) }
++            let length = Int(buffer.bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
++            guard length >= 4, length <= buffer.bytes.count - offset else { throw POSIXError(.EIO) }
++            let record = UnsafeRawBufferPointer(rebasing: buffer.bytes[offset..<(offset + length)])
++            let entry = try Self.decode(record)
++            offset += length
++            remaining -= 1
++            // Foundation enumeration excludes AppleDouble sidecars too.
++            if entry.name == "." || entry.name == ".." || entry.name.hasPrefix("._") { continue }
++            return entry
++        }
++    }
++
++    static func decode(_ record: UnsafeRawBufferPointer) throws -> Entry {
++        // getattrlist attributes are packed on four-byte boundaries, even for
++        // 64-bit values. FSOPT_PACK_INVAL_ATTRS fixes the layout; returned masks
++        // determine whether any placeholder value can be used.
++        var cursor = 4
++        func read<T>(_ type: T.Type) throws -> T {
++            guard cursor <= record.count, MemoryLayout<T>.size <= record.count - cursor else {
++                throw POSIXError(.EIO)
++            }
++            defer { cursor += MemoryLayout<T>.size }
++            return record.loadUnaligned(fromByteOffset: cursor, as: type)
++        }
++        let returned = try read(attribute_set_t.self)
++        let itemError = try read(UInt32.self)
++        let nameReferenceOffset = cursor
++        let nameReference = try read(attrreference_t.self)
++        let device = try read(dev_t.self)
++        let type = try read(UInt32.self)
++        let modified = try read(timespec.self)
++        let changed = try read(timespec.self)
++        let inode = try read(UInt64.self)
++        // File-only attributes are omitted for directories even with
++        // FSOPT_PACK_INVAL_ATTRS. Other vnode types use the lstat fallback.
++        let regular = type == UInt32(VREG.rawValue)
++        let links = regular ? try read(UInt32.self) : 0
++        let allocated = regular ? try read(Int64.self) : 0
++        let size = regular ? try read(Int64.self) : 0
++        let nameOffset = nameReferenceOffset + Int(nameReference.attr_dataoffset)
++        let nameLength = Int(nameReference.attr_length)
++        guard returned.commonattr & UInt32(ATTR_CMN_NAME) != 0,
++              nameOffset >= cursor, nameLength > 1, nameOffset <= record.count,
++              nameLength <= record.count - nameOffset,
++              record[nameOffset + nameLength - 1] == 0,
++              let name = String(bytes: record[nameOffset..<(nameOffset + nameLength - 1)], encoding: .utf8),
++              !name.contains("/"), !name.utf8.contains(0) else { throw POSIXError(.EIO) }
++        let complete = itemError == 0 && regular &&
++            returned.commonattr & common == common && returned.fileattr & file == file &&
++            device >= 0 && size >= 0 && allocated >= 0 && links > 0 &&
++            (0..<1_000_000_000).contains(modified.tv_nsec) &&
++            (0..<1_000_000_000).contains(changed.tv_nsec)
++        let stamp = complete ? FileStamp(device: UInt64(device), inode: inode, size: size,
++                                         modifiedSeconds: Int64(modified.tv_sec),
++                                         modifiedNanoseconds: Int64(modified.tv_nsec),
++                                         linkCount: UInt64(links), allocatedBytes: allocated,
++                                         changedSeconds: Int64(changed.tv_sec),
++                                         changedNanoseconds: Int64(changed.tv_nsec)) : nil
++        return Entry(name: name, stamp: stamp)
++    }
++}
+--- /dev/null
++++ b/Tests/SysCleanerCoreTests/DirectoryMetadataReaderTests.swift
+@@ -0,0 +1,102 @@
++import Darwin
++import Foundation
++import XCTest
++@testable import SysCleanerCore
++
++final class DirectoryMetadataReaderTests: XCTestCase {
++    private var root: URL!
++
++    override func setUpWithError() throws {
++        root = FileManager.default.temporaryDirectory
++            .appendingPathComponent("SysCleanerBulk-\(UUID().uuidString)", isDirectory: true)
++        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
++    }
++
++    override func tearDownWithError() throws {
++        try FileManager.default.removeItem(at: root)
++    }
++
++    func testBulkFileStampsMatchLstatIncludingSparseFilesAndResourceForks() throws {
++        let regular = root.appendingPathComponent("file % # 中文")
++        try Data(repeating: 7, count: 9000).write(to: regular)
++        try FileManager.default.linkItem(at: regular, to: root.appendingPathComponent("hardlink"))
++        let sparse = root.appendingPathComponent("sparse")
++        try Data().write(to: sparse)
++        let handle = try FileHandle(forWritingTo: sparse)
++        try handle.truncate(atOffset: 32 * 1_048_576)
++        try handle.close()
++        let forked = root.appendingPathComponent("forked")
++        try Data([1]).write(to: forked)
++        let fork = [UInt8](repeating: 8, count: 8192)
++        let status = fork.withUnsafeBytes {
++            setxattr(forked.path, "com.apple.ResourceFork", $0.baseAddress, $0.count, 0, 0)
++        }
++        XCTAssertEqual(status, 0)
++        let directory = root.appendingPathComponent("directory")
++        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
++        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("symlink"), withDestinationURL: regular)
++
++        let reader = try XCTUnwrap(DirectoryMetadataReader(directory: root, buffer: DirectoryMetadataBuffer()))
++        var entries: [String: DirectoryMetadataReader.Entry] = [:]
++        while let entry = try reader.next() { entries[entry.name] = entry }
++        XCTAssertEqual(entries.count, 6)
++        for name in [regular.lastPathComponent, "hardlink", "sparse", "forked"] {
++            let stamp = try XCTUnwrap(entries[name]?.stamp, name)
++            XCTAssertEqual(stamp, FileSafety.stamp(at: root.appendingPathComponent(name)), name)
++        }
++        XCTAssertNil(entries["directory"]?.stamp)
++        XCTAssertNil(entries["symlink"]?.stamp)
++        XCTAssertEqual(reader.metadata(named: "directory")?.stamp, FileSafety.stamp(at: directory))
++        XCTAssertEqual(reader.metadata(named: "directory")?.isDirectory, true)
++        XCTAssertNil(reader.metadata(named: "symlink"))
++    }
++
++    func testScannedURLsPreserveEscapedAndUnicodeFileNames() throws {
++        let original = root.appendingPathComponent("file % # 中文")
++        let copy = root.appendingPathComponent("copy %23 文件")
++        try Data([1, 2, 3]).write(to: original)
++        try Data([1, 2, 3]).write(to: copy)
++        let report = FileScanner.scan(ScanRequest(category: .duplicates, root: root))
++        XCTAssertEqual(Set(report.entries.map(\.url.path)),
++                       Set([original, copy].map { $0.resolvingSymlinksInPath().path }))
++        XCTAssertEqual(Set(report.entries.compactMap(\.duplicateGroup)).count, 1)
++        for entry in report.entries { XCTAssertEqual(entry.stamp, FileSafety.stamp(at: entry.url)) }
++    }
++
++    func testDecoderRejectsTruncatedRecordsAndInvalidNameOffsets() throws {
++        try Data([1]).write(to: root.appendingPathComponent("file"))
++        let buffer = DirectoryMetadataBuffer()
++        let reader = try XCTUnwrap(DirectoryMetadataReader(directory: root, buffer: buffer))
++        let length = Int(buffer.bytes.loadUnaligned(as: UInt32.self))
++        var record = Array(buffer.bytes.prefix(length))
++        try withExtendedLifetime(reader) {
++            for end in 0..<length {
++                try record.withUnsafeBytes { bytes in
++                    let truncated = UnsafeRawBufferPointer(rebasing: bytes[..<end])
++                    // Padding at the end is not required by the decoder.
++                    if end < 104 { XCTAssertThrowsError(try DirectoryMetadataReader.decode(truncated)) }
++                }
++            }
++        }
++        try record.withUnsafeMutableBytes { bytes in
++            bytes.storeBytes(of: Int32.max, toByteOffset: 28, as: Int32.self)
++            XCTAssertThrowsError(try DirectoryMetadataReader.decode(UnsafeRawBufferPointer(bytes)))
++        }
++    }
++
++    func testMissingFileAttributesRequirePerPathFallback() throws {
++        try Data([1]).write(to: root.appendingPathComponent("file"))
++        let buffer = DirectoryMetadataBuffer()
++        let reader = try XCTUnwrap(DirectoryMetadataReader(directory: root, buffer: buffer))
++        withExtendedLifetime(reader) {
++            let length = Int(buffer.bytes.loadUnaligned(as: UInt32.self))
++            var record = Array(buffer.bytes.prefix(length))
++            record.withUnsafeMutableBytes { bytes in
++                bytes.storeBytes(of: UInt32(0), toByteOffset: 16, as: UInt32.self)
++                let entry = try? DirectoryMetadataReader.decode(UnsafeRawBufferPointer(bytes))
++                XCTAssertEqual(entry?.name, "file")
++                XCTAssertNil(entry?.stamp)
++            }
++        }
++    }
++}
