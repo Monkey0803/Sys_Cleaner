@@ -213,7 +213,8 @@ public enum FileScanner {
             entries = scanApplications(control: control, excludedPaths: request.excludedPaths)
         case .orphans:
             entries = scanOrphanCandidates(control: control, warnings: &warnings,
-                                           excludedPaths: request.excludedPaths)
+                                           excludedPaths: request.excludedPaths,
+                                           ignoredIdentifiers: request.ignoredOrphanIdentifiers)
         }
         if control.omittedCount > 0 && warnings.isEmpty {
             appendWarning("scanIncomplete", to: &warnings)
@@ -764,7 +765,8 @@ public enum FileScanner {
     }
 
     private static func scanOrphanCandidates(control: ScanControl, warnings: inout [String],
-                                              excludedPaths: [String]) -> [ScanEntry] {
+                                              excludedPaths: [String],
+                                              ignoredIdentifiers: Set<String>) -> [ScanEntry] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let appRoots = [URL(fileURLWithPath: "/Applications"),
                         URL(fileURLWithPath: "/System/Applications"),
@@ -779,13 +781,15 @@ public enum FileScanner {
             .map { $0.lowercased() })
         return scanOrphanCandidates(roots: orphanCandidateLocations(),
                                     installedIdentifiers: installed, control: control, warnings: &warnings,
-                                    excludedPaths: excludedPaths)
+                                    excludedPaths: excludedPaths,
+                                    ignoredIdentifiers: ignoredIdentifiers)
     }
 
     public static func orphanCandidateLocations() -> [URL] {
         let library = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
         return ["Application Support", "Caches", "Containers", "HTTPStorages", "WebKit",
-                "Application Scripts", "Saved Application State"].map { library.appendingPathComponent($0) }
+                "Application Scripts", "Saved Application State", "Preferences", "Logs",
+                "LaunchAgents"].map { library.appendingPathComponent($0) }
     }
 
     static func installedApplicationIdentifiers(in roots: [URL], control: ScanControl = ScanControl()) -> Set<String> {
@@ -847,16 +851,19 @@ public enum FileScanner {
 
     static func scanOrphanCandidates(roots: [URL], installedIdentifiers: Set<String>,
                                      control: ScanControl = ScanControl(),
-                                     excludedPaths: [String] = []) -> [ScanEntry] {
+                                     excludedPaths: [String] = [],
+                                     ignoredIdentifiers: Set<String> = []) -> [ScanEntry] {
         var warnings: [String] = []
         return scanOrphanCandidates(roots: roots, installedIdentifiers: installedIdentifiers,
                                     control: control, warnings: &warnings,
-                                    excludedPaths: excludedPaths)
+                                    excludedPaths: excludedPaths,
+                                    ignoredIdentifiers: ignoredIdentifiers)
     }
 
     private static func scanOrphanCandidates(roots: [URL], installedIdentifiers: Set<String>,
                                              control: ScanControl, warnings: inout [String],
-                                             excludedPaths: [String]) -> [ScanEntry] {
+                                             excludedPaths: [String],
+                                             ignoredIdentifiers: Set<String>) -> [ScanEntry] {
         var entries: [ScanEntry] = []
         for root in roots where !control.isCancelled && !FileSafety.isCloudManagedPath(root) &&
             !isExcluded(root, paths: excludedPaths) {
@@ -872,7 +879,7 @@ public enum FileScanner {
                 !isExcluded(child, paths: excludedPaths) {
                 let name = child.lastPathComponent
                 let identifier: String
-                if root.lastPathComponent == "Preferences" {
+                if root.lastPathComponent == "Preferences" || root.lastPathComponent == "LaunchAgents" {
                     guard child.pathExtension == "plist" else { continue }
                     identifier = child.deletingPathExtension().lastPathComponent
                 } else if root.lastPathComponent == "HTTPStorages" && name.hasSuffix(".binarycookies") {
@@ -887,6 +894,7 @@ public enum FileScanner {
                 guard pieces.count >= 3,
                       ["com", "org", "net", "io", "app", "dev"].contains(String(pieces[0]).lowercased()),
                       !identifier.hasPrefix("com.apple."),
+                      !ignoredIdentifiers.contains(identifier.lowercased()),
                       !belongsToInstalledApp(identifier, installedIdentifiers: installedIdentifiers),
                       identifier.range(of: "^[A-Za-z][A-Za-z0-9-]*(\\.[A-Za-z0-9_-]+){2,}$",
                                        options: .regularExpression) != nil,

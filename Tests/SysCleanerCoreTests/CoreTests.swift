@@ -1197,6 +1197,52 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(entries.allSatisfy { !$0.canDelete })
     }
 
+    func testOrphanReviewGroupsMultipleSourcesAndIgnoresExactIdentifier() throws {
+        let cache = root.appendingPathComponent("Caches")
+        let preferences = root.appendingPathComponent("Preferences")
+        let launchAgents = root.appendingPathComponent("LaunchAgents")
+        let logs = root.appendingPathComponent("Logs")
+        for location in [cache, preferences, launchAgents, logs] {
+            try FileManager.default.createDirectory(at: location, withIntermediateDirectories: true)
+        }
+        try Data(repeating: 1, count: 7).write(to: cache.appendingPathComponent("com.example.gone"))
+        try Data(repeating: 2, count: 3).write(to: preferences.appendingPathComponent("com.example.gone.plist"))
+        try Data(repeating: 3, count: 4).write(to: launchAgents.appendingPathComponent("com.example.gone.plist"))
+        try Data(repeating: 4, count: 5).write(to: logs.appendingPathComponent("com.example.other"))
+
+        let locations = [cache, preferences, launchAgents, logs]
+        let entries = FileScanner.scanOrphanCandidates(roots: locations, installedIdentifiers: [])
+        let groups = OrphanReviewGroup.groups(entries)
+        XCTAssertEqual(groups.map(\.id), ["com.example.gone", "com.example.other"])
+        XCTAssertEqual(groups[0].entries.count, 3)
+        XCTAssertEqual(groups[0].knownBytes, 14)
+        XCTAssertEqual(groups[0].sourceNames, ["Caches", "LaunchAgents", "Preferences"])
+        XCTAssertTrue(entries.allSatisfy { !$0.canDelete })
+        XCTAssertEqual(OrphanReviewGroup.groups(entries,
+            selection: ScanSortSelection(field: .size, direction: .ascending)).map(\.id),
+            ["com.example.other", "com.example.gone"])
+        XCTAssertEqual(OrphanReviewGroup.groups(entries,
+            selection: ScanSortSelection(field: .name, direction: .descending)).map(\.id),
+            ["com.example.other", "com.example.gone"])
+
+        let filtered = FileScanner.scanOrphanCandidates(roots: locations, installedIdentifiers: [],
+            ignoredIdentifiers: ["com.example.gone"])
+        XCTAssertEqual(OrphanReviewGroup.groups(filtered).map(\.id), ["com.example.other"])
+    }
+
+    func testSpaceAccountingRequiresCompleteVolumeRootAndKeepsSignedDifference() {
+        XCTAssertEqual(SpaceAccounting.assess(scanRootPath: "/Users/person", volumeRootPath: "/",
+            volumeUsedBytes: 100, scannedAllocatedBytes: 40, complete: true), .folderOnly)
+        XCTAssertEqual(SpaceAccounting.assess(scanRootPath: "/", volumeRootPath: "/",
+            volumeUsedBytes: 100, scannedAllocatedBytes: 40, complete: false), .incomplete)
+        XCTAssertEqual(SpaceAccounting.assess(scanRootPath: "/", volumeRootPath: "/",
+            volumeUsedBytes: 100, scannedAllocatedBytes: 40, complete: true),
+            .compared(volumeUsedBytes: 100, scannedAllocatedBytes: 40, differenceBytes: 60))
+        XCTAssertEqual(SpaceAccounting.assess(scanRootPath: "/", volumeRootPath: "/",
+            volumeUsedBytes: 100, scannedAllocatedBytes: 120, complete: true),
+            .compared(volumeUsedBytes: 100, scannedAllocatedBytes: 120, differenceBytes: -20))
+    }
+
     func testUnreadableOrphanFolderKeepsSizeUnknown() throws {
         let cache = root.appendingPathComponent("Caches")
         let candidate = cache.appendingPathComponent("com.example.blocked")

@@ -99,13 +99,15 @@ public struct ScanRequest: Sendable {
     public let olderThanDays: Int
     public let excludedPaths: [String]
     public let ignoredDuplicateHashes: Set<String>
+    public let ignoredOrphanIdentifiers: Set<String>
     public let derivedDataRoots: [URL]
     public let useRustSpaceScanner: Bool
     public let rustHelperURL: URL?
 
     public init(category: ScanCategory, root: URL, minimumBytes: Int64 = 100 * 1_024 * 1_024,
                 olderThanDays: Int = 0, excludedPaths: [String] = [],
-                ignoredDuplicateHashes: Set<String> = [], derivedDataRoots: [URL] = [],
+                ignoredDuplicateHashes: Set<String> = [], ignoredOrphanIdentifiers: Set<String> = [],
+                derivedDataRoots: [URL] = [],
                 useRustSpaceScanner: Bool = false, rustHelperURL: URL? = nil) {
         self.category = category
         self.root = root
@@ -113,9 +115,65 @@ public struct ScanRequest: Sendable {
         self.olderThanDays = olderThanDays
         self.excludedPaths = excludedPaths
         self.ignoredDuplicateHashes = ignoredDuplicateHashes
+        self.ignoredOrphanIdentifiers = ignoredOrphanIdentifiers
         self.derivedDataRoots = derivedDataRoots
         self.useRustSpaceScanner = useRustSpaceScanner
         self.rustHelperURL = rustHelperURL
+    }
+}
+
+public struct OrphanReviewGroup: Identifiable, Sendable {
+    public let id: String
+    public let entries: [ScanEntry]
+    public let knownBytes: Int64
+    public let unknownCount: Int
+    public let sourceNames: [String]
+
+    public static func groups(_ entries: [ScanEntry],
+                              selection: ScanSortSelection = ScanSortSelection()) -> [Self] {
+        let grouped = Dictionary(grouping: entries.filter { $0.category == .orphans }) {
+            identifier(for: $0)
+        }
+        return grouped.map { identifier, items in
+            Self(id: identifier, entries: items,
+                 knownBytes: items.reduce(0) { $0 + ($1.sizeIsKnown ? $1.estimatedBytes : 0) },
+                 unknownCount: items.filter { !$0.sizeIsKnown }.count,
+                 sourceNames: Array(Set(items.map { $0.scope.lastPathComponent })).sorted())
+        }.sorted { lhs, rhs in
+            if selection.field == .size && (lhs.unknownCount > 0) != (rhs.unknownCount > 0) {
+                return lhs.unknownCount == 0
+            }
+            let comparison: ComparisonResult
+            switch selection.field {
+            case .size:
+                comparison = lhs.knownBytes == rhs.knownBytes ? .orderedSame :
+                    (lhs.knownBytes < rhs.knownBytes ? .orderedAscending : .orderedDescending)
+            case .name:
+                comparison = lhs.id.localizedCaseInsensitiveCompare(rhs.id)
+            case .modified:
+                let left = lhs.entries.map { $0.stamp.modifiedSeconds }.max() ?? 0
+                let right = rhs.entries.map { $0.stamp.modifiedSeconds }.max() ?? 0
+                comparison = left == right ? .orderedSame :
+                    (left < right ? .orderedAscending : .orderedDescending)
+            }
+            if comparison == .orderedSame { return lhs.id < rhs.id }
+            return selection.direction == .ascending
+                ? comparison == .orderedAscending : comparison == .orderedDescending
+        }
+    }
+
+    public static func identifier(for entry: ScanEntry) -> String {
+        let name = entry.url.lastPathComponent
+        switch entry.scope.lastPathComponent {
+        case "Preferences", "LaunchAgents":
+            return entry.url.deletingPathExtension().lastPathComponent.lowercased()
+        case "HTTPStorages" where name.hasSuffix(".binarycookies"):
+            return String(name.dropLast(".binarycookies".count)).lowercased()
+        case "Saved Application State" where name.hasSuffix(".savedState"):
+            return String(name.dropLast(".savedState".count)).lowercased()
+        default:
+            return name.lowercased()
+        }
     }
 }
 

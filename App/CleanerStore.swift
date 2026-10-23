@@ -20,6 +20,19 @@ final class CleanerStore: ObservableObject {
         var allocatedBytes: Int64?
         var omittedCount = 0
     }
+    struct OverviewScanState {
+        let category: ScanCategory
+        let completed: Int
+        let total: Int
+        let progress: ScanProgress?
+    }
+    struct VolumeAccountingSummary {
+        let rootPath: String
+        let scannedAt: Date?
+        let volumeName: String?
+        let systemReclaimableEstimate: Int64?
+        let result: SpaceAccounting
+    }
     private static let historyURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Sys Cleaner/cleanup-history.json")
     private static let projectHistoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -95,7 +108,14 @@ final class CleanerStore: ObservableObject {
     @Published private(set) var scanDiagnostics: [ScanCategory: [ScanDiagnostic]] = [:]
     @Published private(set) var spaceGrowthComparison: SpaceGrowthComparison =
         (try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL).latestComparison) ?? .noPrevious
+    @Published private(set) var latestSpaceSnapshot: SpaceScanSnapshot? =
+        try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL).snapshots.last
+    @Published private(set) var lastSpaceScanRootPath: String?
+    @Published private(set) var lastSpaceScanIncomplete = false
     @Published private(set) var spaceHistoryError: String?
+    @Published private(set) var overviewScanState: OverviewScanState?
+    @Published private(set) var overviewScanCompletedCount: Int?
+    @Published private(set) var overviewScanWasCancelled = false
 
     private struct RunningScan {
         let id: UUID
@@ -115,6 +135,9 @@ final class CleanerStore: ObservableObject {
     private var xcodeExtraDiagnostics: [ScanDiagnostic] = []
     private var requestedXcodeOperation: CleanupOverviewOperation?
     private var latestSpaceScanID: UUID?
+    private var overviewScanID: UUID?
+    private var overviewScanControl: ScanControl?
+    private var overviewScanTask: Task<Void, Never>?
 
     private struct CategoryResult {
         let entries: [ScanEntry]
@@ -191,6 +214,25 @@ final class CleanerStore: ObservableObject {
         return scanMetrics.omittedCount > 0 || !warnings.isEmpty
     }
     var hasSpaceResults: Bool { spaceTree?.hasDisplayItems ?? !spaceItems.isEmpty }
+    var xcodeInventoryWasScanned: Bool { xcodeSupplementalScanned }
+    var canStartOverviewScan: Bool {
+        category == .overview && overviewScanState == nil && runningScans.isEmpty && !isDeleting
+    }
+    var volumeAccountingSummary: VolumeAccountingSummary? {
+        guard let rootPath = lastSpaceScanRootPath ?? latestSpaceSnapshot?.rootPath else { return nil }
+        let volume = volumes.first { $0.id == rootPath }
+        let result = SpaceAccounting.assess(
+            scanRootPath: rootPath, volumeRootPath: volume?.id,
+            volumeUsedBytes: volume?.usedBytes,
+            scannedAllocatedBytes: latestSpaceSnapshot?.rootPath == rootPath
+                ? latestSpaceSnapshot?.rootAllocatedBytes : nil,
+            complete: !lastSpaceScanIncomplete && latestSpaceSnapshot?.rootPath == rootPath)
+        return VolumeAccountingSummary(rootPath: rootPath,
+            scannedAt: latestSpaceSnapshot?.rootPath == rootPath ? latestSpaceSnapshot?.date : nil,
+            volumeName: volume?.name,
+            systemReclaimableEstimate: volume?.systemReclaimableEstimate,
+            result: result)
+    }
 
     func refreshVolumes() { volumes = Self.readVolumeSummaries() }
 
@@ -243,7 +285,9 @@ final class CleanerStore: ObservableObject {
         cleanupOverview = CleanupOverviewSnapshot.make(
             sources: sources, supplemental: xcodeSupplemental,
             supplementalScanned: xcodeSupplementalScanned ? [.developerCache] : [],
-            supplementalIncomplete: xcodeSupplementalIncomplete ? [.developerCache] : [])
+            supplementalIncomplete: (xcodeSupplementalIncomplete ||
+                (results[.developerCache]?.hasScanned == true && !xcodeSupplementalScanned))
+                ? [.developerCache] : [])
     }
 
     func scanScopePaths(for category: ScanCategory) -> [String] {
@@ -307,6 +351,21 @@ final class CleanerStore: ObservableObject {
         scanMetrics.allocatedBytes = entries.allSatisfy { $0.allocatedBytes != nil } ?
             entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil
     }
+    func ignoreOrphanGroup(_ group: OrphanReviewGroup) {
+        guard category == .orphans, !isDeleting, !isScanning else { return }
+        AppPreferences.shared.ignoreOrphanIdentifier(group.id)
+        let paths = Set(group.entries.map(\.url))
+        entries.removeAll { paths.contains($0.url) }
+        summaryCount = entries.count
+        summaryBytes = entries.reduce(0) { $0 + $1.estimatedBytes }
+        scanMetrics.allocatedBytes = entries.allSatisfy { $0.allocatedBytes != nil } ?
+            entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil
+    }
+    func restoreIgnoredOrphanIdentifier(_ identifier: String) {
+        guard category == .orphans, !isDeleting, !isScanning else { return }
+        AppPreferences.shared.restoreOrphanIdentifier(identifier)
+        scan()
+    }
     func setSortField(_ field: ScanSortField) {
         guard category != .space || field != .modified else { return }
         sortSelection.field = field
@@ -353,32 +412,43 @@ final class CleanerStore: ObservableObject {
         panel.prompt = L("choose")
         panel.directoryURL = volume
         if panel.runModal() == .OK, let url = panel.url {
-            let chosenRoot = url.resolvingSymlinksInPath().standardizedFileURL
-            guard chosenRoot != root else { return }
-            for category in [ScanCategory.space, .large, .duplicates] {
-                runningScans.removeValue(forKey: category)?.control.cancel()
-                categoryResults.removeValue(forKey: category)
-                scanDiagnostics[category] = nil
-            }
-            latestSpaceScanID = nil
-            root = chosenRoot
-            entries = []
-            spaceItems = []
-            spaceTree = nil
-            summaryCount = 0
-            summaryBytes = 0
-            scanMetrics = ScanMetrics()
-            warnings = []
-            selectedIDs = []
-            hasScanned = false
-            isScanning = false
-            scanProgress = nil
-            spaceFolder = root
+            setScanRoot(url)
         }
+    }
+
+    func scanEntireVolume(_ volume: VolumeSummary) {
+        guard category == .space, !isDeleting, !isScanning else { return }
+        setScanRoot(URL(fileURLWithPath: volume.id))
+        scan()
+    }
+
+    private func setScanRoot(_ url: URL) {
+        let chosenRoot = url.resolvingSymlinksInPath().standardizedFileURL
+        guard chosenRoot != root else { return }
+        for category in [ScanCategory.space, .large, .duplicates] {
+            runningScans.removeValue(forKey: category)?.control.cancel()
+            categoryResults.removeValue(forKey: category)
+            scanDiagnostics[category] = nil
+        }
+        latestSpaceScanID = nil
+        root = chosenRoot
+        entries = []
+        spaceItems = []
+        spaceTree = nil
+        summaryCount = 0
+        summaryBytes = 0
+        scanMetrics = ScanMetrics()
+        warnings = []
+        selectedIDs = []
+        hasScanned = false
+        isScanning = false
+        scanProgress = nil
+        spaceFolder = root
     }
 
     func changeCategory(_ newValue: ScanCategory) {
         guard category != newValue, !isDeleting else { return }
+        if category == .overview { cancelOverviewScan() }
         if category == .uninstall { cancelApplicationSizeMeasurement() }
         if runningScans[category]?.isApplicationPreparation == true { cancel() }
         if category == .uninstall { backFromApplication() }
@@ -495,6 +565,7 @@ final class CleanerStore: ObservableObject {
                                   olderThanDays: olderThanDays,
                                   excludedPaths: AppPreferences.shared.excludedPaths,
                                   ignoredDuplicateHashes: AppPreferences.shared.ignoredDuplicateHashes,
+                                  ignoredOrphanIdentifiers: AppPreferences.shared.ignoredOrphanIdentifiers,
                                   derivedDataRoots: AppPreferences.shared.derivedDataRoots)
         Task.detached(priority: .userInitiated) { [weak self] in
             let report = FileScanner.scan(request, control: newControl)
@@ -507,6 +578,92 @@ final class CleanerStore: ObservableObject {
             await self?.finishScan(report, category: scannedCategory, scanID: scanID,
                                    request: request, spaceSnapshot: spaceSnapshot)
         }
+    }
+
+    func startOverviewScan(categories: Set<ScanCategory>) {
+        guard canStartOverviewScan else { return }
+        let ordered = ScanCategory.allCases.filter { $0 != .overview && categories.contains($0) }
+        guard !ordered.isEmpty else { return }
+        let batchID = UUID()
+        overviewScanID = batchID
+        overviewScanCompletedCount = nil
+        overviewScanWasCancelled = false
+        overviewScanState = OverviewScanState(category: ordered[0], completed: 0,
+                                              total: ordered.count, progress: nil)
+        let excludedPaths = AppPreferences.shared.excludedPaths
+        let ignoredHashes = AppPreferences.shared.ignoredDuplicateHashes
+        let ignoredOrphans = AppPreferences.shared.ignoredOrphanIdentifiers
+        let derivedDataRoots = AppPreferences.shared.derivedDataRoots
+        let scanRoot = root
+        let minimumBytes = Int64(minimumMB) * 1_024 * 1_024
+        let oldestDays = olderThanDays
+        overviewScanTask = Task { [weak self] in
+            guard let self else { return }
+            var completed = 0
+            for selectedCategory in ordered {
+                guard self.overviewScanID == batchID, !Task.isCancelled else { break }
+                if selectedCategory == .developerCache { self.clearXcodeOverview() }
+                self.overviewScanState = OverviewScanState(category: selectedCategory,
+                    completed: completed, total: ordered.count, progress: nil)
+                let scanID = UUID()
+                let completedBeforeStep = completed
+                let control = ScanControl { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.overviewScanID == batchID,
+                              self.overviewScanState?.category == selectedCategory else { return }
+                        self.overviewScanState = OverviewScanState(category: selectedCategory,
+                            completed: completedBeforeStep, total: ordered.count, progress: progress)
+                    }
+                }
+                self.overviewScanControl = control
+                self.runningScans[selectedCategory] = RunningScan(id: scanID, control: control,
+                                                                  isApplicationPreparation: false)
+                if selectedCategory == .space { self.latestSpaceScanID = scanID }
+                let request = ScanRequest(category: selectedCategory,
+                    root: selectedCategory == .downloads
+                        ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+                        : scanRoot,
+                    minimumBytes: minimumBytes, olderThanDays: oldestDays,
+                    excludedPaths: excludedPaths, ignoredDuplicateHashes: ignoredHashes,
+                    ignoredOrphanIdentifiers: ignoredOrphans,
+                    derivedDataRoots: derivedDataRoots)
+                let (report, snapshot) = await Task.detached(priority: .userInitiated) {
+                    let report = FileScanner.scan(request, control: control)
+                    let snapshot = selectedCategory == .space && report.hasCompleteSpaceTotals
+                        ? report.spaceTree.map { SpaceScanSnapshot.capture(tree: $0,
+                            excludedPaths: request.excludedPaths) } : nil
+                    return (report, snapshot)
+                }.value
+                guard self.overviewScanID == batchID, !Task.isCancelled, !report.cancelled else {
+                    self.runningScans.removeValue(forKey: selectedCategory)
+                    break
+                }
+                self.finishScan(report, category: selectedCategory, scanID: scanID,
+                                request: request, spaceSnapshot: snapshot)
+                completed += 1
+            }
+            guard self.overviewScanID == batchID else { return }
+            self.overviewScanID = nil
+            self.overviewScanControl = nil
+            self.overviewScanTask = nil
+            self.overviewScanState = nil
+            self.overviewScanCompletedCount = completed
+            self.rebuildCleanupOverview()
+        }
+    }
+
+    func cancelOverviewScan() {
+        guard let state = overviewScanState else { return }
+        overviewScanID = nil
+        overviewScanControl?.cancel()
+        overviewScanControl = nil
+        overviewScanTask?.cancel()
+        overviewScanTask = nil
+        runningScans.removeValue(forKey: state.category)
+        overviewScanCompletedCount = state.completed
+        overviewScanWasCancelled = true
+        overviewScanState = nil
+        rebuildCleanupOverview()
     }
 
     func prepareApplication(_ app: ScanEntry) {
@@ -723,7 +880,8 @@ final class CleanerStore: ObservableObject {
             isScanning = false
             scanProgress = nil
             hasScanned = !report.cancelled
-        } else if let previous = categoryResults[scannedCategory] {
+        } else {
+            let previous = categoryResults[scannedCategory]
             categoryResults[scannedCategory] = CategoryResult(
                 entries: report.entries,
                 spaceItems: report.spaceTree == nil ? report.spaceItems : [],
@@ -733,19 +891,25 @@ final class CleanerStore: ObservableObject {
                                          omittedCount: report.omittedCount),
                 warnings: report.warnings, selectedIDs: [], hasScanned: !report.cancelled,
                 isScanning: false, scanProgress: nil,
-                spaceFolder: previous.spaceFolder, resultQuery: previous.resultQuery,
-                resultFilter: previous.resultFilter
+                spaceFolder: previous?.spaceFolder, resultQuery: previous?.resultQuery ?? "",
+                resultFilter: previous?.resultFilter ?? .all
             )
         }
         if scannedCategory == .uninstall && category == .uninstall && !report.cancelled {
             beginApplicationSizeMeasurement(report.entries.filter { !$0.sizeIsKnown })
         }
         if scannedCategory == .space { refreshVolumes() }
+        if scannedCategory == .space && !report.cancelled {
+            lastSpaceScanRootPath = request.root.standardizedFileURL.path
+            lastSpaceScanIncomplete = !report.hasCompleteSpaceTotals
+            if !report.hasCompleteSpaceTotals { latestSpaceSnapshot = nil }
+        }
         if category == .overview { rebuildCleanupOverview() }
     }
 
     private func recordSpaceSnapshot(_ snapshot: SpaceScanSnapshot, scanID: UUID) {
         guard latestSpaceScanID == scanID else { return }
+        latestSpaceSnapshot = snapshot
         do {
             var history = try SpaceScanHistory.load(from: Self.spaceHistoryURL)
             let comparison = history.record(snapshot)

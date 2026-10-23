@@ -290,3 +290,25 @@ public struct SpaceScanHistory: Codable, Sendable {
         try JSONEncoder().encode(self).write(to: url, options: .atomic)
     }
 }
+
+/// A volume comparison is meaningful only for a complete scan of that volume's root.
+/// File block totals and APFS volume usage have different accounting rules, so the
+/// signed difference is a diagnostic, never a claim that the bytes can be deleted.
+public enum SpaceAccounting: Equatable, Sendable {
+    case folderOnly
+    case incomplete
+    case compared(volumeUsedBytes: Int64, scannedAllocatedBytes: Int64, differenceBytes: Int64)
+
+    public static func assess(scanRootPath: String, volumeRootPath: String?,
+                              volumeUsedBytes: Int64?, scannedAllocatedBytes: Int64?,
+                              complete: Bool) -> Self {
+        guard scanRootPath == volumeRootPath, let used = volumeUsedBytes, used >= 0 else {
+            return .folderOnly
+        }
+        guard complete, let scanned = scannedAllocatedBytes, scanned >= 0 else {
+            return .incomplete
+        }
+        return .compared(volumeUsedBytes: used, scannedAllocatedBytes: scanned,
+                         differenceBytes: used - scanned)
+    }
+}

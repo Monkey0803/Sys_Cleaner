@@ -25,6 +25,8 @@ struct ContentView: View {
     @State private var reviewOperationFilter: CleanupOverviewOperation?
     @State private var reviewRiskFilter: RiskLevel?
     @State private var overviewPage = 0
+    @State private var overviewScanSelection: Set<ScanCategory> =
+        [.downloads, .systemCache, .orphans]
     private let overviewItemsPerPage = 50
     private let cloudItemsPerPage = 200
     private let duplicateGroupsPerPage = 200
@@ -286,6 +288,14 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
+                        Menu("scanEntireVolume") {
+                            ForEach(store.volumes) { volume in
+                                Button(volume.name) { store.scanEntireVolume(volume) }
+                            }
+                        }
+                        .hoverHighlight()
+                        .disabled(store.isScanning || store.isDeleting)
+                        .help(L("scanEntireVolumeHelp"))
                         Button("refreshVolumes") { store.refreshVolumes() }
                             .buttonStyle(.borderless)
                             .hoverHighlight()
@@ -315,6 +325,22 @@ struct ContentView: View {
                         .frame(width: 100)
                     }
                     Spacer()
+                }
+            }
+            if store.category == .orphans {
+                HStack {
+                    Text("orphanReviewEvidence").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if !preferences.ignoredOrphanIdentifiers.isEmpty {
+                        Menu(String(format: L("orphanIgnoredCount"),
+                                    preferences.ignoredOrphanIdentifiers.count)) {
+                            ForEach(preferences.ignoredOrphanIdentifiers.sorted(), id: \.self) { identifier in
+                                Button(identifier) { store.restoreIgnoredOrphanIdentifier(identifier) }
+                            }
+                        }
+                        .hoverHighlight()
+                        .disabled(store.isScanning)
+                    }
                 }
             }
             if store.category != .space {
@@ -477,6 +503,7 @@ struct ContentView: View {
                     Text("overview").font(.largeTitle.bold())
                     Text("overviewDescription").foregroundStyle(.secondary)
                 }
+                overviewScanControls
                 HStack(spacing: 12) {
                     overviewMetric("overviewLocalEstimate", bytes: store.cleanupOverview.localEstimate,
                                    symbol: "internaldrive")
@@ -513,6 +540,11 @@ struct ContentView: View {
                             if section.incomplete {
                                 Text("partialResults").foregroundStyle(.orange)
                             }
+                            if section.category == .developerCache && section.scanned &&
+                                !store.xcodeInventoryWasScanned {
+                                Text("overviewXcodeQuickIncomplete")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
                             if section.omittedCount > 0 {
                                 Text(String(format: L("omittedItemsCount"), section.omittedCount))
                                     .foregroundStyle(.orange)
@@ -540,11 +572,104 @@ struct ContentView: View {
                 }
                 overviewReviewContent
                 overviewGrowthContent
+                spaceAccountingContent
                 Text("overviewXcodeHelp").font(.caption).foregroundStyle(.secondary)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var overviewScanControls: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("overviewQuickCheck").font(.title3.bold())
+                Spacer()
+                if store.overviewScanState != nil {
+                    Button("cancel") { store.cancelOverviewScan() }
+                        .hoverHighlight()
+                } else {
+                    Button("overviewStartCheck") {
+                        store.startOverviewScan(categories: overviewScanSelection)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .hoverHighlight()
+                    .disabled(overviewScanSelection.isEmpty || !store.canStartOverviewScan)
+                }
+            }
+            Text("overviewQuickCheckHelp").font(.caption).foregroundStyle(.secondary)
+            DisclosureGroup("overviewChooseChecks") {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                          alignment: .leading, spacing: 7) {
+                    ForEach(ScanCategory.allCases.filter { $0 != .overview }, id: \.self) { category in
+                        Toggle(category == .developerCache ? L("overviewXcodeQuickLabel") : category.title,
+                               isOn: Binding(
+                            get: { overviewScanSelection.contains(category) },
+                            set: { selected in
+                                if selected { overviewScanSelection.insert(category) }
+                                else { overviewScanSelection.remove(category) }
+                            }))
+                            .disabled(store.overviewScanState != nil)
+                    }
+                }
+                .padding(.top, 6)
+            }
+            if let state = store.overviewScanState {
+                ProgressView(value: Double(state.completed), total: Double(state.total))
+                Text(String(format: L("overviewCheckingCategory"), state.completed + 1,
+                            state.total, state.category.title))
+                    .font(.callout)
+                if let progress = state.progress {
+                    Text(String(format: L("scanProgressCounts"), progress.processedFiles,
+                                progress.processedDirectories, fileSize(progress.processedBytes)))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(progress.currentPath).font(.caption.monospaced())
+                        .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                }
+            } else if let count = store.overviewScanCompletedCount {
+                Text(String(format: L(store.overviewScanWasCancelled
+                    ? "overviewCheckCancelled" : "overviewCheckComplete"), count))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var spaceAccountingContent: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("spaceAccountingTitle").font(.title3.bold())
+            if let accounting = store.volumeAccountingSummary {
+                Text(accounting.rootPath).font(.caption.monospaced())
+                    .foregroundStyle(.secondary).textSelection(.enabled)
+                switch accounting.result {
+                case .folderOnly:
+                    Text("spaceAccountingFolderOnly").foregroundStyle(.secondary)
+                case .incomplete:
+                    Text("spaceAccountingIncomplete").foregroundStyle(.orange)
+                case let .compared(used, scanned, difference):
+                    Text(String(format: L("spaceAccountingUsed"),
+                                accounting.volumeName ?? accounting.rootPath, fileSize(used)))
+                    Text(String(format: L("spaceAccountingScanned"), fileSize(scanned)))
+                    Text(String(format: L(difference >= 0 ? "spaceAccountingGap" : "spaceAccountingOver"),
+                                fileSize(abs(difference))))
+                    if let reclaimable = accounting.systemReclaimableEstimate, reclaimable > 0 {
+                        Text(String(format: L("spaceAccountingReclaimable"), fileSize(reclaimable)))
+                    }
+                    Text("spaceAccountingCaveat").font(.caption).foregroundStyle(.secondary)
+                }
+                if let date = accounting.scannedAt {
+                    Text(String(format: L("spaceAccountingDate"), localizedDate(date)))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                Text("spaceAccountingNoScan").foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var overviewReviewCandidates: [CleanupOverviewItem] {
@@ -793,6 +918,27 @@ struct ContentView: View {
                             Button("ignoreDuplicateGroup") { store.ignoreDuplicateGroup(group) }
                                 .hoverHighlight()
                                 .disabled(store.isDeleting)
+                        }
+                    }
+                }
+            } else if store.category == .orphans {
+                ForEach(OrphanReviewGroup.groups(store.visibleEntries,
+                                                  selection: store.sortSelection)) { group in
+                    Section {
+                        ForEach(group.entries) { entry in resultRow(entry) }
+                    } header: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(group.id).fontWeight(.semibold)
+                                Text(String(format: L("orphanGroupSummary"), group.entries.count,
+                                            fileSize(group.knownBytes), group.unknownCount,
+                                            group.sourceNames.joined(separator: ", ")))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("orphanIgnoreIdentifier") { store.ignoreOrphanGroup(group) }
+                                .hoverHighlight()
+                                .disabled(store.isDeleting || store.isScanning)
                         }
                     }
                 }
@@ -1089,6 +1235,7 @@ struct ContentView: View {
 
     private var spaceContent: some View {
         VStack(spacing: 0) {
+            spaceAccountingContent.padding(.horizontal, 20).padding(.top, 10)
             HStack {
                 Button {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {

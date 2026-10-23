@@ -70,6 +70,7 @@ final class AppPreferences: ObservableObject {
     private static let sortKeyPrefix = "ScanSort."
     private static let excludedPathsKey = "ScanExcludedPaths"
     private static let ignoredDuplicateHashesKey = "IgnoredDuplicateHashes"
+    private static let ignoredOrphanIdentifiersKey = "IgnoredOrphanIdentifiers"
     private static let derivedDataRootsKey = "ExtraDerivedDataRoots"
     private static let archivesRootsKey = "ExtraArchivesRoots"
 
@@ -95,6 +96,10 @@ final class AppPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(Array(ignoredDuplicateHashes).sorted(),
                                            forKey: Self.ignoredDuplicateHashesKey) }
     }
+    @Published private(set) var ignoredOrphanIdentifiers: Set<String> {
+        didSet { UserDefaults.standard.set(Array(ignoredOrphanIdentifiers).sorted(),
+                                           forKey: Self.ignoredOrphanIdentifiersKey) }
+    }
     @Published private(set) var derivedDataRoots: [URL] {
         didSet { UserDefaults.standard.set(derivedDataRoots.map(\.path), forKey: Self.derivedDataRootsKey) }
     }
@@ -109,6 +114,7 @@ final class AppPreferences: ObservableObject {
         logo = AppLogo(rawValue: defaults.string(forKey: Self.logoKey) ?? "") ?? .orbit
         excludedPaths = defaults.stringArray(forKey: Self.excludedPathsKey) ?? []
         ignoredDuplicateHashes = Set(defaults.stringArray(forKey: Self.ignoredDuplicateHashesKey) ?? [])
+        ignoredOrphanIdentifiers = Set(defaults.stringArray(forKey: Self.ignoredOrphanIdentifiersKey) ?? [])
         derivedDataRoots = (defaults.stringArray(forKey: Self.derivedDataRootsKey) ?? [])
             .map { URL(fileURLWithPath: $0) }
         archivesRoots = (defaults.stringArray(forKey: Self.archivesRootsKey) ?? [])
@@ -155,6 +161,14 @@ final class AppPreferences: ObservableObject {
 
     func clearIgnoredDuplicateGroups() {
         ignoredDuplicateHashes.removeAll()
+    }
+
+    func ignoreOrphanIdentifier(_ identifier: String) {
+        ignoredOrphanIdentifiers.insert(identifier.lowercased())
+    }
+
+    func restoreOrphanIdentifier(_ identifier: String) {
+        ignoredOrphanIdentifiers.remove(identifier.lowercased())
     }
 
     func addDerivedDataRoot(_ url: URL) {
