@@ -188,6 +188,7 @@ public struct ScanReport: Sendable {
     public let omittedCount: Int
     public let warnings: [String]
     public let cancelled: Bool
+    public let applicationCaskToken: String?
     /// The space view may limit individually displayed files while retaining
     /// their bytes in every directory total. That limit does not invalidate a
     /// directory-size snapshot; unreadable paths and other omissions do.
@@ -202,7 +203,7 @@ public struct ScanReport: Sendable {
     public init(entries: [ScanEntry], warnings: [String], cancelled: Bool,
                 spaceItems: [SpaceItem] = [], scannedFileCount: Int? = nil, scannedBytes: Int64? = nil,
                 scannedAllocatedBytes: Int64? = nil, omittedCount: Int = 0,
-                spaceTree: SpaceTree? = nil) {
+                spaceTree: SpaceTree? = nil, applicationCaskToken: String? = nil) {
         self.entries = entries
         self.storedSpaceItems = spaceItems
         self.spaceTree = spaceTree
@@ -213,6 +214,7 @@ public struct ScanReport: Sendable {
         self.omittedCount = omittedCount
         self.warnings = warnings
         self.cancelled = cancelled
+        self.applicationCaskToken = applicationCaskToken
     }
 }
 

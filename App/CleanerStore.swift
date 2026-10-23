@@ -103,6 +103,7 @@ final class CleanerStore: ObservableObject {
         }
     }
     @Published private(set) var reviewedApplicationName: String?
+    @Published private(set) var reviewedHomebrewCaskToken: String?
     @Published private(set) var lastReviewedApplicationName: String?
     @Published private(set) var cleanupOverview = CleanupOverviewSnapshot.make(sources: [])
     @Published private(set) var overviewPlan: [String: CleanupOverviewItem] = [:]
@@ -536,6 +537,7 @@ final class CleanerStore: ObservableObject {
         scanDiagnostics[category] = nil
         applicationOverview = nil
         reviewedApplicationName = nil
+        reviewedHomebrewCaskToken = nil
         if category == .uninstall {
             lastReviewedApplicationName = nil
             lastReviewedApplicationEntries = nil
@@ -561,6 +563,7 @@ final class CleanerStore: ObservableObject {
         scanDiagnostics[category] = nil
         applicationOverview = nil
         reviewedApplicationName = nil
+        reviewedHomebrewCaskToken = nil
         if category == .uninstall {
             lastReviewedApplicationName = nil
             lastReviewedApplicationEntries = nil
@@ -751,6 +754,7 @@ final class CleanerStore: ObservableObject {
         restore(overview)
         applicationOverview = nil
         reviewedApplicationName = nil
+        reviewedHomebrewCaskToken = nil
     }
 
     func cancel() {
@@ -1063,6 +1067,7 @@ final class CleanerStore: ObservableObject {
                 applicationOverview = overview
             }
             reviewedApplicationName = app.url.lastPathComponent
+            reviewedHomebrewCaskToken = report.applicationCaskToken
             entries = report.entries
             lastReviewedApplicationName = reviewedApplicationName
             lastReviewedApplicationEntries = report.entries

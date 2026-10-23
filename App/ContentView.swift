@@ -237,6 +237,11 @@ struct ContentView: View {
                     }
                     Text(store.reviewedApplicationName ?? store.category.title).font(.largeTitle.bold())
                     Text(descriptionKey).foregroundStyle(.secondary)
+                    if let token = store.reviewedHomebrewCaskToken {
+                        Text(String(format: L("appHomebrewNotice"), token))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 if store.hasScanned && !store.isScanning &&
@@ -1024,16 +1029,25 @@ struct ContentView: View {
                 }
             } else if store.category == .uninstall && store.reviewedApplicationName != nil {
                 Section("appBundleSection") {
-                    ForEach(store.visibleEntries.filter(\.isDirectory)) { entry in resultRow(entry) }
+                    ForEach(store.visibleEntries.filter { $0.isDirectory && $0.note != "appPossibleRelated" }) {
+                        entry in resultRow(entry)
+                    }
                 }
                 Section("appCacheSection") {
-                    ForEach(store.visibleEntries.filter { !$0.isDirectory && isApplicationCache($0) }) {
+                    ForEach(store.visibleEntries.filter { !$0.isDirectory && $0.note != "appPossibleRelated" && isApplicationCache($0) }) {
                         entry in resultRow(entry)
                     }
                 }
                 Section("appDataSection") {
-                    ForEach(store.visibleEntries.filter { !$0.isDirectory && !isApplicationCache($0) }) {
+                    ForEach(store.visibleEntries.filter { !$0.isDirectory && $0.note != "appPossibleRelated" && !isApplicationCache($0) }) {
                         entry in resultRow(entry)
+                    }
+                }
+                if store.visibleEntries.contains(where: { $0.note == "appPossibleRelated" }) {
+                    Section("appPossibleRelatedSection") {
+                        ForEach(store.visibleEntries.filter { $0.note == "appPossibleRelated" }) {
+                            entry in resultRow(entry)
+                        }
                     }
                 }
             } else {
@@ -1236,6 +1250,7 @@ struct ContentView: View {
                     .disabled(store.isDeleting)
                     .accessibilityLabel(entry.url.lastPathComponent)
                 } else if store.category == .uninstall && entry.isDirectory &&
+                            entry.note != "appPossibleRelated" &&
                             entry.directorySignature == nil && entry.risk != .protected {
                     Color.clear
                         .frame(width: 22)
@@ -1262,11 +1277,13 @@ struct ContentView: View {
                          format: .dateTime.year().month().day().hour().minute())
                         .font(.caption).foregroundStyle(.secondary)
                     Text(store.category == .uninstall && store.reviewedApplicationName != nil ?
-                         L(entry.isDirectory ? "appBundleBasis" : "appExactMatchBasis") : L(entry.note))
+                         L(entry.note == "appPossibleRelated" ? "appPossibleRelatedBasis" :
+                           (entry.isDirectory ? "appBundleBasis" : "appExactMatchBasis")) : L(entry.note))
                         .font(.caption).foregroundStyle(entry.canDelete ? .orange : .secondary)
                 }
                 Spacer()
-                if store.category == .uninstall && entry.isDirectory && entry.directorySignature == nil &&
+                if store.category == .uninstall && entry.isDirectory && entry.note != "appPossibleRelated" &&
+                    entry.directorySignature == nil &&
                     entry.risk != .protected {
                     Button("reviewApp") { store.prepareApplication(entry) }
                         .hoverHighlight()
@@ -1505,7 +1522,8 @@ struct ContentView: View {
             lines.append("\(L("estimated")): \(size)")
         }
         lines.append("\(L("modifiedAt")): \(modified)")
-        if entry.category == .uninstall && entry.note != "appRunning" && !entry.note.isEmpty {
+        if entry.category == .uninstall && entry.note != "appRunning" &&
+            entry.note != "appPossibleRelated" && !entry.note.isEmpty {
             lines.append("\(L("bundleIdentifier")): \(entry.note)")
         }
         return lines.joined(separator: "\n")
@@ -1521,7 +1539,8 @@ struct ContentView: View {
         case .systemCache: L("reasonSystemCache")
         case .developerCache: L("reasonDeveloperCache")
         case .uninstall:
-            if entry.risk == .protected { L("appRunning") }
+            if entry.note == "appPossibleRelated" { L("appPossibleRelatedBasis") }
+            else if entry.risk == .protected { L("appRunning") }
             else if entry.isDirectory { L("reasonAppBundle") }
             else { L("reasonAppRelated") }
         case .orphans: L("reasonOrphanCandidate")
@@ -1533,6 +1552,7 @@ struct ContentView: View {
         if entry.note == "downloadInProgress" { return "downloadInProgress" }
         if entry.category == .orphans { return "orphanCandidate" }
         if entry.note == "keepOriginal" { return "keepOriginal" }
+        if entry.note == "appPossibleRelated" { return "appPossibleRelatedBasis" }
         if entry.risk == .protected { return "appRunning" }
         if entry.category == .uninstall { return "reviewApp" }
         return "protected"

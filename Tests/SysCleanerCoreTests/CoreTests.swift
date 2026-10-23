@@ -20,6 +20,36 @@ final class CoreTests: XCTestCase {
         return url
     }
 
+    func testApplicationRelatedCandidatesAreReadOnlyAndRespectBoundaries() throws {
+        let preferences = root.appendingPathComponent("Preferences")
+        try FileManager.default.createDirectory(at: preferences, withIntermediateDirectories: false)
+        let related = preferences.appendingPathComponent("com.example.editor.helper.plist")
+        let exact = preferences.appendingPathComponent("com.example.editor.plist")
+        let unrelated = preferences.appendingPathComponent("com.example.editorial.plist")
+        for url in [related, exact, unrelated] { try Data("data".utf8).write(to: url) }
+        let link = preferences.appendingPathComponent("com.example.editor.link.plist")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: related)
+        var warnings: [String] = []
+        let entries = FileScanner.possibleApplicationRelatedEntries(
+            identifier: "com.example.editor", roots: [preferences], existingPaths: [exact.path],
+            warnings: &warnings)
+        XCTAssertEqual(entries.map(\.url), [related])
+        XCTAssertFalse(entries[0].canDelete)
+        XCTAssertEqual(entries[0].note, "appPossibleRelated")
+        XCTAssertTrue(warnings.isEmpty)
+    }
+
+    func testHomebrewCaskRequiresExactAppTarget() throws {
+        let json = Data("""
+            {"casks":[{"token":"editor","artifacts":[{"app":["Editor.app"],"target":"/Applications/Editor.app"}]},
+                       {"token":"other","artifacts":[{"app":["Other.app"],"target":"/Applications/Other.app"}]}]}
+            """.utf8)
+        XCTAssertEqual(HomebrewCaskInventory.token(for: URL(fileURLWithPath: "/Applications/Editor.app"), json: json),
+                       "editor")
+        XCTAssertNil(HomebrewCaskInventory.token(for: URL(fileURLWithPath: "/Applications/Editor Beta.app"), json: json))
+        XCTAssertNil(HomebrewCaskInventory.token(for: URL(fileURLWithPath: "/Users/test/Editor.app"), json: json))
+    }
+
     func testDownloadsListsNestedFilesAndProtectsUnfinishedDownloads() throws {
         let nested = root.appendingPathComponent("subfolder")
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)

@@ -169,7 +169,7 @@
 "xcodeInvalidRoot" = "Choose a real DerivedData folder in your home directory that does not overlap another source or category.";
 "xcodeInvalidRootWarning" = "Invalid DerivedData source:";
 "xcodeOverlappingRootWarning" = "Overlaps an already scanned source:";
-"uninstallDescription" = "Review apps and precisely matched data before removal.";
+"uninstallDescription" = "Review apps, exact identifier matches, and possibly related files.";
 "orphansDescription" = "Review possible leftovers across Library locations by app identifier. Verify ownership in Finder; automatic deletion is unavailable.";
 "scan" = "Scan";
 "startScan" = "Start Scan";
@@ -339,7 +339,7 @@
 "scanSummaryExclusions" = "%d paths are configured as scan exclusions; rescan after changing them.";
 "scanSummaryEstimateHelp" = "Logical and allocated sizes are estimates. Trash, APFS snapshots, shared blocks, and other activity can change the space actually freed.";
 "scanScopeCaches" = "User Library/Caches and Library/Logs";
-"scanScopeApps" = "/Applications and user Applications; app details check exact bundle-ID paths in the user Library";
+"scanScopeApps" = "/Applications and user Applications; app details check exact and similar bundle-ID paths in the user Library";
 "scanScopeOrphans" = "Selected user Library data folders, after checking installed apps";
 "omittedItemsCount" = "At least %d items not listed or read";
 "observedAvailableChange" = "Observed available capacity change: %@%@";
@@ -356,6 +356,9 @@
 "appBundleSection" = "Application";
 "appCacheSection" = "Caches and logs";
 "appDataSection" = "User data and settings";
+"appPossibleRelatedSection" = "Possibly related files (review only)";
+"appPossibleRelatedBasis" = "The name resembles this app's identifier, but ownership is unverified; cleanup is unavailable here";
+"appHomebrewNotice" = "A Homebrew install record matches this app path (%@). Manage its removal in Homebrew; this app will not run Homebrew commands.";
 "appBundleBasis" = "Application bundle; contents are checked again before removal";
 "appExactMatchBasis" = "Inside a path matching this app's exact bundle identifier";
 "volumeOverview" = "Mounted volume overview";

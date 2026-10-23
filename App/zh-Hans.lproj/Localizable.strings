@@ -169,7 +169,7 @@
 "xcodeInvalidRoot" = "请选择个人目录中名为 DerivedData 的真实文件夹，且不得与已有来源或其他分类重叠。";
 "xcodeInvalidRootWarning" = "无效的 DerivedData 来源：";
 "xcodeOverlappingRootWarning" = "与已扫描来源重叠：";
-"uninstallDescription" = "审阅应用及精确匹配的关联数据。";
+"uninstallDescription" = "审阅应用、精确匹配的数据及可能关联的文件。";
 "orphansDescription" = "按应用标识审阅多个资源库位置的疑似残留；请在访达中核实归属，当前不提供自动删除。";
 "scan" = "扫描";
 "startScan" = "开始扫描";
@@ -339,7 +339,7 @@
 "scanSummaryExclusions" = "设置中有 %d 条扫描排除路径；修改后请重新扫描。";
 "scanSummaryEstimateHelp" = "逻辑大小和磁盘占用均为估算；废纸篓、APFS 快照、共享数据块和其他活动会影响实际释放空间。";
 "scanScopeCaches" = "用户资源库的 Caches 和 Logs";
-"scanScopeApps" = "/Applications 与用户 Applications；应用详情核对用户资源库中包标识精确匹配的路径";
+"scanScopeApps" = "/Applications 与用户 Applications；应用详情核对用户资源库中精确匹配及相近标识的路径";
 "scanScopeOrphans" = "核对已安装应用后，检查用户资源库中的部分数据目录";
 "omittedItemsCount" = "未单列或未读取至少 %d 项";
 "observedAvailableChange" = "操作后观察到的可用容量变化：%@%@";
@@ -356,6 +356,9 @@
 "appBundleSection" = "应用程序";
 "appCacheSection" = "缓存与日志";
 "appDataSection" = "用户数据与设置";
+"appPossibleRelatedSection" = "可能关联的文件（仅供核对）";
+"appPossibleRelatedBasis" = "名称与应用标识相近，归属未确认；不能在此勾选清理";
+"appHomebrewNotice" = "Homebrew 安装记录与此应用路径匹配（%@）。建议通过 Homebrew 管理卸载；此处不会运行 Homebrew。";
 "appBundleBasis" = "应用包；清理前再次核对内容";
 "appExactMatchBasis" = "位于与此应用包标识精确匹配的路径内";
 "volumeOverview" = "已挂载卷概览";

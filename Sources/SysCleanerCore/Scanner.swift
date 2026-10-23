@@ -2,6 +2,66 @@ import AppKit
 import CryptoKit
 import Foundation
 
+enum HomebrewCaskInventory {
+    static func token(for app: URL, json: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let casks = object["casks"] as? [[String: Any]] else { return nil }
+        let appPath = app.standardizedFileURL.path
+        let matches = casks.compactMap { cask -> String? in
+            guard let token = cask["token"] as? String,
+                  let artifacts = cask["artifacts"] as? [[String: Any]] else { return nil }
+            let ownsApp = artifacts.contains { artifact in
+                guard artifact["app"] is [String], let target = artifact["target"] as? String else { return false }
+                return URL(fileURLWithPath: target).standardizedFileURL.path == appPath
+            }
+            return ownsApp ? token : nil
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    static func installedToken(for app: URL, control: ScanControl) -> String? {
+        let paths = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+        guard let executable = paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            return nil
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["info", "--json=v2", "--installed", "--cask"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOMEBREW_NO_AUTO_UPDATE"] = "1"
+        environment["HOMEBREW_NO_ANALYTICS"] = "1"
+        environment["HOMEBREW_NO_GITHUB_API"] = "1"
+        process.environment = environment
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+        do { try process.run() } catch { return nil }
+        let reader = DispatchGroup()
+        let captured = OutputCapture()
+        reader.enter()
+        DispatchQueue.global(qos: .utility).async {
+            captured.data = output.fileHandleForReading.readDataToEndOfFile()
+            reader.leave()
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while finished.wait(timeout: .now() + .milliseconds(100)) == .timedOut {
+            if control.isCancelled || Date() >= deadline {
+                process.terminate()
+                return nil
+            }
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        reader.wait()
+        return captured.data.count <= 8_000_000 ? token(for: app, json: captured.data) : nil
+    }
+
+    private final class OutputCapture: @unchecked Sendable {
+        var data = Data()
+    }
+}
+
 public final class ScanControl: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
@@ -985,7 +1045,61 @@ public enum FileScanner {
             prepared.append(ScanEntry(url: file, scope: file.deletingLastPathComponent(), category: .uninstall,
                                       stamp: stamp, estimatedBytes: stamp.size, note: identifier))
         }
-        return ScanReport(entries: prepared, warnings: warnings, cancelled: control.isCancelled)
+        prepared += possibleApplicationRelatedEntries(identifier: identifier,
+                                                       roots: orphanCandidateLocations(),
+                                                       existingPaths: Set(prepared.map { $0.url.path }),
+                                                       control: control, excludedPaths: excludedPaths,
+                                                       warnings: &warnings)
+        let caskToken = control.isCancelled ? nil : HomebrewCaskInventory.installedToken(for: app.url, control: control)
+        return ScanReport(entries: prepared, warnings: warnings, cancelled: control.isCancelled,
+                          applicationCaskToken: caskToken)
+    }
+
+    /// Nearby bundle identifiers are useful evidence, but are never proof of ownership.
+    static func possibleApplicationRelatedEntries(identifier: String, roots: [URL], existingPaths: Set<String>,
+                                                  control: ScanControl = ScanControl(), excludedPaths: [String] = [],
+                                                  warnings: inout [String]) -> [ScanEntry] {
+        let prefix = identifier.lowercased() + "."
+        var entries: [ScanEntry] = []
+        for root in roots where !control.isCancelled {
+            guard let children = try? FileManager.default.contentsOfDirectory(at: root,
+                                                                                includingPropertiesForKeys: nil) else {
+                if FileManager.default.fileExists(atPath: root.path) { appendWarning(root.path, to: &warnings) }
+                continue
+            }
+            for child in children where !control.isCancelled {
+                if entries.count >= 200 {
+                    appendWarning("appRelatedLimit", to: &warnings)
+                    return entries
+                }
+                guard !existingPaths.contains(child.path), !isExcluded(child, paths: excludedPaths),
+                      !FileSafety.isCloudManagedPath(child),
+                      let metadata = FileSafety.metadata(at: child) else { continue }
+                let name = child.lastPathComponent.lowercased()
+                let candidateID: String
+                switch root.lastPathComponent {
+                case "Preferences", "LaunchAgents":
+                    guard child.pathExtension.lowercased() == "plist" else { continue }
+                    candidateID = String(name.dropLast(".plist".count))
+                case "HTTPStorages":
+                    guard name.hasSuffix(".binarycookies") else { continue }
+                    candidateID = String(name.dropLast(".binarycookies".count))
+                case "Saved Application State":
+                    guard name.hasSuffix(".savedstate") else { continue }
+                    candidateID = String(name.dropLast(".savedstate".count))
+                default:
+                    candidateID = name
+                }
+                guard candidateID.hasPrefix(prefix) else { continue }
+                entries.append(ScanEntry(url: child, scope: root, category: .uninstall,
+                                         stamp: metadata.stamp,
+                                         estimatedBytes: metadata.isDirectory ? 0 : metadata.stamp.size,
+                                         sizeIsKnown: !metadata.isDirectory,
+                                         note: "appPossibleRelated", isDirectory: metadata.isDirectory,
+                                         canDelete: false))
+            }
+        }
+        return entries
     }
 
     public static func directorySignature(_ root: URL, control: ScanControl = ScanControl())
