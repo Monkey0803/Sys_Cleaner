@@ -105,6 +105,8 @@ final class CleanerStore: ObservableObject {
     @Published private(set) var reviewedApplicationName: String?
     @Published private(set) var lastReviewedApplicationName: String?
     @Published private(set) var cleanupOverview = CleanupOverviewSnapshot.make(sources: [])
+    @Published private(set) var overviewPlan: [String: CleanupOverviewItem] = [:]
+    @Published private(set) var overviewResultOperations: [String: CleanupOverviewOperation] = [:]
     @Published private(set) var scanDiagnostics: [ScanCategory: [ScanDiagnostic]] = [:]
     @Published private(set) var spaceGrowthComparison: SpaceGrowthComparison =
         (try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL).latestComparison) ?? .noPrevious
@@ -218,6 +220,13 @@ final class CleanerStore: ObservableObject {
     var canStartOverviewScan: Bool {
         category == .overview && overviewScanState == nil && runningScans.isEmpty && !isDeleting
     }
+    var overviewPlanItems: [CleanupOverviewItem] {
+        cleanupOverview.candidates.filter { overviewPlan[$0.path] != nil }
+    }
+    var canExecuteOverviewPlan: Bool {
+        category == .overview && overviewScanState == nil && runningScans.isEmpty &&
+            !isDeleting && !overviewPlan.isEmpty
+    }
     var volumeAccountingSummary: VolumeAccountingSummary? {
         guard let rootPath = lastSpaceScanRootPath ?? latestSpaceSnapshot?.rootPath else { return nil }
         let volume = volumes.first { $0.id == rootPath }
@@ -241,14 +250,16 @@ final class CleanerStore: ObservableObject {
         xcodeSupplemental = caches.map {
             CleanupOverviewItem(path: $0.url.path, category: .developerCache,
                                 estimatedBytes: $0.allocatedBytes ?? $0.estimatedBytes,
-                                isDirectory: $0.isDirectory, operation: .trash)
+                                isDirectory: $0.isDirectory, operation: .trash,
+                                sourceEntry: $0)
         } + simulators.compactMap { simulator in
             guard simulator.canDelete, let path = simulator.dataPath, let bytes = simulator.dataBytes else {
                 return nil
             }
             return CleanupOverviewItem(path: path.path, category: .developerCache,
                                        estimatedBytes: bytes, isDirectory: true, operation: .simulator,
-                                       displayName: "\(simulator.name) · \(simulator.runtimeName)")
+                                       displayName: "\(simulator.name) · \(simulator.runtimeName)",
+                                       simulatorID: simulator.id)
         }
         xcodeSupplementalScanned = true
         xcodeSupplementalIncomplete = incomplete
@@ -288,7 +299,26 @@ final class CleanerStore: ObservableObject {
             supplementalIncomplete: (xcodeSupplementalIncomplete ||
                 (results[.developerCache]?.hasScanned == true && !xcodeSupplementalScanned))
                 ? [.developerCache] : [])
+        let current = Dictionary(uniqueKeysWithValues: cleanupOverview.candidates.map { ($0.path, $0) })
+        overviewPlan = overviewPlan.compactMapValues { selected in
+            guard let candidate = current[selected.path], candidate.canExecute,
+                  candidate.operation == selected.operation,
+                  candidate.sourceEntry?.id == selected.sourceEntry?.id,
+                  candidate.sourceEntry?.stamp == selected.sourceEntry?.stamp,
+                  candidate.simulatorID == selected.simulatorID else { return nil }
+            return candidate
+        }
     }
+
+    func selectOverviewCandidate(_ item: CleanupOverviewItem, selected: Bool) {
+        guard category == .overview, overviewScanState == nil, !isDeleting else { return }
+        guard selected else { overviewPlan.removeValue(forKey: item.path); return }
+        guard let current = cleanupOverview.candidates.first(where: { $0.path == item.path }),
+              current.canExecute else { return }
+        overviewPlan[current.path] = current
+    }
+
+    func clearOverviewPlan() { overviewPlan = [:] }
 
     func scanScopePaths(for category: ScanCategory) -> [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -785,6 +815,7 @@ final class CleanerStore: ObservableObject {
         let chosen = selectedEntries
         guard !chosen.isEmpty, !hasHiddenSelection, !isDeleting else { return }
         isDeleting = true
+        overviewResultOperations = [:]
         let deletedCategory = category
         Task.detached(priority: .userInitiated) { [weak self] in
             let capacityURL = DeletionCapacityScope.commonScope(for: chosen)
@@ -797,11 +828,106 @@ final class CleanerStore: ObservableObject {
         }
     }
 
+    func executeOverviewPlan() {
+        guard canExecuteOverviewPlan else { return }
+        let chosen = overviewPlanItems
+        guard chosen.count == overviewPlan.count, chosen.allSatisfy(\.canExecute) else { return }
+        isDeleting = true
+        overviewPlan = [:]
+        let capacityURL: URL? = {
+            let stamps = chosen.compactMap { FileSafety.stamp(at: URL(fileURLWithPath: $0.path)) }
+            guard stamps.count == chosen.count, let first = stamps.first,
+                  stamps.allSatisfy({ $0.device == first.device }) else { return nil }
+            return URL(fileURLWithPath: chosen[0].path).deletingLastPathComponent()
+        }()
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let before = capacityURL.flatMap(observedAvailableCapacity)
+            let outcomes: [(CleanupOverviewItem, DeleteResult)] = chosen.map { item in
+                let url = URL(fileURLWithPath: item.path)
+                switch item.operation {
+                case .trash:
+                    guard let entry = item.sourceEntry else {
+                        return (item, DeleteResult(url: url, success: false, message: "changed"))
+                    }
+                    return (item, FileDeletion.execute([entry], mode: .trash)[0])
+                case .cloudEviction:
+                    guard let entry = item.sourceEntry else {
+                        return (item, DeleteResult(url: url, success: false, message: "changed"))
+                    }
+                    return (item, ICloudDrive.evict(entry))
+                case .simulator:
+                    guard let id = item.simulatorID else {
+                        return (item, DeleteResult(url: url, success: false, message: "changed"))
+                    }
+                    do {
+                        guard let device = try XcodeStorage.simulators().first(where: { $0.id == id }),
+                              device.canDelete,
+                              device.dataPath?.standardizedFileURL.path == item.path,
+                              device.dataBytes == item.estimatedBytes else {
+                            return (item, DeleteResult(url: url, success: false, message: "changed"))
+                        }
+                        try XcodeStorage.deleteSimulator(id: id)
+                        return (item, DeleteResult(url: url, success: true, message: "simulatorDeleted"))
+                    } catch {
+                        return (item, DeleteResult(url: url, success: false,
+                                                   message: error.localizedDescription))
+                    }
+                }
+            }
+            let after = capacityURL.flatMap(observedAvailableCapacity)
+            let delta = before.flatMap { initial in after.map { $0 - initial } }
+            await self?.finishOverviewPlan(outcomes, availableSpaceDelta: delta)
+        }
+    }
+
+    private func finishOverviewPlan(_ outcomes: [(CleanupOverviewItem, DeleteResult)],
+                                    availableSpaceDelta: Int64?) {
+        results = outcomes.map(\.1)
+        overviewResultOperations = Dictionary(uniqueKeysWithValues:
+            outcomes.map { ($0.0.path, $0.0.operation) })
+        lastAvailableSpaceDelta = availableSpaceDelta
+        showResults = true
+        let trash = outcomes.filter { $0.0.operation == .trash }
+        for group in Dictionary(grouping: trash, by: { $0.0.category }) {
+            let items = group.value.map { item, result in
+                CleanupHistoryItem(path: result.url.path, estimatedBytes: item.estimatedBytes,
+                    success: result.success, message: result.message,
+                    trashPath: result.trashURL?.path, scopePath: item.sourceEntry?.scope.path,
+                    trashStamp: item.sourceEntry?.isDirectory == true && result.trashSignature == nil
+                        ? nil : result.trashURL.flatMap { FileSafety.stamp(at: $0) },
+                    trashSignature: result.trashSignature)
+            }
+            cleanupHistory.insert(CleanupHistoryRecord(category: group.key.rawValue,
+                                                       mode: "trash", items: items), at: 0)
+        }
+        if cleanupHistory.count > 50 { cleanupHistory.removeLast(cleanupHistory.count - 50) }
+        if !trash.isEmpty {
+            do {
+                try CleanupHistoryStorage.save(cleanupHistory, to: Self.historyURL)
+                historyError = nil
+            } catch {
+                historyError = error.localizedDescription
+            }
+        }
+        if outcomes.contains(where: { $0.1.success }) {
+            cancelAllScans()
+            categoryResults.removeAll()
+            applicationOverview = nil
+            lastReviewedApplicationEntries = nil
+            xcodeSupplemental = []
+            xcodeSupplementalScanned = false
+            xcodeSupplementalIncomplete = false
+        }
+        isDeleting = false
+        rebuildCleanupOverview()
+    }
+
     func evictCloud() {
         let chosen = selectedEntries
         guard category == .icloud, !chosen.isEmpty, !hasHiddenSelection,
               !isDeleting, !isScanning else { return }
         isDeleting = true
+        overviewResultOperations = [:]
         Task.detached(priority: .userInitiated) { [weak self] in
             let before = observedAvailableCapacity(ICloudDrive.root)
             let outcomes = chosen.map { ICloudDrive.evict($0) }
@@ -824,6 +950,7 @@ final class CleanerStore: ObservableObject {
         guard category == .developerCache, !chosen.isEmpty, !isDeleting,
               chosen.allSatisfy({ $0.note == "verifiedSharedCache" && $0.category == .developerCache }) else { return }
         isDeleting = true
+        overviewResultOperations = [:]
         let outcome = await Task.detached(priority: .userInitiated) {
             let capacityURL = DeletionCapacityScope.commonScope(for: chosen)
             let before = capacityURL.flatMap(observedAvailableCapacity)

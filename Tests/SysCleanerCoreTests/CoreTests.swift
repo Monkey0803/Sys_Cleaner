@@ -74,34 +74,46 @@ final class CoreTests: XCTestCase {
                 entries: [entry(folder, category: .large, bytes: 100, isDirectory: true, allocated: 100),
                           entry(other, category: .large, bytes: 50)], incomplete: false),
             CleanupOverviewSource(category: .downloads,
-                entries: [entry(nested, category: .downloads, bytes: 6),
+                entries: [entry(nested, category: .downloads, bytes: 6, allocated: 6),
                           entry(other, category: .downloads, bytes: 50, allocated: 32)], incomplete: true),
             CleanupOverviewSource(category: .icloud,
                 entries: [entry(cloud, category: .icloud, bytes: 999, allocated: 24)], incomplete: false),
             CleanupOverviewSource(category: .orphans,
                 entries: [entry(nested, category: .orphans, bytes: 6, canDelete: false)], incomplete: false)
         ], supplementalScanned: [.developerCache])
-        XCTAssertEqual(overview.localEstimate, 132)
+        XCTAssertEqual(overview.localEstimate, 38)
         XCTAssertEqual(overview.cloudEstimate, 24)
-        XCTAssertEqual(overview.duplicateCount, 2)
-        XCTAssertEqual(overview.sections.first { $0.category == .downloads }?.candidateCount, 1)
-        XCTAssertEqual(overview.sections.first { $0.category == .large }?.candidateCount, 1)
+        XCTAssertEqual(overview.duplicateCount, 1)
+        XCTAssertEqual(overview.sections.first { $0.category == .downloads }?.candidateCount, 2)
+        XCTAssertEqual(overview.sections.first { $0.category == .large }?.candidateCount, 0)
         XCTAssertEqual(overview.sections.first { $0.category == .downloads }?.incomplete, true)
         XCTAssertEqual(overview.sections.first { $0.category == .developerCache }?.scanned, true)
         XCTAssertEqual(overview.sections.first { $0.category == .orphans }?.candidateCount, 0)
         XCTAssertEqual(overview.sections.first { $0.category == .systemCache }?.scanned, false)
-        XCTAssertEqual(overview.largestCandidates.first?.path, folder.path)
+        XCTAssertEqual(overview.largestCandidates.first?.path, other.path)
         XCTAssertEqual(overview.largestCandidates.first?.risk, .review)
         XCTAssertEqual(overview.largestCandidates.count, 3)
         XCTAssertEqual(overview.candidates.count, 3)
+        let selectedOther = try XCTUnwrap(overview.candidates.first { $0.path == other.path })
+        XCTAssertEqual(selectedOther.sourceEntry?.category, .downloads)
+        XCTAssertEqual(selectedOther.sourceEntry?.url, other)
+        XCTAssertTrue(selectedOther.canExecute)
+        XCTAssertFalse(overview.candidates.contains { $0.path == folder.path })
+        XCTAssertTrue(overview.candidates.contains { $0.path == nested.path })
+        XCTAssertTrue(overview.candidates.first { $0.path == cloud.path }!.canExecute)
         let simulator = CleanupOverviewItem(path: root.appendingPathComponent("Device/data").path,
                                             category: .developerCache, estimatedBytes: 20,
                                             isDirectory: true, operation: .simulator,
                                             displayName: "iPhone · iOS 27")
         let supplemental = CleanupOverviewSnapshot.make(sources: [], supplemental: [simulator],
                                                         supplementalScanned: [.developerCache])
-        XCTAssertEqual(supplemental.largestCandidates.first?.displayName, "iPhone · iOS 27")
-        XCTAssertEqual(supplemental.largestCandidates.first?.operation, .simulator)
+        XCTAssertTrue(supplemental.candidates.isEmpty)
+        let reviewedSimulator = CleanupOverviewItem(path: simulator.path, category: .developerCache,
+            estimatedBytes: 20, isDirectory: true, operation: .simulator,
+            simulatorID: "C0B5B224-3E30-458F-BA65-C86A670E631D")
+        XCTAssertTrue(reviewedSimulator.canExecute)
+        XCTAssertEqual(CleanupOverviewSnapshot.make(sources: [], supplemental: [reviewedSimulator])
+            .candidates.first?.operation, .simulator)
     }
 
     func testCleanupOverviewKeepsFullReviewListBeyondLargestTwenty() throws {

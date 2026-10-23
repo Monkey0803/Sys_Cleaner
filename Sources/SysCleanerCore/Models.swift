@@ -228,10 +228,32 @@ public struct CleanupOverviewItem: Sendable {
     public let isDirectory: Bool
     public let operation: CleanupOverviewOperation
     public let risk: RiskLevel
+    public let sourceEntry: ScanEntry?
+    public let simulatorID: String?
+
+    public var canExecute: Bool {
+        switch operation {
+        case .trash:
+            guard let entry = sourceEntry, entry.canDelete, entry.risk != .protected,
+                  entry.sizeIsKnown, entry.category == category,
+                  entry.url.standardizedFileURL.path == path else { return false }
+            return !entry.isDirectory ||
+                ((entry.category == .uninstall || entry.category == .developerCache) &&
+                 entry.directorySignature != nil)
+        case .cloudEviction:
+            guard let entry = sourceEntry else { return false }
+            return category == .icloud && !entry.isDirectory && entry.canDelete &&
+                entry.risk != .protected && entry.allocatedBytes != nil &&
+                entry.url.standardizedFileURL.path == path
+        case .simulator:
+            return category == .developerCache && isDirectory && simulatorID != nil
+        }
+    }
 
     public init(path: String, category: ScanCategory, estimatedBytes: Int64,
                 isDirectory: Bool, operation: CleanupOverviewOperation, risk: RiskLevel = .review,
-                displayName: String? = nil) {
+                displayName: String? = nil, sourceEntry: ScanEntry? = nil,
+                simulatorID: String? = nil) {
         self.path = path
         self.displayName = displayName
         self.category = category
@@ -239,6 +261,8 @@ public struct CleanupOverviewItem: Sendable {
         self.isDirectory = isDirectory
         self.operation = operation
         self.risk = risk
+        self.sourceEntry = sourceEntry
+        self.simulatorID = simulatorID
     }
 }
 
@@ -281,16 +305,18 @@ public struct CleanupOverviewSnapshot: Sendable {
         let order: [ScanCategory] = [.downloads, .duplicates, .large, .systemCache,
                                      .developerCache, .uninstall, .icloud, .space, .orphans]
         let sourceByCategory = Dictionary(uniqueKeysWithValues: sources.map { ($0.category, $0) })
-        var candidates = supplemental
+        var candidates = supplemental.filter(\.canExecute)
         for source in sources {
             for entry in source.entries where entry.canDelete && entry.risk != .protected && entry.sizeIsKnown {
                 let operation: CleanupOverviewOperation = source.category == .icloud ? .cloudEviction : .trash
                 guard source.category != .icloud || entry.allocatedBytes != nil else { continue }
-                candidates.append(CleanupOverviewItem(
+                let candidate = CleanupOverviewItem(
                     path: entry.url.standardizedFileURL.path, category: source.category,
                     estimatedBytes: operation == .cloudEviction ? (entry.allocatedBytes ?? 0)
                         : (entry.allocatedBytes ?? entry.estimatedBytes),
-                    isDirectory: entry.isDirectory, operation: operation, risk: entry.risk))
+                    isDirectory: entry.isDirectory, operation: operation, risk: entry.risk,
+                    sourceEntry: entry)
+                if candidate.canExecute { candidates.append(candidate) }
             }
         }
         // A selected directory already contains its descendants. Sorting parents first

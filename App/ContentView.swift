@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var overviewPage = 0
     @State private var overviewScanSelection: Set<ScanCategory> =
         [.downloads, .systemCache, .orphans]
+    @State private var showingOverviewPlanConfirmation = false
     private let overviewItemsPerPage = 50
     private let cloudItemsPerPage = 200
     private let duplicateGroupsPerPage = 200
@@ -174,6 +175,12 @@ struct ContentView: View {
             } message: {
                 Text(String(format: L("icloudConfirmDetail"), store.selectedEntries.count,
                             fileSize(store.selectedAllocatedBytes ?? 0)))
+            }
+            .alert(L("overviewPlanConfirmTitle"), isPresented: $showingOverviewPlanConfirmation) {
+                Button("overviewExecutePlan", role: .destructive) { store.executeOverviewPlan() }
+                Button(L("cancel"), role: .cancel) {}
+            } message: {
+                Text(overviewPlanConfirmationText)
             }
             .sheet(isPresented: $store.showResults) { resultsSheet }
             .sheet(isPresented: $store.showHistory) { historySheet }
@@ -519,6 +526,7 @@ struct ContentView: View {
                     Text(String(format: L("overviewOverlapCount"), store.cleanupOverview.duplicateCount))
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                overviewReviewContent
                 Text("overviewSources").font(.title3.bold())
                 ForEach(store.cleanupOverview.sections) { section in
                     HStack(spacing: 12) {
@@ -570,7 +578,6 @@ struct ContentView: View {
                     .padding(12)
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
                 }
-                overviewReviewContent
                 overviewGrowthContent
                 spaceAccountingContent
                 Text("overviewXcodeHelp").font(.caption).foregroundStyle(.secondary)
@@ -723,10 +730,18 @@ struct ContentView: View {
             Text(String(format: L("overviewReviewCount"), candidates.count,
                         store.cleanupOverview.candidates.count))
                 .font(.caption).foregroundStyle(.secondary)
+            overviewPlanContent
             LazyVStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(candidates.dropFirst(page * overviewItemsPerPage)
                     .prefix(overviewItemsPerPage).enumerated()), id: \.offset) { _, item in
                     HStack(spacing: 10) {
+                        Toggle("", isOn: Binding(
+                            get: { store.overviewPlan[item.path] != nil },
+                            set: { store.selectOverviewCandidate(item, selected: $0) }))
+                            .labelsHidden()
+                            .disabled(!item.canExecute || store.isDeleting ||
+                                      store.overviewScanState != nil)
+                            .help(L(item.canExecute ? "overviewAddToPlan" : "overviewPlanUnavailable"))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.displayName ?? URL(fileURLWithPath: item.path).lastPathComponent)
                                 .fontWeight(.medium).lineLimit(1)
@@ -758,6 +773,71 @@ struct ContentView: View {
                 .font(.caption)
             }
         }
+    }
+
+    private var overviewPlanContent: some View {
+        let items = store.overviewPlanItems
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(String(format: L("overviewPlanSummary"), items.count,
+                            fileSize(items.reduce(0) { $0 + $1.estimatedBytes })))
+                    .fontWeight(.semibold)
+                Spacer()
+                Button("overviewClearPlan") { store.clearOverviewPlan() }
+                    .hoverHighlight()
+                    .disabled(items.isEmpty || store.isDeleting)
+                Button("overviewReviewAndExecute") { showingOverviewPlanConfirmation = true }
+                    .buttonStyle(.borderedProminent)
+                    .hoverHighlight()
+                    .disabled(!store.canExecuteOverviewPlan)
+            }
+            if items.isEmpty {
+                Text("overviewPlanEmpty").font(.caption).foregroundStyle(.secondary)
+            } else {
+                DisclosureGroup("overviewPlanSelectedItems") {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 6) {
+                            ForEach(items, id: \.path) { item in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.displayName ?? URL(fileURLWithPath: item.path).lastPathComponent)
+                                            .lineLimit(1)
+                                        Text("\(item.category.title) · \(overviewOperation(item.operation)) · \(item.path)")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                            .lineLimit(1).truncationMode(.middle)
+                                    }
+                                    Spacer()
+                                    Text(fileSize(item.estimatedBytes)).monospacedDigit()
+                                    Button {
+                                        store.selectOverviewCandidate(item, selected: false)
+                                    } label: {
+                                        Label("overviewRemoveFromPlan", systemImage: "xmark.circle")
+                                            .labelStyle(.iconOnly)
+                                    }
+                                    .hoverHighlight()
+                                    .help(L("overviewRemoveFromPlan"))
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                }
+                .font(.caption)
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var overviewPlanConfirmationText: String {
+        let items = store.overviewPlanItems
+        let message = String(format: L("overviewPlanConfirmDetail"), items.count,
+            fileSize(items.reduce(0) { $0 + $1.estimatedBytes }),
+            items.filter { $0.operation == .trash }.count,
+            items.filter { $0.operation == .cloudEviction }.count,
+            items.filter { $0.operation == .simulator }.count)
+        return message + (items.contains { $0.operation == .simulator }
+                          ? "\n\n" + L("overviewPlanSimulatorWarning") : "")
     }
 
     private func overviewDiagnostics(_ diagnostics: [ScanDiagnostic]) -> some View {
@@ -1394,6 +1474,10 @@ struct ContentView: View {
                     VStack(alignment: .leading) {
                         Text(result.url.lastPathComponent)
                         Text(result.url.path).font(.caption).foregroundStyle(.secondary)
+                        if let operation = store.overviewResultOperations[result.url.path] {
+                            Text(overviewOperation(operation))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Text(L(result.status == .success ? "resultSuccess" :
