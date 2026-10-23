@@ -178,9 +178,6 @@ public enum FileRestoration {
               currentStamp.modifiedSeconds == expectedStamp.modifiedSeconds,
               currentStamp.modifiedNanoseconds == expectedStamp.modifiedNanoseconds,
               currentStamp.linkCount == expectedStamp.linkCount else { return "restoreChanged" }
-        if !FileSafety.isDirectory(trash) && currentStamp != expectedStamp {
-            return "restoreChanged"
-        }
         if let expectedSignature = item.trashSignature {
             guard FileScanner.directorySignature(trash)?.digest == expectedSignature else {
                 return "restoreChanged"

@@ -721,6 +721,33 @@ final class CoreTests: XCTestCase {
                        Data("original".utf8))
     }
 
+    func testTrashHistoryAllowsFileChangeTimeToDrift() throws {
+        let scope = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/SysCleanerRestoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scope, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scope) }
+        let original = scope.appendingPathComponent("sample.txt")
+        try Data("original".utf8).write(to: original)
+        let entry = try XCTUnwrap(FileScanner.scan(
+            ScanRequest(category: .large, root: scope, minimumBytes: 1)).entries.first)
+        let outcome = try XCTUnwrap(FileDeletion.execute([entry], mode: .trash).first)
+        XCTAssertTrue(outcome.success)
+        let trash = try XCTUnwrap(outcome.trashURL)
+        defer { try? FileManager.default.removeItem(at: trash) }
+        let stamp = try XCTUnwrap(FileSafety.stamp(at: trash))
+        let recorded = FileStamp(device: stamp.device, inode: stamp.inode, size: stamp.size,
+                                 modifiedSeconds: stamp.modifiedSeconds,
+                                 modifiedNanoseconds: stamp.modifiedNanoseconds,
+                                 linkCount: stamp.linkCount, allocatedBytes: stamp.allocatedBytes,
+                                 changedSeconds: (stamp.changedSeconds ?? 0) - 1,
+                                 changedNanoseconds: stamp.changedNanoseconds)
+        let item = CleanupHistoryItem(path: original.path, estimatedBytes: entry.estimatedBytes,
+                                      success: true, message: outcome.message, trashPath: trash.path,
+                                      scopePath: scope.path, trashStamp: recorded)
+        XCTAssertNil(FileRestoration.restore(item, category: .large))
+        XCTAssertEqual(try Data(contentsOf: original), Data("original".utf8))
+    }
+
     func testTrashHistoryRejectsDirectoryContentChangedAfterMove() throws {
         let scope = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Caches/SysCleanerRestoreTests-\(UUID().uuidString)")
