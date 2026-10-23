@@ -20,6 +20,12 @@ struct ContentView: View {
     @State private var duplicateGroupPage = 0
     @State private var cloudPage = 0
     @State private var showingCloudConfirmation = false
+    @State private var overviewQuery = ""
+    @State private var overviewCategory: ScanCategory?
+    @State private var reviewOperationFilter: CleanupOverviewOperation?
+    @State private var reviewRiskFilter: RiskLevel?
+    @State private var overviewPage = 0
+    private let overviewItemsPerPage = 50
     private let cloudItemsPerPage = 200
     private let duplicateGroupsPerPage = 200
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -27,10 +33,14 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: Binding(get: { store.category }, set: { store.changeCategory($0) })) {
+                Section {
+                    categoryRow(.overview)
+                }
                 Section(L("explore")) {
                     categoryRow(.space)
                     categoryRow(.large)
                     categoryRow(.duplicates)
+                    categoryRow(.downloads)
                     categoryRow(.icloud)
                 }
                 Section(L("cleanup")) {
@@ -44,7 +54,9 @@ struct ContentView: View {
             .frame(minWidth: 200)
         } detail: {
             VStack(spacing: 0) {
-                if store.category == .developerCache {
+                if store.category == .overview {
+                    overviewContent
+                } else if store.category == .developerCache {
                     XcodeWorkspaceView()
                 } else {
                 header
@@ -183,6 +195,10 @@ struct ContentView: View {
             duplicateGroupPage = min(duplicateGroupPage,
                                      max(0, (count - 1) / duplicateGroupsPerPage))
         }
+        .onChange(of: overviewQuery) { _, _ in overviewPage = 0 }
+        .onChange(of: overviewCategory) { _, _ in overviewPage = 0 }
+        .onChange(of: reviewOperationFilter) { _, _ in overviewPage = 0 }
+        .onChange(of: reviewRiskFilter) { _, _ in overviewPage = 0 }
         .onChange(of: store.hasScanned) { _, scanned in
             if store.category == .space && scanned { showingVolumeOverview = false }
             if !scanned { duplicateGroupPage = 0 }
@@ -371,9 +387,11 @@ struct ContentView: View {
 
     private var descriptionKey: LocalizedStringKey {
         switch store.category {
+        case .overview: "overviewDescription"
         case .space: "spaceDescription"
         case .large: "largeDescription"
         case .duplicates: "duplicatesDescription"
+        case .downloads: "downloadsDescription"
         case .systemCache: "systemCacheDescription"
         case .developerCache: "developerCacheDescription"
         case .uninstall: "uninstallDescription"
@@ -450,6 +468,301 @@ struct ContentView: View {
         .hoverHighlight()
         .disabled(store.isDeleting)
         .help(L("sort"))
+    }
+
+    private var overviewContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("overview").font(.largeTitle.bold())
+                    Text("overviewDescription").foregroundStyle(.secondary)
+                }
+                HStack(spacing: 12) {
+                    overviewMetric("overviewLocalEstimate", bytes: store.cleanupOverview.localEstimate,
+                                   symbol: "internaldrive")
+                    overviewMetric("overviewCloudEstimate", bytes: store.cleanupOverview.cloudEstimate,
+                                   symbol: "icloud")
+                }
+                Text("overviewEstimateHelp")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("overviewScanBoundaryHelp")
+                    .font(.caption).foregroundStyle(.secondary)
+                overviewExcludedLocations
+                if store.cleanupOverview.duplicateCount > 0 {
+                    Text(String(format: L("overviewOverlapCount"), store.cleanupOverview.duplicateCount))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("overviewSources").font(.title3.bold())
+                ForEach(store.cleanupOverview.sections) { section in
+                    HStack(spacing: 12) {
+                        Image(systemName: section.category.symbol)
+                            .frame(width: 24)
+                            .foregroundStyle(Color.accentColor)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(section.category.title).fontWeight(.semibold)
+                            overviewScopePaths(for: section.category)
+                            if !section.scanned {
+                                Text("overviewNotScanned").foregroundStyle(.secondary)
+                            } else if section.category == .space || section.category == .orphans {
+                                Text("overviewReadOnly").foregroundStyle(.secondary)
+                            } else {
+                                Text(String(format: L("overviewCandidateSummary"),
+                                            section.candidateCount, fileSize(section.estimatedBytes)))
+                                    .foregroundStyle(.secondary)
+                            }
+                            if section.incomplete {
+                                Text("partialResults").foregroundStyle(.orange)
+                            }
+                            if section.omittedCount > 0 {
+                                Text(String(format: L("omittedItemsCount"), section.omittedCount))
+                                    .foregroundStyle(.orange)
+                            }
+                            if section.scanned, !store.diagnostics(for: section.category).isEmpty {
+                                overviewDiagnostics(store.diagnostics(for: section.category))
+                            }
+                            if section.category == .uninstall && section.scanned {
+                                if let name = store.lastReviewedApplicationName {
+                                    Text(String(format: L("overviewUninstallReviewed"), name))
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("overviewUninstallHint").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Spacer()
+                        Button("overviewOpenCategory") { store.changeCategory(section.category) }
+                            .hoverHighlight()
+                            .disabled(store.isDeleting)
+                    }
+                    .font(.callout)
+                    .padding(12)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                }
+                overviewReviewContent
+                overviewGrowthContent
+                Text("overviewXcodeHelp").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var overviewReviewCandidates: [CleanupOverviewItem] {
+        let query = overviewQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.cleanupOverview.candidates.filter { item in
+            (overviewCategory == nil || item.category == overviewCategory) &&
+            (reviewOperationFilter == nil || item.operation == reviewOperationFilter) &&
+            (reviewRiskFilter == nil || item.risk == reviewRiskFilter) &&
+            (query.isEmpty || item.path.localizedCaseInsensitiveContains(query) ||
+                (item.displayName?.localizedCaseInsensitiveContains(query) ?? false))
+        }
+    }
+
+    private var overviewReviewContent: some View {
+        let candidates = overviewReviewCandidates
+        let pageCount = max(1, (candidates.count + overviewItemsPerPage - 1) / overviewItemsPerPage)
+        let page = min(overviewPage, pageCount - 1)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("overviewReviewTitle").font(.title3.bold())
+            Text("overviewReviewHelp").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                ClearableSearchField(placeholder: L("overviewReviewSearch"), text: $overviewQuery)
+                    .frame(maxWidth: 360)
+                Menu {
+                    Button("overviewReviewAllCategories") { overviewCategory = nil }
+                    ForEach(store.cleanupOverview.sections) { section in
+                        Button(section.category.title) { overviewCategory = section.category }
+                    }
+                } label: {
+                    Text(overviewCategory?.title ?? L("overviewReviewAllCategories"))
+                }
+                .hoverHighlight()
+                Menu {
+                    Button("overviewReviewAllOperations") { reviewOperationFilter = nil }
+                    Button("overviewActionTrash") { reviewOperationFilter = .trash }
+                    Button("overviewActionCloud") { reviewOperationFilter = .cloudEviction }
+                    Button("overviewActionSimulator") { reviewOperationFilter = .simulator }
+                } label: {
+                    Text(reviewOperationFilter.map(overviewOperation) ?? L("overviewReviewAllOperations"))
+                }
+                .hoverHighlight()
+                Menu {
+                    Button("overviewReviewAllRisks") { reviewRiskFilter = nil }
+                    Button("overviewRiskLow") { reviewRiskFilter = .low }
+                    Button("overviewRiskReview") { reviewRiskFilter = .review }
+                } label: {
+                    Text(reviewRiskFilter.map(overviewRisk) ?? L("overviewReviewAllRisks"))
+                }
+                .hoverHighlight()
+            }
+            Text(String(format: L("overviewReviewCount"), candidates.count,
+                        store.cleanupOverview.candidates.count))
+                .font(.caption).foregroundStyle(.secondary)
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(candidates.dropFirst(page * overviewItemsPerPage)
+                    .prefix(overviewItemsPerPage).enumerated()), id: \.offset) { _, item in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.displayName ?? URL(fileURLWithPath: item.path).lastPathComponent)
+                                .fontWeight(.medium).lineLimit(1)
+                            Text(item.path).font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                            Text("\(item.category.title) · \(overviewOperation(item.operation)) · \(overviewRisk(item.risk))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Text(fileSize(item.estimatedBytes)).monospacedDigit()
+                        Button("overviewOpenCategory") { store.reviewOverviewCandidate(item) }
+                            .hoverHighlight()
+                            .disabled(store.isDeleting)
+                    }
+                    .font(.callout)
+                    .padding(10)
+                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            if pageCount > 1 {
+                HStack {
+                    Button("previousPage") { overviewPage = max(0, page - 1) }
+                        .hoverHighlight().disabled(page == 0)
+                    Text(String(format: L("overviewReviewPage"), page + 1, pageCount))
+                        .foregroundStyle(.secondary)
+                    Button("nextPage") { overviewPage = min(pageCount - 1, page + 1) }
+                        .hoverHighlight().disabled(page >= pageCount - 1)
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    private func overviewDiagnostics(_ diagnostics: [ScanDiagnostic]) -> some View {
+        DisclosureGroup(String(format: L("overviewDiagnosticCount"), diagnostics.count)) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(diagnostics.enumerated()), id: \.offset) { _, issue in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(localizedWarning(issue.detail)).textSelection(.enabled)
+                        Text(L("diagnosticHint_\(issue.kind.rawValue)"))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if diagnostics.contains(where: { $0.kind == .unreadable }) {
+                    Button("fullDiskAccess") { store.openFullDiskAccess() }
+                        .hoverHighlight()
+                }
+            }
+            .font(.caption)
+        }
+        .foregroundStyle(.orange)
+    }
+
+    private func overviewScopePaths(for category: ScanCategory) -> some View {
+        let paths = store.scanScopePaths(for: category)
+        return DisclosureGroup(String(format: L("overviewScopeCount"), paths.count)) {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(paths, id: \.self) { path in
+                    Text(path).font(.caption.monospaced()).textSelection(.enabled)
+                }
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private var overviewExcludedLocations: some View {
+        let configured = AppPreferences.shared.excludedPaths
+        return DisclosureGroup("overviewExcludedTitle") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("overviewExcludedHelp")
+                ForEach(FileSafety.cloudManagedDirectoryPaths, id: \.self) { path in
+                    Text(path).font(.caption.monospaced()).textSelection(.enabled)
+                }
+                Text("overviewTrashExcluded")
+                if !configured.isEmpty {
+                    Text("overviewConfiguredExclusions").fontWeight(.semibold)
+                    ForEach(configured, id: \.self) { path in
+                        Text(path).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                }
+            }
+            .font(.caption)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var overviewGrowthContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("spaceGrowthTitle").font(.title3.bold())
+            if let error = store.spaceHistoryError {
+                Text(String(format: L("spaceGrowthSaveFailed"), error)).foregroundStyle(.orange)
+            }
+            switch store.spaceGrowthComparison {
+            case .noPrevious:
+                Text("spaceGrowthNoPrevious").foregroundStyle(.secondary)
+            case .sourcesChanged:
+                Text("spaceGrowthSourcesChanged").foregroundStyle(.orange)
+            case .comparable(let previousDate, let currentDate, let rootPath,
+                             let previousTotal, let currentTotal, let sampledCount, let directoryCount,
+                             let newSampleCount, let growth):
+                Text(rootPath).font(.caption.monospaced()).textSelection(.enabled)
+                Text(String(format: L("spaceGrowthPeriod"), localizedDate(previousDate),
+                            localizedDate(currentDate)))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(String(format: L("spaceGrowthTotal"), fileSize(previousTotal), fileSize(currentTotal)))
+                Text(String(format: L("spaceGrowthCoverage"), sampledCount, directoryCount))
+                    .font(.caption).foregroundStyle(.secondary)
+                if newSampleCount > 0 {
+                    Text(String(format: L("spaceGrowthNewSampleCount"), newSampleCount))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if growth.isEmpty {
+                    Text("spaceGrowthNoIncrease").foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(growth.prefix(20).enumerated()), id: \.offset) { _, item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(URL(fileURLWithPath: item.path).lastPathComponent).fontWeight(.medium)
+                                Text(item.path).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                            Spacer()
+                            Text("+" + fileSize(item.increase))
+                                .monospacedDigit()
+                        }
+                        .font(.callout)
+                        .padding(8)
+                        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+        }
+    }
+
+    private func overviewOperation(_ operation: CleanupOverviewOperation) -> String {
+        switch operation {
+        case .trash: L("overviewActionTrash")
+        case .cloudEviction: L("overviewActionCloud")
+        case .simulator: L("overviewActionSimulator")
+        }
+    }
+
+    private func overviewRisk(_ risk: RiskLevel) -> String {
+        switch risk {
+        case .low: L("overviewRiskLow")
+        case .review: L("overviewRiskReview")
+        case .protected: L("overviewRiskProtected")
+        }
+    }
+
+    private func overviewMetric(_ title: LocalizedStringKey, bytes: Int64, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: symbol).font(.callout.weight(.semibold))
+            Text(fileSize(bytes)).font(.title2.monospacedDigit().bold())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var resultsContent: some View {
@@ -893,13 +1206,15 @@ struct ContentView: View {
                 .hoverHighlight()
                 .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
                           store.isDeleting || store.isScanning)
-            Button("deletePermanently", role: .destructive) {
-                pendingMode = .permanent
-                showingConfirmation = true
+            if store.category != .downloads {
+                Button("deletePermanently", role: .destructive) {
+                    pendingMode = .permanent
+                    showingConfirmation = true
+                }
+                .hoverHighlight()
+                .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
+                          store.isDeleting || store.isScanning)
             }
-            .hoverHighlight()
-            .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
-                      store.isDeleting || store.isScanning)
         }
         .padding(16)
         .background(.bar)
@@ -967,9 +1282,11 @@ struct ContentView: View {
 
     private func reason(for entry: ScanEntry) -> String {
         switch entry.category {
+        case .overview: L("overviewDescription")
         case .space: L("analysisOnly")
         case .large: L("reasonLarge")
         case .duplicates: L(entry.canDelete ? "reasonDuplicate" : "keepOriginal")
+        case .downloads: L(entry.note)
         case .systemCache: L("reasonSystemCache")
         case .developerCache: L("reasonDeveloperCache")
         case .uninstall:
@@ -982,6 +1299,7 @@ struct ContentView: View {
     }
 
     private func selectionUnavailableReason(for entry: ScanEntry) -> String {
+        if entry.note == "downloadInProgress" { return "downloadInProgress" }
         if entry.category == .orphans { return "orphanCandidate" }
         if entry.note == "keepOriginal" { return "keepOriginal" }
         if entry.risk == .protected { return "appRunning" }
@@ -1058,7 +1376,9 @@ struct ScanCompletionSummaryView: View {
 
     private var scope: String {
         switch store.category {
+        case .overview: L("overview")
         case .space, .large, .duplicates: store.root.path
+        case .downloads: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads").path
         case .systemCache: L("scanScopeCaches")
         case .developerCache:
             ([XcodeStorage.defaultDerivedDataRoot] + preferences.derivedDataRoots)

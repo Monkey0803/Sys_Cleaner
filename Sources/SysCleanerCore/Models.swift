@@ -1,11 +1,11 @@
 import Foundation
 
 public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
-    case space, large, duplicates, systemCache, developerCache, uninstall, orphans, icloud
+    case overview, space, large, duplicates, downloads, systemCache, developerCache, uninstall, orphans, icloud
     public var id: String { rawValue }
 }
 
-public enum RiskLevel: String, Sendable {
+public enum RiskLevel: String, Hashable, Sendable {
     case low, review, protected
 }
 
@@ -130,6 +130,17 @@ public struct ScanReport: Sendable {
     public let omittedCount: Int
     public let warnings: [String]
     public let cancelled: Bool
+    /// The space view may limit individually displayed files while retaining
+    /// their bytes in every directory total. That limit does not invalidate a
+    /// directory-size snapshot; unreadable paths and other omissions do.
+    public static func spaceTotalsAreComplete(warnings: [String], omittedCount: Int) -> Bool {
+        if warnings.isEmpty { return omittedCount == 0 }
+        return warnings.allSatisfy { $0 == "spaceLimit" }
+    }
+    public var hasCompleteSpaceTotals: Bool {
+        spaceTree != nil && !cancelled &&
+            Self.spaceTotalsAreComplete(warnings: warnings, omittedCount: omittedCount)
+    }
     public init(entries: [ScanEntry], warnings: [String], cancelled: Bool,
                 spaceItems: [SpaceItem] = [], scannedFileCount: Int? = nil, scannedBytes: Int64? = nil,
                 scannedAllocatedBytes: Int64? = nil, omittedCount: Int = 0,
@@ -144,6 +155,186 @@ public struct ScanReport: Sendable {
         self.omittedCount = omittedCount
         self.warnings = warnings
         self.cancelled = cancelled
+    }
+}
+
+public enum CleanupOverviewOperation: Hashable, Sendable {
+    case trash, cloudEviction, simulator
+}
+
+public struct CleanupOverviewItem: Sendable {
+    public let path: String
+    public let displayName: String?
+    public let category: ScanCategory
+    public let estimatedBytes: Int64
+    public let isDirectory: Bool
+    public let operation: CleanupOverviewOperation
+    public let risk: RiskLevel
+
+    public init(path: String, category: ScanCategory, estimatedBytes: Int64,
+                isDirectory: Bool, operation: CleanupOverviewOperation, risk: RiskLevel = .review,
+                displayName: String? = nil) {
+        self.path = path
+        self.displayName = displayName
+        self.category = category
+        self.estimatedBytes = max(0, estimatedBytes)
+        self.isDirectory = isDirectory
+        self.operation = operation
+        self.risk = risk
+    }
+}
+
+public struct CleanupOverviewSource: Sendable {
+    public let category: ScanCategory
+    public let entries: [ScanEntry]
+    public let incomplete: Bool
+    public let omittedCount: Int
+
+    public init(category: ScanCategory, entries: [ScanEntry], incomplete: Bool, omittedCount: Int = 0) {
+        self.category = category
+        self.entries = entries
+        self.incomplete = incomplete
+        self.omittedCount = omittedCount
+    }
+}
+
+public struct CleanupOverviewSection: Identifiable, Sendable {
+    public var id: ScanCategory { category }
+    public let category: ScanCategory
+    public let scanned: Bool
+    public let incomplete: Bool
+    public let omittedCount: Int
+    public let candidateCount: Int
+    public let estimatedBytes: Int64
+}
+
+public struct CleanupOverviewSnapshot: Sendable {
+    public let sections: [CleanupOverviewSection]
+    public let localEstimate: Int64
+    public let cloudEstimate: Int64
+    public let duplicateCount: Int
+    public let candidates: [CleanupOverviewItem]
+    public let largestCandidates: [CleanupOverviewItem]
+
+    public static func make(sources: [CleanupOverviewSource],
+                            supplemental: [CleanupOverviewItem] = [],
+                            supplementalScanned: Set<ScanCategory> = [],
+                            supplementalIncomplete: Set<ScanCategory> = []) -> Self {
+        let order: [ScanCategory] = [.downloads, .duplicates, .large, .systemCache,
+                                     .developerCache, .uninstall, .icloud, .space, .orphans]
+        let sourceByCategory = Dictionary(uniqueKeysWithValues: sources.map { ($0.category, $0) })
+        var candidates = supplemental
+        for source in sources {
+            for entry in source.entries where entry.canDelete && entry.risk != .protected && entry.sizeIsKnown {
+                let operation: CleanupOverviewOperation = source.category == .icloud ? .cloudEviction : .trash
+                guard source.category != .icloud || entry.allocatedBytes != nil else { continue }
+                candidates.append(CleanupOverviewItem(
+                    path: entry.url.standardizedFileURL.path, category: source.category,
+                    estimatedBytes: operation == .cloudEviction ? (entry.allocatedBytes ?? 0)
+                        : (entry.allocatedBytes ?? entry.estimatedBytes),
+                    isDirectory: entry.isDirectory, operation: operation, risk: entry.risk))
+            }
+        }
+        // A selected directory already contains its descendants. Sorting parents first
+        // also prevents a file found in two scan categories from inflating the estimate.
+        let ordered = candidates.sorted { left, right in
+            if left.isDirectory != right.isDirectory { return left.isDirectory }
+            if left.path.count != right.path.count { return left.path.count < right.path.count }
+            let leftOrder = order.firstIndex(of: left.category) ?? order.count
+            let rightOrder = order.firstIndex(of: right.category) ?? order.count
+            if left.path != right.path { return left.path < right.path }
+            if leftOrder != rightOrder { return leftOrder < rightOrder }
+            return left.estimatedBytes < right.estimatedBytes
+        }
+        var seenPaths = Set<String>()
+        var directories = Set<String>()
+        var unique: [CleanupOverviewItem] = []
+        var duplicates = 0
+        for item in ordered {
+            let path = URL(fileURLWithPath: item.path).standardizedFileURL.path
+            var parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
+            var covered = false
+            while parent != "/" {
+                if directories.contains(parent) { covered = true; break }
+                parent = URL(fileURLWithPath: parent).deletingLastPathComponent().path
+            }
+            guard seenPaths.insert(path).inserted && !covered else {
+                duplicates += 1
+                continue
+            }
+            if item.isDirectory { directories.insert(path) }
+            unique.append(item)
+        }
+        let sections = order.map { category in
+            let members = unique.filter { $0.category == category }
+            let source = sourceByCategory[category]
+            return CleanupOverviewSection(
+                category: category, scanned: source != nil || supplementalScanned.contains(category),
+                incomplete: (source?.incomplete ?? false) || supplementalIncomplete.contains(category),
+                omittedCount: source?.omittedCount ?? 0,
+                candidateCount: members.count,
+                estimatedBytes: members.reduce(0) { $0 + $1.estimatedBytes })
+        }
+        let ranked = unique.sorted {
+            $0.estimatedBytes == $1.estimatedBytes ? $0.path < $1.path :
+                $0.estimatedBytes > $1.estimatedBytes
+        }
+        return Self(sections: sections,
+                    localEstimate: unique.filter { $0.operation != .cloudEviction }
+                        .reduce(0) { $0 + $1.estimatedBytes },
+                    cloudEstimate: unique.filter { $0.operation == .cloudEviction }
+                        .reduce(0) { $0 + $1.estimatedBytes }, duplicateCount: duplicates,
+                    candidates: ranked, largestCandidates: Array(ranked.prefix(20)))
+    }
+}
+
+public enum ScanDiagnosticKind: String, Sendable {
+    case unreadable, changed, limited, displayLimited, unavailable, other
+}
+
+public struct ScanDiagnostic: Identifiable, Sendable {
+    public let id: String
+    public let kind: ScanDiagnosticKind
+    public let path: String?
+    public let detail: String
+
+    public static func make(warnings: [String], omittedCount: Int) -> [ScanDiagnostic] {
+        var issues = warnings.enumerated().map { index, warning -> ScanDiagnostic in
+            let kind: ScanDiagnosticKind
+            let path: String?
+            if warning.hasPrefix("Cannot read ") {
+                kind = .unreadable
+                path = String(warning.dropFirst("Cannot read ".count)).components(separatedBy: ": ").first
+            } else if warning.hasPrefix("Changed or unreadable: ") {
+                kind = .changed
+                path = String(warning.dropFirst("Changed or unreadable: ".count))
+            } else if warning.hasPrefix("Cannot verify ") {
+                kind = .changed
+                path = String(warning.dropFirst("Cannot verify ".count))
+            } else if warning.hasPrefix("Invalid root ") || warning.hasPrefix("Invalid archive root ") {
+                kind = .unavailable
+                path = String(warning.dropFirst(warning.hasPrefix("Invalid archive root ") ?
+                    "Invalid archive root ".count : "Invalid root ".count))
+            } else if warning == "spaceLimit" {
+                kind = .displayLimited
+                path = nil
+            } else if ["listLimited", "duplicateLimit", "scanIncomplete"].contains(warning) {
+                kind = .limited
+                path = nil
+            } else if warning == "icloudUnavailable" || warning == "installedAppsIncomplete" {
+                kind = .unavailable
+                path = nil
+            } else {
+                kind = .other
+                path = nil
+            }
+            return ScanDiagnostic(id: "\(index):\(warning)", kind: kind, path: path, detail: warning)
+        }
+        if omittedCount > 0 && warnings.isEmpty {
+            issues.append(ScanDiagnostic(id: "omitted", kind: .limited, path: nil,
+                                         detail: "scanIncomplete"))
+        }
+        return issues
     }
 }
 

@@ -5,7 +5,7 @@ import Foundation
 public enum FileDeletion {
     public static func execute(_ entries: [ScanEntry], mode: DeleteMode) -> [DeleteResult] {
         entries.map { entry in
-            if entry.category == .developerCache && mode == .permanent {
+            if (entry.category == .developerCache || entry.category == .downloads) && mode == .permanent {
                 return DeleteResult(url: entry.url, success: false, message: "protected")
             }
             if let reason = refusal(for: entry) {

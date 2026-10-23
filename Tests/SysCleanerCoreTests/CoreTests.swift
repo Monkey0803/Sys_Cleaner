@@ -20,6 +20,253 @@ final class CoreTests: XCTestCase {
         return url
     }
 
+    func testDownloadsListsNestedFilesAndProtectsUnfinishedDownloads() throws {
+        let nested = root.appendingPathComponent("subfolder")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
+        let diskImage = try file("installer.DMG", "disk")
+        let archive = nested.appendingPathComponent("bundle.zip")
+        try Data("archive".utf8).write(to: archive)
+        let unfinished = try file("movie.crdownload", "partial")
+        let package = root.appendingPathComponent("legacy.pkg")
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: false)
+        try Data("internal".utf8).write(to: package.appendingPathComponent("Payload"))
+        let unfinishedPackage = root.appendingPathComponent("transfer.download")
+        try FileManager.default.createDirectory(at: unfinishedPackage, withIntermediateDirectories: false)
+        try Data("internal".utf8).write(to: unfinishedPackage.appendingPathComponent("partial-data"))
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link.zip"),
+                                                   withDestinationURL: archive)
+
+        let report = FileScanner.scan(ScanRequest(category: .downloads, root: root))
+        XCTAssertFalse(report.cancelled)
+        XCTAssertEqual(Set(report.entries.map(\.url)), Set([diskImage, archive, unfinished]))
+        XCTAssertEqual(report.entries.first { $0.url == diskImage }?.note, "downloadInstaller")
+        XCTAssertEqual(report.entries.first { $0.url == archive }?.note, "downloadArchive")
+        XCTAssertEqual(report.entries.first { $0.url == unfinished }?.note, "downloadInProgress")
+        XCTAssertFalse(report.entries.first { $0.url == unfinished }!.canDelete)
+        XCTAssertEqual(report.scannedBytes, 18)
+
+        let actualDownloads = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        XCTAssertTrue(FileSafety.isSafeLocation(actualDownloads.appendingPathComponent("sample.zip"),
+                                                scope: actualDownloads, category: .downloads))
+        XCTAssertFalse(FileSafety.isSafeLocation(actualDownloads.appendingPathComponent("transfer.download/part.bin"),
+                                                 scope: actualDownloads, category: .downloads))
+        XCTAssertFalse(FileSafety.isSafeLocation(diskImage, scope: root, category: .downloads))
+        let blocked = FileDeletion.execute([report.entries.first { $0.url == diskImage }!], mode: .permanent)
+        XCTAssertEqual(blocked.first?.message, "protected")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: diskImage.path))
+    }
+
+    func testCleanupOverviewDeduplicatesPathsAndDirectoryContents() throws {
+        let folder = root.appendingPathComponent("folder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let nested = folder.appendingPathComponent("nested.zip")
+        try Data("nested".utf8).write(to: nested)
+        let other = try file("other.dmg", "other")
+        let cloud = try file("cloud.txt", "cloud")
+        func entry(_ url: URL, category: ScanCategory, bytes: Int64, isDirectory: Bool = false,
+                   allocated: Int64? = nil, canDelete: Bool = true) -> ScanEntry {
+            ScanEntry(url: url, scope: root, category: category, stamp: FileSafety.stamp(at: url)!,
+                      estimatedBytes: bytes, allocatedBytes: allocated, isDirectory: isDirectory,
+                      canDelete: canDelete)
+        }
+        let overview = CleanupOverviewSnapshot.make(sources: [
+            CleanupOverviewSource(category: .large,
+                entries: [entry(folder, category: .large, bytes: 100, isDirectory: true, allocated: 100),
+                          entry(other, category: .large, bytes: 50)], incomplete: false),
+            CleanupOverviewSource(category: .downloads,
+                entries: [entry(nested, category: .downloads, bytes: 6),
+                          entry(other, category: .downloads, bytes: 50, allocated: 32)], incomplete: true),
+            CleanupOverviewSource(category: .icloud,
+                entries: [entry(cloud, category: .icloud, bytes: 999, allocated: 24)], incomplete: false),
+            CleanupOverviewSource(category: .orphans,
+                entries: [entry(nested, category: .orphans, bytes: 6, canDelete: false)], incomplete: false)
+        ], supplementalScanned: [.developerCache])
+        XCTAssertEqual(overview.localEstimate, 132)
+        XCTAssertEqual(overview.cloudEstimate, 24)
+        XCTAssertEqual(overview.duplicateCount, 2)
+        XCTAssertEqual(overview.sections.first { $0.category == .downloads }?.candidateCount, 1)
+        XCTAssertEqual(overview.sections.first { $0.category == .large }?.candidateCount, 1)
+        XCTAssertEqual(overview.sections.first { $0.category == .downloads }?.incomplete, true)
+        XCTAssertEqual(overview.sections.first { $0.category == .developerCache }?.scanned, true)
+        XCTAssertEqual(overview.sections.first { $0.category == .orphans }?.candidateCount, 0)
+        XCTAssertEqual(overview.sections.first { $0.category == .systemCache }?.scanned, false)
+        XCTAssertEqual(overview.largestCandidates.first?.path, folder.path)
+        XCTAssertEqual(overview.largestCandidates.first?.risk, .review)
+        XCTAssertEqual(overview.largestCandidates.count, 3)
+        XCTAssertEqual(overview.candidates.count, 3)
+        let simulator = CleanupOverviewItem(path: root.appendingPathComponent("Device/data").path,
+                                            category: .developerCache, estimatedBytes: 20,
+                                            isDirectory: true, operation: .simulator,
+                                            displayName: "iPhone · iOS 27")
+        let supplemental = CleanupOverviewSnapshot.make(sources: [], supplemental: [simulator],
+                                                        supplementalScanned: [.developerCache])
+        XCTAssertEqual(supplemental.largestCandidates.first?.displayName, "iPhone · iOS 27")
+        XCTAssertEqual(supplemental.largestCandidates.first?.operation, .simulator)
+    }
+
+    func testCleanupOverviewKeepsFullReviewListBeyondLargestTwenty() throws {
+        let entries = try (0..<25).map { index -> ScanEntry in
+            let url = try file("item-\(index).zip", String(repeating: "x", count: index + 1))
+            return ScanEntry(url: url, scope: root, category: .downloads,
+                             stamp: FileSafety.stamp(at: url)!, estimatedBytes: Int64(index + 1),
+                             allocatedBytes: Int64(index + 1))
+        }
+        let overview = CleanupOverviewSnapshot.make(sources: [
+            CleanupOverviewSource(category: .downloads, entries: entries, incomplete: false)
+        ])
+        XCTAssertEqual(overview.candidates.count, 25)
+        XCTAssertEqual(overview.largestCandidates.count, 20)
+        XCTAssertEqual(overview.candidates.first?.estimatedBytes, 25)
+    }
+
+    func testScanDiagnosticsKeepUnreadablePathAndLimitReason() {
+        let issues = ScanDiagnostic.make(warnings: ["Cannot read /tmp/private: Permission denied",
+                                                    "Changed or unreadable: /tmp/changed"], omittedCount: 3)
+        XCTAssertEqual(issues.count, 2)
+        XCTAssertEqual(issues[0].kind, .unreadable)
+        XCTAssertEqual(issues[0].path, "/tmp/private")
+        XCTAssertEqual(issues[1].kind, .changed)
+        XCTAssertEqual(issues[1].path, "/tmp/changed")
+        XCTAssertEqual(ScanDiagnostic.make(warnings: [], omittedCount: 3).first?.kind, .limited)
+    }
+
+    func testSpaceHistoryAcceptsDisplayLimitButRejectsUnreadableTotals() {
+        let tree = SpaceTree(root: root, directories: [
+            .init(name: root.lastPathComponent, parentIndex: -1, bytes: 128,
+                  allocatedBytes: 128, otherBytes: 128, otherAllocatedBytes: 128)
+        ], files: [], fileParents: [])
+        func report(_ warnings: [String], omitted: Int, cancelled: Bool = false) -> ScanReport {
+            ScanReport(entries: [], warnings: warnings, cancelled: cancelled,
+                       omittedCount: omitted, spaceTree: tree)
+        }
+        XCTAssertTrue(report(["spaceLimit"], omitted: 10_000).hasCompleteSpaceTotals)
+        XCTAssertTrue(report([], omitted: 0).hasCompleteSpaceTotals)
+        XCTAssertFalse(report(["Cannot read /tmp/blocked"], omitted: 1).hasCompleteSpaceTotals)
+        XCTAssertFalse(report(["spaceLimit", "Cannot read /tmp/blocked"], omitted: 10_001)
+            .hasCompleteSpaceTotals)
+        XCTAssertFalse(report([], omitted: 1).hasCompleteSpaceTotals)
+        XCTAssertFalse(report([], omitted: 0, cancelled: true).hasCompleteSpaceTotals)
+        XCTAssertTrue(ScanReport.spaceTotalsAreComplete(warnings: ["spaceLimit"], omittedCount: 10_000))
+        XCTAssertFalse(ScanReport.spaceTotalsAreComplete(
+            warnings: ["spaceLimit", "Cannot read /tmp/blocked"], omittedCount: 10_001))
+        XCTAssertEqual(ScanDiagnostic.make(warnings: ["spaceLimit"], omittedCount: 10_000)
+            .first?.kind, .displayLimited)
+    }
+
+    func testSpaceHistoryComparesSameRootAndPersistsGrowth() throws {
+        let folder = root.appendingPathComponent("folder", isDirectory: true)
+        let nested = folder.appendingPathComponent("nested", isDirectory: true)
+        func tree(_ total: Int64, nestedBytes: Int64) -> SpaceTree {
+            SpaceTree(root: root, directories: [
+                .init(name: root.lastPathComponent, parentIndex: -1, bytes: total,
+                      allocatedBytes: total, otherBytes: 0, otherAllocatedBytes: 0),
+                .init(name: "folder", parentIndex: 0, bytes: total,
+                      allocatedBytes: total, otherBytes: 0, otherAllocatedBytes: 0),
+                .init(name: "nested", parentIndex: 1, bytes: nestedBytes,
+                      allocatedBytes: nestedBytes, otherBytes: 0, otherAllocatedBytes: 0)
+            ], files: [], fileParents: [])
+        }
+        let previous = SpaceScanSnapshot.capture(tree: tree(100, nestedBytes: 20), excludedPaths: [])
+        let current = SpaceScanSnapshot.capture(tree: tree(160, nestedBytes: 70), excludedPaths: [])
+        var history = SpaceScanHistory()
+        if case .noPrevious = history.record(previous) {} else { XCTFail("Expected first scan") }
+        let comparison = history.record(current)
+        if case .comparable(_, _, let rootPath, let before, let after, let sampled,
+                            let directoryCount, let newSampleCount, let growth) = comparison {
+            XCTAssertEqual(rootPath, root.path)
+            XCTAssertEqual(before, 100)
+            XCTAssertEqual(after, 160)
+            XCTAssertEqual(sampled, 2)
+            XCTAssertEqual(directoryCount, 3)
+            XCTAssertEqual(newSampleCount, 0)
+            XCTAssertEqual(growth.first { $0.path == folder.path }?.increase, 60)
+            XCTAssertEqual(growth.first { $0.path == nested.path }?.increase, 50)
+        } else { XCTFail("Expected comparable scans") }
+        let url = root.appendingPathComponent("space-history.json")
+        try history.save(to: url)
+        let loaded = try SpaceScanHistory.load(from: url)
+        if case .comparable = loaded.latestComparison {} else { XCTFail("Expected saved comparison") }
+
+        let changedScope = SpaceScanSnapshot.capture(tree: tree(200, nestedBytes: 100),
+                                                      excludedPaths: ["/tmp/excluded"])
+        if case .sourcesChanged = history.record(changedScope) {} else { XCTFail("Expected scope mismatch") }
+    }
+
+    func testSpaceHistoryBoundsDeepDirectorySample() {
+        var directories: [SpaceTree.Directory] = [
+            .init(name: root.lastPathComponent, parentIndex: -1, bytes: 10_000,
+                  allocatedBytes: 10_000, otherBytes: 0, otherAllocatedBytes: 0),
+            .init(name: "direct", parentIndex: 0, bytes: 10_000,
+                  allocatedBytes: 10_000, otherBytes: 0, otherAllocatedBytes: 0)
+        ]
+        directories += (0..<2_100).map { index in
+            .init(name: "deep-\(index)", parentIndex: 1, bytes: Int64(index + 1),
+                  allocatedBytes: Int64(index + 1), otherBytes: 0, otherAllocatedBytes: 0)
+        }
+        let tree = SpaceTree(root: root, directories: directories, files: [], fileParents: [])
+        let snapshot = SpaceScanSnapshot.capture(tree: tree, excludedPaths: [])
+        XCTAssertEqual(snapshot.directoryCount, 2_102)
+        XCTAssertEqual(snapshot.directories.count, 2_001)
+        XCTAssertTrue(snapshot.directories.contains { $0.path == root.appendingPathComponent("direct").path })
+        XCTAssertFalse(snapshot.directories.contains {
+            $0.path == root.appendingPathComponent("direct/deep-0").path
+        })
+        XCTAssertTrue(snapshot.directories.contains {
+            $0.path == root.appendingPathComponent("direct/deep-2099").path
+        })
+    }
+
+    func testSpaceHistoryDoesNotCallNewSampleGrowth() {
+        func tree(includeNew: Bool) -> SpaceTree {
+            var directories: [SpaceTree.Directory] = [
+                .init(name: root.lastPathComponent, parentIndex: -1, bytes: 100,
+                      allocatedBytes: 100, otherBytes: 0, otherAllocatedBytes: 0),
+                .init(name: "stable", parentIndex: 0, bytes: 100,
+                      allocatedBytes: 100, otherBytes: 0, otherAllocatedBytes: 0)
+            ]
+            if includeNew {
+                directories.append(.init(name: "new-sample", parentIndex: 1, bytes: 50,
+                                         allocatedBytes: 50, otherBytes: 0, otherAllocatedBytes: 0))
+            }
+            return SpaceTree(root: root, directories: directories, files: [], fileParents: [])
+        }
+        var history = SpaceScanHistory()
+        _ = history.record(.capture(tree: tree(includeNew: false), excludedPaths: []))
+        if case .comparable(_, _, _, _, _, _, _, let newSampleCount, let growth) =
+            history.record(.capture(tree: tree(includeNew: true), excludedPaths: [])) {
+            XCTAssertEqual(newSampleCount, 1)
+            XCTAssertTrue(growth.isEmpty)
+        } else {
+            XCTFail("Expected a comparable sample")
+        }
+    }
+
+    func testSpaceHistoryUsesActualCompleteScansForGrowth() throws {
+        let folder = root.appendingPathComponent("growth", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fileURL = folder.appendingPathComponent("data.bin")
+        try Data(repeating: 1, count: 1_024).write(to: fileURL)
+        let first = FileScanner.scan(ScanRequest(category: .space, root: root))
+        XCTAssertFalse(first.cancelled)
+        XCTAssertTrue(first.warnings.isEmpty)
+        XCTAssertEqual(first.omittedCount, 0)
+        let firstTree = try XCTUnwrap(first.spaceTree)
+
+        try Data(repeating: 2, count: 2_048).write(to: fileURL)
+        let second = FileScanner.scan(ScanRequest(category: .space, root: root))
+        XCTAssertTrue(second.warnings.isEmpty)
+        XCTAssertEqual(second.omittedCount, 0)
+        let secondTree = try XCTUnwrap(second.spaceTree)
+        var history = SpaceScanHistory()
+        _ = history.record(.capture(tree: firstTree, excludedPaths: []))
+        if case .comparable(_, _, _, _, _, _, _, _, let growth) =
+            history.record(.capture(tree: secondTree, excludedPaths: [])) {
+            XCTAssertEqual(growth.first { $0.path == folder.path }?.increase, 1_024)
+        } else {
+            XCTFail("Expected growth from two real scans")
+        }
+    }
+
     func testICloudStateOnlyAllowsCurrentUploadedConflictFreeFiles() {
         let safe = ICloudDrive.State(isUbiquitous: true, download: .current,
                                      uploaded: true, uploading: false, conflicts: false)
@@ -553,6 +800,26 @@ final class CoreTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: original)
         let report = FileScanner.scan(ScanRequest(category: .large, root: root, minimumBytes: 1))
         XCTAssertTrue(report.entries.isEmpty)
+    }
+
+    func testMetadataDistinguishesMissingPathFromIntentionalSymlinkSkip() throws {
+        let original = try file("original", "data")
+        let symlink = root.appendingPathComponent("symlink")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: original)
+        if case .symbolicLink = FileSafety.metadataResult(at: symlink) {} else {
+            XCTFail("Expected an intentional symlink skip")
+        }
+        if case .unavailable(let code) = FileSafety.metadataResult(at: root.appendingPathComponent("missing")) {
+            XCTAssertNotEqual(code, 0)
+        } else {
+            XCTFail("Expected missing metadata to be reported")
+        }
+        if case .item(let stamp, let isDirectory) = FileSafety.metadataResult(at: original) {
+            XCTAssertFalse(isDirectory)
+            XCTAssertEqual(stamp.size, 4)
+        } else {
+            XCTFail("Expected regular file metadata")
+        }
     }
 
     func testParentSymlinkSwapIsRefused() throws {

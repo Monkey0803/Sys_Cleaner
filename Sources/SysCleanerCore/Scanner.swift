@@ -149,6 +149,8 @@ public enum FileScanner {
         let root = request.root.resolvingSymlinksInPath().standardizedFileURL
         control.begin(request.category == .uninstall ? .measuringApps : .discovering, path: root)
         switch request.category {
+        case .overview:
+            return ScanReport(entries: [], warnings: [], cancelled: false)
         case .icloud:
             return ICloudDrive.scan(control: control)
         case .space:
@@ -165,6 +167,23 @@ public enum FileScanner {
                 entries.append(ScanEntry(url: url, scope: root, category: .large, stamp: stamp,
                                          estimatedBytes: stamp.size, note: "reviewLarge",
                                          canDelete: FileSafety.isSafeLocation(url, scope: root, category: .large)))
+            }
+        case .downloads:
+            walkFiles(under: root, control: control, warnings: &warnings,
+                      parallel: true, excludedPaths: request.excludedPaths,
+                      excludedDirectoryExtensions: ["pkg", "mpkg", "download", "crdownload", "part", "partial"]) { url, _, _, stamp in
+                let fileExtension = url.pathExtension.lowercased()
+                let inProgress = ["download", "crdownload", "part", "partial"].contains(fileExtension)
+                let note: String
+                if inProgress { note = "downloadInProgress" }
+                else if ["dmg", "pkg", "mpkg", "iso"].contains(fileExtension) { note = "downloadInstaller" }
+                else if ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz"].contains(fileExtension) {
+                    note = "downloadArchive"
+                } else { note = "downloadFile" }
+                entries.append(ScanEntry(url: url, scope: root, category: .downloads, stamp: stamp,
+                                         estimatedBytes: stamp.size, risk: inProgress ? .protected : .review,
+                                         note: note, canDelete: !inProgress &&
+                                            FileSafety.isSafeLocation(url, scope: root, category: .downloads)))
             }
         case .duplicates:
             var candidates: [(URL, FileStamp)] = []
@@ -243,6 +262,7 @@ public enum FileScanner {
                                   workers: Int = 4,
                                   excludedPaths: [String] = [],
                                   minimumFileBytes: Int64 = 0,
+                                  excludedDirectoryExtensions: Set<String> = [],
                                   coalescedProgress: Bool = false,
                                   onDirectory: @escaping (URL, Int?) -> Int = { _, _ in 0 },
                                   onFile: @escaping (URL, URL, Int, FileStamp) -> Void) {
@@ -281,7 +301,17 @@ public enum FileScanner {
                         if candidate.lastPathComponent == ".Trash" ||
                             (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
                             isExcluded(candidate, paths: excludedPaths) { continue }
-                        guard let info = FileSafety.metadata(at: candidate), info.stamp.device == rootInfo.stamp.device else { continue }
+                        let info: (stamp: FileStamp, isDirectory: Bool)
+                        switch FileSafety.metadataResult(at: candidate) {
+                        case .item(let stamp, let isDirectory): info = (stamp, isDirectory)
+                        case .symbolicLink: continue
+                        case .unavailable(let code):
+                            appendWarning("Cannot read \(candidate.path): \(NSError(domain: NSPOSIXErrorDomain, code: Int(code)).localizedDescription)",
+                                          to: &warnings)
+                            control.recordOmitted()
+                            continue
+                        }
+                        guard info.stamp.device == rootInfo.stamp.device else { continue }
                         let url = info.isDirectory
                             ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
                         if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
@@ -291,7 +321,8 @@ public enum FileScanner {
                         }
                         if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
                         if info.isDirectory {
-                            if url.pathExtension == "app" && !includeApps { continue }
+                            if (url.pathExtension == "app" && !includeApps) ||
+                                excludedDirectoryExtensions.contains(url.pathExtension.lowercased()) { continue }
                             let index = onDirectory(url, item.index)
                             control.visited(url)
                             stack.append(DirectoryWorkQueue.Item(
@@ -377,8 +408,16 @@ public enum FileScanner {
                                 if candidate.lastPathComponent == ".Trash" ||
                                     (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
                                     isExcluded(candidate, paths: excludedPaths) { continue }
-                                guard let info = FileSafety.metadata(at: candidate),
-                                      info.stamp.device == rootInfo.stamp.device else { continue }
+                                let info: (stamp: FileStamp, isDirectory: Bool)
+                                switch FileSafety.metadataResult(at: candidate) {
+                                case .item(let stamp, let isDirectory): info = (stamp, isDirectory)
+                                case .symbolicLink: continue
+                                case .unavailable(let code):
+                                    reportReadError(candidate, NSError(domain: NSPOSIXErrorDomain,
+                                                                        code: Int(code)))
+                                    continue
+                                }
+                                guard info.stamp.device == rootInfo.stamp.device else { continue }
                                 let url = info.isDirectory
                                     ? directory.appendingPathComponent(child.lastPathComponent, isDirectory: true) : candidate
                                 if !info.isDirectory && (info.stamp.linkCount == 1 || includeHardLinks)
@@ -388,7 +427,8 @@ public enum FileScanner {
                                 }
                                 if checkCloud && FileSafety.isCloudPlaceholder(url) { continue }
                                 if info.isDirectory {
-                                    if url.pathExtension == "app" && !includeApps { continue }
+                                    if (url.pathExtension == "app" && !includeApps) ||
+                                        excludedDirectoryExtensions.contains(url.pathExtension.lowercased()) { continue }
                                     lock.lock()
                                     let index = onDirectory(url, item.index)
                                     lock.unlock()
@@ -679,7 +719,7 @@ public enum FileScanner {
         return nil
     }
 
-    private static func systemCacheLocations() -> [URL] {
+    public static func systemCacheLocations() -> [URL] {
         let library = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
         return [library.appendingPathComponent("Caches"), library.appendingPathComponent("Logs")]
     }
@@ -737,13 +777,15 @@ public enum FileScanner {
         }
         installed.formUnion(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
             .map { $0.lowercased() })
-        let library = home.appendingPathComponent("Library")
-        let folderNames = ["Application Support", "Caches", "Containers",
-                           "HTTPStorages", "WebKit", "Application Scripts",
-                           "Saved Application State"]
-        return scanOrphanCandidates(roots: folderNames.map { library.appendingPathComponent($0) },
+        return scanOrphanCandidates(roots: orphanCandidateLocations(),
                                     installedIdentifiers: installed, control: control, warnings: &warnings,
                                     excludedPaths: excludedPaths)
+    }
+
+    public static func orphanCandidateLocations() -> [URL] {
+        let library = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+        return ["Application Support", "Caches", "Containers", "HTTPStorages", "WebKit",
+                "Application Scripts", "Saved Application State"].map { library.appendingPathComponent($0) }
     }
 
     static func installedApplicationIdentifiers(in roots: [URL], control: ScanControl = ScanControl()) -> Set<String> {

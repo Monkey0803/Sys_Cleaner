@@ -148,3 +148,145 @@ public struct SpaceTree: Sendable {
         return index
     }
 }
+
+/// A bounded directory sample for comparing complete space scans of the same root.
+/// Root children are always retained; deeper entries are limited to the largest 2,000.
+public struct SpaceScanSnapshot: Codable, Sendable {
+    public struct Directory: Codable, Sendable {
+        public let path: String
+        public let logicalBytes: Int64
+        public let allocatedBytes: Int64
+    }
+
+    public let id: UUID
+    public let date: Date
+    public let rootPath: String
+    public let excludedPaths: [String]
+    public let directoryCount: Int
+    public let rootLogicalBytes: Int64
+    public let rootAllocatedBytes: Int64
+    public let directories: [Directory]
+
+    public static func capture(tree: SpaceTree, excludedPaths: [String], date: Date = Date()) -> Self {
+        let root = tree.root.standardizedFileURL.path
+        var rootLogical: Int64 = 0
+        var rootAllocated: Int64 = 0
+        var directChildren: [Directory] = []
+        var largest: [Directory] = []
+        tree.forEachDirectory { url, logical, allocated in
+            let path = url.standardizedFileURL.path
+            if path == root {
+                rootLogical = logical
+                rootAllocated = allocated
+                return
+            }
+            let item = Directory(path: path, logicalBytes: logical, allocatedBytes: allocated)
+            if url.deletingLastPathComponent().standardizedFileURL.path == root {
+                directChildren.append(item)
+            } else if largest.count < 2_000 {
+                largest.append(item)
+                siftUp(&largest, from: largest.count - 1)
+            } else if let smallest = largest.first, ranksBelow(smallest, item) {
+                largest[0] = item
+                siftDown(&largest, from: 0)
+            }
+        }
+        return Self(id: UUID(), date: date, rootPath: root,
+                    excludedPaths: Array(Set(excludedPaths)).sorted(), directoryCount: tree.directoryCount,
+                    rootLogicalBytes: rootLogical, rootAllocatedBytes: rootAllocated,
+                    directories: (directChildren + largest).sorted { $0.path < $1.path })
+    }
+
+    private static func ranksBelow(_ lhs: Directory, _ rhs: Directory) -> Bool {
+        lhs.logicalBytes == rhs.logicalBytes ? lhs.path > rhs.path : lhs.logicalBytes < rhs.logicalBytes
+    }
+
+    private static func siftUp(_ values: inout [Directory], from index: Int) {
+        var child = index
+        while child > 0 {
+            let parent = (child - 1) / 2
+            guard ranksBelow(values[child], values[parent]) else { break }
+            values.swapAt(child, parent)
+            child = parent
+        }
+    }
+
+    private static func siftDown(_ values: inout [Directory], from index: Int) {
+        var parent = index
+        while true {
+            let left = parent * 2 + 1
+            guard left < values.count else { break }
+            let right = left + 1
+            let child = right < values.count && ranksBelow(values[right], values[left]) ? right : left
+            guard ranksBelow(values[child], values[parent]) else { break }
+            values.swapAt(child, parent)
+            parent = child
+        }
+    }
+}
+
+public struct SpaceGrowth: Sendable {
+    public let path: String
+    public let previousBytes: Int64
+    public let currentBytes: Int64
+    public var increase: Int64 { currentBytes - previousBytes }
+}
+
+public enum SpaceGrowthComparison: Sendable {
+    case noPrevious
+    case sourcesChanged
+    case comparable(previousDate: Date, currentDate: Date, rootPath: String,
+                    previousTotal: Int64, currentTotal: Int64,
+                    sampledCount: Int, directoryCount: Int, newSampleCount: Int,
+                    growth: [SpaceGrowth])
+}
+
+public struct SpaceScanHistory: Codable, Sendable {
+    public private(set) var snapshots: [SpaceScanSnapshot]
+
+    public init(snapshots: [SpaceScanSnapshot] = []) { self.snapshots = snapshots }
+
+    public mutating func record(_ current: SpaceScanSnapshot) -> SpaceGrowthComparison {
+        guard snapshots.last?.id != current.id else { return .noPrevious }
+        let prior = snapshots.last { $0.rootPath == current.rootPath }
+        let result = Self.compare(prior, current)
+        snapshots.append(current)
+        if snapshots.count > 20 { snapshots.removeFirst(snapshots.count - 20) }
+        return result
+    }
+
+    public var latestComparison: SpaceGrowthComparison {
+        guard let current = snapshots.last else { return .noPrevious }
+        return Self.compare(snapshots.dropLast().last { $0.rootPath == current.rootPath }, current)
+    }
+
+    private static func compare(_ prior: SpaceScanSnapshot?, _ current: SpaceScanSnapshot) -> SpaceGrowthComparison {
+        guard let prior else { return .noPrevious }
+        guard prior.excludedPaths == current.excludedPaths else { return .sourcesChanged }
+        let old = Dictionary(uniqueKeysWithValues: prior.directories.map { ($0.path, $0.logicalBytes) })
+        let newSampleCount = current.directories.filter { old[$0.path] == nil }.count
+        let growth = current.directories.compactMap { item -> SpaceGrowth? in
+            guard let before = old[item.path], item.logicalBytes > before else { return nil }
+            return SpaceGrowth(path: item.path, previousBytes: before, currentBytes: item.logicalBytes)
+        }.sorted {
+            $0.increase == $1.increase ? $0.path < $1.path : $0.increase > $1.increase
+        }
+        return .comparable(previousDate: prior.date, currentDate: current.date,
+                           rootPath: current.rootPath, previousTotal: prior.rootLogicalBytes,
+                           currentTotal: current.rootLogicalBytes,
+                           sampledCount: current.directories.count,
+                           directoryCount: current.directoryCount, newSampleCount: newSampleCount,
+                           growth: growth)
+    }
+
+    public static func load(from url: URL) throws -> Self {
+        guard FileManager.default.fileExists(atPath: url.path) else { return Self() }
+        return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+    }
+
+    public func save(to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try JSONEncoder().encode(self).write(to: url, options: .atomic)
+    }
+}

@@ -134,6 +134,13 @@ public enum XcodeStorage {
         "DocumentationIndex", "Products"]
     private static let additionalDeveloperNames = ["DVTDownloads", "XCTestDevices"]
 
+    public static func additionalReviewLocations() -> [URL] {
+        additionalXcodeNames.map { defaultXcodeRoot.appendingPathComponent($0) } +
+        additionalDeveloperNames.map { defaultDeveloperRoot.appendingPathComponent($0) } +
+        [FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Developer/CoreSimulator/Devices")]
+    }
+
     public static func sharedCacheInventory(derivedDataRoots: [URL],
                                             control: ScanControl = ScanControl()) -> XcodeReadOnlyReport {
         var candidates: [(String, URL)] = []

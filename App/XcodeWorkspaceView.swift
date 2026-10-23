@@ -162,6 +162,9 @@ struct XcodeWorkspaceView: View {
             }
         }
         .task {
+            if let operation = store.takeXcodeReviewOperation() {
+                section = operation == .simulator ? .simulators : .review
+            }
             if !store.hasScanned && !store.isScanning && !store.warnings.contains("scanCancelled") {
                 store.scan()
             }
@@ -1235,6 +1238,7 @@ struct XcodeWorkspaceView: View {
 
     private func refreshExtras() async {
         cancelReadOnlyScans()
+        store.clearXcodeOverview()
         selectedCachePaths.removeAll()
         let refreshID = UUID()
         extraRefreshID = refreshID
@@ -1352,6 +1356,19 @@ struct XcodeWorkspaceView: View {
                 }
             }
         }
+        guard extraRefreshID == refreshID, !Task.isCancelled else { return }
+        let cacheEntries = sharedCaches.compactMap {
+            XcodeStorage.cacheDeletionEntry(for: $0, derivedDataRoots:
+                [XcodeStorage.defaultDerivedDataRoot] + preferences.derivedDataRoots)
+        }
+        store.updateXcodeOverview(caches: cacheEntries, simulators: simulators,
+                                  incomplete: !inventoryComplete(sharedCacheScan) ||
+                                    !inventoryComplete(simulatorScan) || !inventoryComplete(archiveScan) ||
+                                    !inventoryComplete(runtimeScan) || !inventoryComplete(deviceSupportScan) ||
+                                    !inventoryComplete(additionalDataScan),
+                                  warnings: sharedCacheWarnings + archiveWarnings +
+                                    deviceSupportWarnings + additionalDataWarnings +
+                                    [simulatorInventoryError, runtimeError].compactMap { $0 })
     }
 
     private func deleteSelectedSimulators() {
