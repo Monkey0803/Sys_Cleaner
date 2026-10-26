@@ -881,7 +881,7 @@ public enum FileScanner {
                 entries.append(ScanEntry(url: app, scope: root, category: .uninstall, stamp: stamp,
                                          estimatedBytes: 0, sizeIsKnown: false,
                                          risk: running ? .protected : .review,
-                                         note: running ? "appRunning" : identifier,
+                                         note: identifier,
                                          isDirectory: true, canDelete: false))
             }
         }

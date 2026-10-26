@@ -39,6 +39,64 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(warnings.isEmpty)
     }
 
+    func testApplicationEvidenceSeparatesBundleExactPathAndSimilarName() throws {
+        let app = root.appendingPathComponent("Editor.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        let appStamp = try XCTUnwrap(FileSafety.stamp(at: app))
+        let bundle = ScanEntry(url: app, scope: root, category: .uninstall, stamp: appStamp,
+                               estimatedBytes: 1, note: "com.example.editor", isDirectory: true)
+        XCTAssertEqual(ApplicationAssociationEvidence.classify(bundle, identifier: bundle.note),
+                       .bundleIdentifier)
+        let runningBundle = ScanEntry(url: app, scope: root, category: .uninstall, stamp: appStamp,
+                                      estimatedBytes: 1, risk: .protected,
+                                      note: "com.example.editor", isDirectory: true, canDelete: false)
+        XCTAssertEqual(ApplicationAssociationEvidence.classify(runningBundle,
+                                                                  identifier: runningBundle.note),
+                       .bundleIdentifier)
+        XCTAssertFalse(runningBundle.canDelete)
+        let exactRoot = root.appendingPathComponent("com.example.editor")
+        try FileManager.default.createDirectory(at: exactRoot, withIntermediateDirectories: true)
+        let fileURL = exactRoot.appendingPathComponent("data")
+        try Data("x".utf8).write(to: fileURL)
+        let fileStamp = try XCTUnwrap(FileSafety.stamp(at: fileURL))
+        let exact = ScanEntry(url: fileURL, scope: exactRoot, category: .uninstall,
+                              stamp: fileStamp, estimatedBytes: 1, note: "com.example.editor")
+        XCTAssertEqual(ApplicationAssociationEvidence.classify(exact, identifier: exact.note),
+                       .exactIdentifierDirectory)
+        let preferences = root.appendingPathComponent("Preferences")
+        try FileManager.default.createDirectory(at: preferences, withIntermediateDirectories: true)
+        let plistURL = preferences.appendingPathComponent("com.example.editor.plist")
+        try Data("plist".utf8).write(to: plistURL)
+        let plist = ScanEntry(url: plistURL, scope: preferences, category: .uninstall,
+                              stamp: try XCTUnwrap(FileSafety.stamp(at: plistURL)),
+                              estimatedBytes: 5, note: "com.example.editor")
+        XCTAssertEqual(ApplicationAssociationEvidence.classify(plist, identifier: plist.note),
+                       .exactIdentifierFile)
+        let similar = ScanEntry(url: fileURL, scope: exactRoot, category: .uninstall,
+                                stamp: fileStamp, estimatedBytes: 1,
+                                note: "appPossibleRelated", canDelete: false)
+        XCTAssertEqual(ApplicationAssociationEvidence.classify(similar, identifier: similar.note),
+                       .similarIdentifier)
+        XCTAssertFalse(similar.canDelete)
+    }
+
+    func testCleanupReceiptKeepsEstimatesSeparateFromObservedCapacity() throws {
+        let receipt = CleanupReceipt(items: [
+            .init(path: "/tmp/a", operation: "trash", estimatedBytes: 100, outcome: "success"),
+            .init(path: "/tmp/b", operation: "cloudEviction", estimatedBytes: 40, outcome: "success"),
+            .init(path: "/tmp/c", operation: "trash", estimatedBytes: 20, outcome: "skipped")
+        ], availableSpaceDelta: -12)
+        XCTAssertEqual(receipt.selectedLocalBytes, 120)
+        XCTAssertEqual(receipt.selectedCloudBytes, 40)
+        XCTAssertEqual(receipt.succeededLocalBytes, 100)
+        XCTAssertEqual(receipt.succeededCloudBytes, 40)
+        XCTAssertEqual(receipt.trashBytes, 100)
+        XCTAssertEqual(receipt.availableSpaceDelta, -12)
+        let path = root.appendingPathComponent("receipts.json")
+        try CleanupReceiptStorage.save([receipt], to: path)
+        XCTAssertEqual(try CleanupReceiptStorage.load(from: path).first?.trashBytes, 100)
+    }
+
     func testHomebrewCaskRequiresExactAppTarget() throws {
         let json = Data("""
             {"casks":[{"token":"editor","artifacts":[{"app":["Editor.app"],"target":"/Applications/Editor.app"}]},
@@ -272,6 +330,8 @@ final class CoreTests: XCTestCase {
         let snapshot = SpaceScanSnapshot.capture(tree: tree, excludedPaths: [])
         XCTAssertEqual(snapshot.directoryCount, 2_102)
         XCTAssertEqual(snapshot.directories.count, 2_001)
+        XCTAssertEqual(snapshot.sampleLimitedParents,
+                       [root.appendingPathComponent("direct").path])
         XCTAssertTrue(snapshot.directories.contains { $0.path == root.appendingPathComponent("direct").path })
         XCTAssertFalse(snapshot.directories.contains {
             $0.path == root.appendingPathComponent("direct/deep-0").path
@@ -304,6 +364,121 @@ final class CoreTests: XCTestCase {
         } else {
             XCTFail("Expected a comparable sample")
         }
+    }
+
+    func testSpaceHistorySelectsAnyOrderedPairAndShowsUncertainDescendants() {
+        func tree(_ values: [(String, Int64)]) -> SpaceTree {
+            let rootNode = SpaceTree.Directory(name: root.lastPathComponent, parentIndex: -1,
+                bytes: values.first?.1 ?? 0, allocatedBytes: values.first?.1 ?? 0,
+                otherBytes: 0, otherAllocatedBytes: 0)
+            let children = values.dropFirst().map { name, bytes in
+                SpaceTree.Directory(name: name, parentIndex: 0, bytes: bytes,
+                                    allocatedBytes: bytes, otherBytes: 0, otherAllocatedBytes: 0)
+            }
+            return SpaceTree(root: root, directories: [rootNode] + children,
+                             files: [], fileParents: [])
+        }
+        var history = SpaceScanHistory()
+        let first = SpaceScanSnapshot.capture(tree: tree([("root", 100), ("kept", 50)]), excludedPaths: [])
+        let middle = SpaceScanSnapshot.capture(tree: tree([("root", 150), ("kept", 80)]), excludedPaths: [])
+        let last = SpaceScanSnapshot.capture(tree: tree([("root", 200), ("kept", 90), ("new", 30)]), excludedPaths: [])
+        _ = history.record(first)
+        _ = history.record(middle)
+        _ = history.record(last)
+        if case .comparable(_, _, _, let before, let after, _, _, let newCount, let growth) =
+            history.comparison(olderID: first.id, newerID: last.id) {
+            XCTAssertEqual(before, 100)
+            XCTAssertEqual(after, 200)
+            XCTAssertEqual(newCount, 1)
+            XCTAssertEqual(growth.first?.increase, 40)
+        } else { XCTFail("Expected selected pair") }
+        let changes = history.directoryChanges(olderID: first.id, newerID: last.id, under: root.path)
+        XCTAssertEqual(changes.count, 2)
+        XCTAssertEqual(changes.first { $0.path.hasSuffix("/kept") }?.previousBytes, 50)
+        XCTAssertNil(changes.first { $0.path.hasSuffix("/new") }?.previousBytes)
+        if case .invalidSelection = history.comparison(olderID: last.id, newerID: first.id) {} else {
+            XCTFail("Expected invalid order")
+        }
+    }
+
+    func testSpaceHistoryKeepsPartialScansButExcludesUnreadableRangesFromGrowth() throws {
+        func tree(good: Int64, blocked: Int64) -> SpaceTree {
+            SpaceTree(root: root, directories: [
+                .init(name: root.lastPathComponent, parentIndex: -1, bytes: good + blocked,
+                      allocatedBytes: good + blocked, otherBytes: 0, otherAllocatedBytes: 0),
+                .init(name: "good", parentIndex: 0, bytes: good,
+                      allocatedBytes: good, otherBytes: 0, otherAllocatedBytes: 0),
+                .init(name: "blocked", parentIndex: 0, bytes: blocked,
+                      allocatedBytes: blocked, otherBytes: 0, otherAllocatedBytes: 0)
+            ], files: [], fileParents: [])
+        }
+        let earlier = SpaceScanSnapshot.capture(tree: tree(good: 40, blocked: 60), excludedPaths: [])
+        let unreadablePath = root.appendingPathComponent("blocked/secret").path
+        let partial = ScanReport(entries: [], warnings: ["Cannot read \(unreadablePath): denied"],
+                                 cancelled: false, omittedCount: 1,
+                                 spaceCoverage: .init(displayLimitedCount: 0, unreadableCount: 1,
+                                                      permissionDeniedCount: 1, disappearedCount: 0),
+                                 spaceTree: tree(good: 50, blocked: 110))
+        let later = try XCTUnwrap(SpaceScanSnapshot.capture(report: partial, excludedPaths: []))
+        var history = SpaceScanHistory()
+        _ = history.record(earlier)
+        _ = history.record(later)
+        if case .comparable(_, _, _, _, _, _, _, _, let growth) = history.latestComparison {
+            XCTAssertEqual(growth.map(\.path), [root.appendingPathComponent("good").path])
+            XCTAssertEqual(growth.first?.increase, 10)
+        } else { XCTFail("Expected partial comparison") }
+        let uncertainty = try XCTUnwrap(history.uncertainty(olderID: earlier.id, newerID: later.id))
+        XCTAssertEqual(uncertainty.unreadablePaths, [unreadablePath])
+        XCTAssertEqual(uncertainty.unlocatedUnreadableCount, 0)
+        let changes = history.directoryChanges(olderID: earlier.id, newerID: later.id, under: root.path)
+        XCTAssertFalse(try XCTUnwrap(changes.first { $0.path.hasSuffix("/blocked") }).hasComparableDelta)
+
+        let unlocated = ScanReport(entries: [], warnings: [], cancelled: false, omittedCount: 2,
+                                   spaceCoverage: .init(displayLimitedCount: 0, unreadableCount: 2,
+                                                        permissionDeniedCount: 2, disappearedCount: 0),
+                                   spaceTree: tree(good: 60, blocked: 120))
+        let third = try XCTUnwrap(SpaceScanSnapshot.capture(report: unlocated, excludedPaths: []))
+        _ = history.record(third)
+        XCTAssertEqual(history.uncertainty(olderID: later.id, newerID: third.id)?.unlocatedUnreadableCount, 2)
+        if case .comparable(_, _, _, _, _, _, _, _, let growth) = history.latestComparison {
+            XCTAssertTrue(growth.isEmpty)
+        } else { XCTFail("Expected an uncertain comparison") }
+    }
+
+    func testSpaceHistoryShowsSampledFileChangesAndReadsOlderSnapshots() throws {
+        let folder = root.appendingPathComponent("growing")
+        let file = folder.appendingPathComponent("data.bin")
+        func tree(_ bytes: Int64) -> SpaceTree {
+            SpaceTree(root: root, directories: [
+                .init(name: root.lastPathComponent, parentIndex: -1, bytes: bytes,
+                      allocatedBytes: bytes, otherBytes: 0, otherAllocatedBytes: 0),
+                .init(name: "growing", parentIndex: 0, bytes: bytes,
+                      allocatedBytes: bytes, otherBytes: 0, otherAllocatedBytes: 0)
+            ], files: [SpaceItem(url: file, parent: folder, bytes: bytes, isFolder: false)],
+                      fileParents: [1])
+        }
+        let earlier = SpaceScanSnapshot.capture(tree: tree(1_048_576), excludedPaths: [])
+        let later = SpaceScanSnapshot.capture(tree: tree(2_097_152), excludedPaths: [])
+        var history = SpaceScanHistory()
+        _ = history.record(earlier)
+        _ = history.record(later)
+        let changes = history.fileChanges(olderID: earlier.id, newerID: later.id, under: folder.path)
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes[0].path, file.path)
+        XCTAssertEqual(changes[0].previousBytes, 1_048_576)
+        XCTAssertEqual(changes[0].currentBytes, 2_097_152)
+
+        var olderJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(earlier))
+            as? [String: Any])
+        olderJSON.removeValue(forKey: "files")
+        olderJSON.removeValue(forKey: "unreadablePaths")
+        olderJSON.removeValue(forKey: "unlocatedUnreadableCount")
+        olderJSON.removeValue(forKey: "sampleLimitedParents")
+        let restored = try JSONDecoder().decode(SpaceScanSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: olderJSON))
+        XCTAssertNil(restored.files)
+        XCTAssertNil(restored.unreadablePaths)
+        XCTAssertNil(restored.sampleLimitedParents)
     }
 
     func testSpaceHistoryUsesActualCompleteScansForGrowth() throws {

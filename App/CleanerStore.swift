@@ -50,6 +50,8 @@ final class CleanerStore: ObservableObject {
     }
     private static let historyURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Sys Cleaner/cleanup-history.json")
+    private static let receiptURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Sys Cleaner/cleanup-receipts.json")
     private static let projectHistoryURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Sys Cleaner/xcode-project-history.json")
     private static let spaceHistoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -98,6 +100,9 @@ final class CleanerStore: ObservableObject {
     @Published var showResults = false
     @Published var showHistory = false
     @Published private(set) var cleanupHistory = (try? CleanupHistoryStorage.load(from: CleanerStore.historyURL)) ?? []
+    @Published private(set) var cleanupReceipts = (try? CleanupReceiptStorage.load(from: CleanerStore.receiptURL)) ?? []
+    @Published private(set) var lastReceipt: CleanupReceipt?
+    @Published private(set) var receiptError: String?
     @Published private(set) var historyError: String?
     @Published private(set) var restoreError: String?
     @Published var minimumMB = 100
@@ -124,8 +129,10 @@ final class CleanerStore: ObservableObject {
     @Published private(set) var overviewPlan: [String: CleanupOverviewItem] = [:]
     @Published private(set) var overviewResultOperations: [String: CleanupOverviewOperation] = [:]
     @Published private(set) var scanDiagnostics: [ScanCategory: [ScanDiagnostic]] = [:]
-    @Published private(set) var spaceGrowthComparison: SpaceGrowthComparison =
-        (try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL).latestComparison) ?? .noPrevious
+    @Published private(set) var spaceScanHistory =
+        (try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL)) ?? SpaceScanHistory()
+    @Published var comparisonOlderID: UUID?
+    @Published var comparisonNewerID: UUID?
     @Published private(set) var latestSpaceSnapshot: SpaceScanSnapshot? =
         try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL).snapshots.last
     private var lastSpaceScanEvidence: SpaceScanEvidence?
@@ -133,6 +140,31 @@ final class CleanerStore: ObservableObject {
     @Published private(set) var overviewScanState: OverviewScanState?
     @Published private(set) var overviewScanCompletedCount: Int?
     @Published private(set) var overviewScanWasCancelled = false
+
+    var selectedSpaceScanIDs: (older: UUID, newer: UUID)? {
+        let snapshots = spaceScanHistory.snapshots
+        guard snapshots.count >= 2 else { return nil }
+        let newest = comparisonNewerID.flatMap { id in snapshots.first { $0.id == id } } ?? snapshots[snapshots.count - 1]
+        let older = comparisonOlderID.flatMap { id in snapshots.first { $0.id == id } } ??
+            snapshots.dropLast().last { $0.rootPath == newest.rootPath &&
+                $0.excludedPaths == newest.excludedPaths } ?? snapshots[snapshots.count - 2]
+        return (older.id, newest.id)
+    }
+
+    var selectedSpaceGrowthComparison: SpaceGrowthComparison {
+        guard let pair = selectedSpaceScanIDs else { return .noPrevious }
+        return spaceScanHistory.comparison(olderID: pair.older, newerID: pair.newer)
+    }
+
+    func spaceDirectoryChanges(under path: String) -> [SpaceDirectoryChange] {
+        guard let pair = selectedSpaceScanIDs else { return [] }
+        return spaceScanHistory.directoryChanges(olderID: pair.older, newerID: pair.newer, under: path)
+    }
+
+    func spaceFileChanges(under path: String) -> [SpaceFileChange] {
+        guard let pair = selectedSpaceScanIDs else { return [] }
+        return spaceScanHistory.fileChanges(olderID: pair.older, newerID: pair.newer, under: path)
+    }
 
     private struct RunningScan {
         let id: UUID
@@ -649,8 +681,9 @@ final class CleanerStore: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             let report = FileScanner.scan(request, control: newControl)
             let spaceSnapshot: SpaceScanSnapshot?
-            if scannedCategory == .space, report.hasCompleteSpaceTotals, let tree = report.spaceTree {
-                spaceSnapshot = SpaceScanSnapshot.capture(tree: tree, excludedPaths: request.excludedPaths)
+            if scannedCategory == .space {
+                spaceSnapshot = SpaceScanSnapshot.capture(report: report,
+                                                         excludedPaths: request.excludedPaths)
             } else {
                 spaceSnapshot = nil
             }
@@ -708,9 +741,9 @@ final class CleanerStore: ObservableObject {
                     derivedDataRoots: derivedDataRoots)
                 let (report, snapshot) = await Task.detached(priority: .userInitiated) {
                     let report = FileScanner.scan(request, control: control)
-                    let snapshot = selectedCategory == .space && report.hasCompleteSpaceTotals
-                        ? report.spaceTree.map { SpaceScanSnapshot.capture(tree: $0,
-                            excludedPaths: request.excludedPaths) } : nil
+                    let snapshot = selectedCategory == .space
+                        ? SpaceScanSnapshot.capture(report: report,
+                                                    excludedPaths: request.excludedPaths) : nil
                     return (report, snapshot)
                 }.value
                 guard self.overviewScanID == batchID, !Task.isCancelled, !report.cancelled else {
@@ -936,6 +969,11 @@ final class CleanerStore: ObservableObject {
         overviewResultOperations = Dictionary(uniqueKeysWithValues:
             outcomes.map { ($0.0.path, $0.0.operation) })
         lastAvailableSpaceDelta = availableSpaceDelta
+        recordReceipt(outcomes.map { item, result in
+            CleanupReceipt.Item(path: item.path, operation: receiptOperation(item.operation),
+                                estimatedBytes: item.estimatedBytes, outcome: receiptOutcome(result),
+                                message: result.message)
+        }, availableSpaceDelta: availableSpaceDelta)
         showResults = true
         let trash = outcomes.filter { $0.0.operation == .trash }
         for group in Dictionary(grouping: trash, by: { $0.0.category }) {
@@ -972,6 +1010,35 @@ final class CleanerStore: ObservableObject {
         rebuildCleanupOverview()
     }
 
+    private func receiptOperation(_ operation: CleanupOverviewOperation) -> String {
+        switch operation {
+        case .trash: return "trash"
+        case .cloudEviction: return "cloudEviction"
+        case .simulator: return "simulator"
+        }
+    }
+
+    private func receiptOutcome(_ result: DeleteResult) -> String {
+        switch result.status {
+        case .success: return "success"
+        case .skipped: return "skipped"
+        case .failed: return "failed"
+        }
+    }
+
+    private func recordReceipt(_ items: [CleanupReceipt.Item], availableSpaceDelta: Int64?) {
+        let receipt = CleanupReceipt(items: items, availableSpaceDelta: availableSpaceDelta)
+        lastReceipt = receipt
+        cleanupReceipts.insert(receipt, at: 0)
+        if cleanupReceipts.count > 50 { cleanupReceipts.removeLast(cleanupReceipts.count - 50) }
+        do {
+            try CleanupReceiptStorage.save(cleanupReceipts, to: Self.receiptURL)
+            receiptError = nil
+        } catch {
+            receiptError = error.localizedDescription
+        }
+    }
+
     func evictCloud() {
         let chosen = selectedEntries
         guard category == .icloud, !chosen.isEmpty, !hasHiddenSelection,
@@ -983,13 +1050,20 @@ final class CleanerStore: ObservableObject {
             let outcomes = chosen.map { ICloudDrive.evict($0) }
             let after = observedAvailableCapacity(ICloudDrive.root)
             let delta = before.flatMap { initial in after.map { $0 - initial } }
-            await self?.finishCloudEviction(outcomes, availableSpaceDelta: delta)
+            await self?.finishCloudEviction(outcomes, selected: chosen, availableSpaceDelta: delta)
         }
     }
 
-    private func finishCloudEviction(_ outcomes: [DeleteResult], availableSpaceDelta: Int64?) {
+    private func finishCloudEviction(_ outcomes: [DeleteResult], selected: [ScanEntry],
+                                     availableSpaceDelta: Int64?) {
         results = outcomes
         lastAvailableSpaceDelta = availableSpaceDelta
+        let sizes = Dictionary(uniqueKeysWithValues: selected.map { ($0.url, $0.allocatedBytes ?? 0) })
+        recordReceipt(outcomes.map {
+            CleanupReceipt.Item(path: $0.url.path, operation: "cloudEviction",
+                                estimatedBytes: sizes[$0.url] ?? 0, outcome: receiptOutcome($0),
+                                message: $0.message)
+        }, availableSpaceDelta: availableSpaceDelta)
         selectedIDs = []
         isDeleting = false
         showResults = true
@@ -1086,7 +1160,7 @@ final class CleanerStore: ObservableObject {
                                                  omittedCount: report.omittedCount),
                 omittedCount: report.omittedCount, spaceCoverage: report.spaceCoverage,
                 incomplete: !report.hasCompleteSpaceTotals)
-            if !report.hasCompleteSpaceTotals { latestSpaceSnapshot = nil }
+            if report.spaceTree == nil { latestSpaceSnapshot = nil }
         }
         if category == .overview { rebuildCleanupOverview() }
     }
@@ -1096,9 +1170,11 @@ final class CleanerStore: ObservableObject {
         latestSpaceSnapshot = snapshot
         do {
             var history = try SpaceScanHistory.load(from: Self.spaceHistoryURL)
-            let comparison = history.record(snapshot)
+            _ = history.record(snapshot)
             try history.save(to: Self.spaceHistoryURL)
-            spaceGrowthComparison = comparison
+            spaceScanHistory = history
+            comparisonOlderID = nil
+            comparisonNewerID = nil
             spaceHistoryError = nil
         } catch {
             spaceHistoryError = error.localizedDescription
@@ -1151,6 +1227,12 @@ final class CleanerStore: ObservableObject {
                               availableSpaceDelta: Int64?) {
         results = outcomes
         lastAvailableSpaceDelta = availableSpaceDelta
+        let receiptSizes = Dictionary(uniqueKeysWithValues: selected.map { ($0.url, $0.estimatedBytes) })
+        recordReceipt(outcomes.map {
+            CleanupReceipt.Item(path: $0.url.path, operation: mode == .trash ? "trash" : "permanent",
+                                estimatedBytes: receiptSizes[$0.url] ?? 0, outcome: receiptOutcome($0),
+                                message: $0.message)
+        }, availableSpaceDelta: availableSpaceDelta)
         showResults = true
         let sizes = selected.reduce(into: [URL: Int64]()) { sizes, entry in
             sizes[entry.url] = entry.estimatedBytes

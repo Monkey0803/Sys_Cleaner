@@ -128,6 +128,12 @@ public struct SpaceTree: Sendable {
         }
     }
 
+    /// This is the scan's bounded individual-file display set, not every file
+    /// counted in directory totals.
+    public func forEachDisplayedFile(_ body: (SpaceItem) -> Void) {
+        for file in files { body(file) }
+    }
+
     private func directoryIndex(for folder: URL) -> Int? {
         if folder.path == root.path { return 0 }
         var components: [String] = []
@@ -158,6 +164,11 @@ public struct SpaceScanSnapshot: Codable, Sendable {
         public let allocatedBytes: Int64
     }
 
+    public struct File: Codable, Sendable {
+        public let path: String
+        public let logicalBytes: Int64
+    }
+
     public let id: UUID
     public let date: Date
     public let rootPath: String
@@ -166,13 +177,43 @@ public struct SpaceScanSnapshot: Codable, Sendable {
     public let rootLogicalBytes: Int64
     public let rootAllocatedBytes: Int64
     public let directories: [Directory]
+    /// Nil in older saved snapshots, which were only recorded for complete scans.
+    public let unreadablePaths: [String]?
+    public let unlocatedUnreadableCount: Int?
+    public let sampleLimitedParents: [String]?
+    public let files: [File]?
 
-    public static func capture(tree: SpaceTree, excludedPaths: [String], date: Date = Date()) -> Self {
+    public static func capture(report: ScanReport, excludedPaths: [String], date: Date = Date()) -> Self? {
+        guard !report.cancelled, let tree = report.spaceTree else { return nil }
+        let root = tree.root.standardizedFileURL.path
+        let paths = Set(ScanDiagnostic.make(warnings: report.warnings,
+                                            omittedCount: report.omittedCount).compactMap { issue -> String? in
+            guard issue.kind == .unreadable || issue.kind == .changed,
+                  let path = issue.path else { return nil }
+            let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+            return normalized == root || normalized.hasPrefix(root + "/") ? normalized : nil
+        })
+        let unreadableCount = report.spaceCoverage?.unreadableCount ??
+            (report.hasCompleteSpaceTotals ? 0 : report.omittedCount)
+        return capture(tree: tree, excludedPaths: excludedPaths, date: date,
+                       unreadablePaths: Array(paths),
+                       unlocatedUnreadableCount: max(0, unreadableCount - paths.count))
+    }
+
+    public static func capture(tree: SpaceTree, excludedPaths: [String], date: Date = Date(),
+                               unreadablePaths: [String] = [], unlocatedUnreadableCount: Int = 0) -> Self {
         let root = tree.root.standardizedFileURL.path
         var rootLogical: Int64 = 0
         var rootAllocated: Int64 = 0
         var directChildren: [Directory] = []
         var largest: [Directory] = []
+        var sampleLimitedParents = Set<String>()
+        func noteSampleLimit(_ item: Directory) {
+            if sampleLimitedParents.count < 100 {
+                sampleLimitedParents.insert(URL(fileURLWithPath: item.path)
+                    .deletingLastPathComponent().standardizedFileURL.path)
+            }
+        }
         tree.forEachDirectory { url, logical, allocated in
             let path = url.standardizedFileURL.path
             if path == root {
@@ -187,14 +228,32 @@ public struct SpaceScanSnapshot: Codable, Sendable {
                 largest.append(item)
                 siftUp(&largest, from: largest.count - 1)
             } else if let smallest = largest.first, ranksBelow(smallest, item) {
+                noteSampleLimit(smallest)
                 largest[0] = item
                 siftDown(&largest, from: 0)
+            } else {
+                noteSampleLimit(item)
             }
         }
+        var displayedFiles: [File] = []
+        tree.forEachDisplayedFile { file in
+            if !file.isOther && file.bytes >= 1_048_576 {
+                displayedFiles.append(File(path: file.url.standardizedFileURL.path,
+                                           logicalBytes: file.bytes))
+            }
+        }
+        let fileSample = displayedFiles.sorted {
+            $0.logicalBytes == $1.logicalBytes ? $0.path < $1.path :
+                $0.logicalBytes > $1.logicalBytes
+        }.prefix(2_000).sorted { $0.path < $1.path }
         return Self(id: UUID(), date: date, rootPath: root,
                     excludedPaths: Array(Set(excludedPaths)).sorted(), directoryCount: tree.directoryCount,
                     rootLogicalBytes: rootLogical, rootAllocatedBytes: rootAllocated,
-                    directories: (directChildren + largest).sorted { $0.path < $1.path })
+                    directories: (directChildren + largest).sorted { $0.path < $1.path },
+                    unreadablePaths: Array(Set(unreadablePaths)).sorted(),
+                    unlocatedUnreadableCount: max(0, unlocatedUnreadableCount),
+                    sampleLimitedParents: sampleLimitedParents.sorted(),
+                    files: Array(fileSample))
     }
 
     private static func ranksBelow(_ lhs: Directory, _ rhs: Directory) -> Bool {
@@ -232,9 +291,31 @@ public struct SpaceGrowth: Sendable {
     public var increase: Int64 { currentBytes - previousBytes }
 }
 
+public struct SpaceDirectoryChange: Sendable {
+    public let path: String
+    public let previousBytes: Int64?
+    public let currentBytes: Int64?
+    public var hasComparableDelta: Bool { previousBytes != nil && currentBytes != nil }
+}
+
+public struct SpaceFileChange: Sendable {
+    public let path: String
+    public let previousBytes: Int64?
+    public let currentBytes: Int64?
+    public var hasComparableDelta: Bool { previousBytes != nil && currentBytes != nil }
+}
+
+public struct SpaceComparisonUncertainty: Sendable {
+    public let unreadablePaths: [String]
+    public let unlocatedUnreadableCount: Int
+    public let sampleLimited: Bool
+    public let sampleLimitedParents: [String]
+}
+
 public enum SpaceGrowthComparison: Sendable {
     case noPrevious
     case sourcesChanged
+    case invalidSelection
     case comparable(previousDate: Date, currentDate: Date, rootPath: String,
                     previousTotal: Int64, currentTotal: Int64,
                     sampledCount: Int, directoryCount: Int, newSampleCount: Int,
@@ -260,13 +341,98 @@ public struct SpaceScanHistory: Codable, Sendable {
         return Self.compare(snapshots.dropLast().last { $0.rootPath == current.rootPath }, current)
     }
 
+    public func comparison(olderID: UUID, newerID: UUID) -> SpaceGrowthComparison {
+        guard let olderIndex = snapshots.firstIndex(where: { $0.id == olderID }),
+              let newerIndex = snapshots.firstIndex(where: { $0.id == newerID }),
+              olderIndex < newerIndex else { return .invalidSelection }
+        return Self.compare(snapshots[olderIndex], snapshots[newerIndex])
+    }
+
+    public func uncertainty(olderID: UUID, newerID: UUID) -> SpaceComparisonUncertainty? {
+        guard let older = snapshots.first(where: { $0.id == olderID }),
+              let newer = snapshots.first(where: { $0.id == newerID }),
+              older.rootPath == newer.rootPath,
+              older.excludedPaths == newer.excludedPaths else { return nil }
+        return Self.uncertainty(older, newer)
+    }
+
+    private static func uncertainty(_ older: SpaceScanSnapshot,
+                                    _ newer: SpaceScanSnapshot) -> SpaceComparisonUncertainty {
+        SpaceComparisonUncertainty(
+            unreadablePaths: Array(Set((older.unreadablePaths ?? []) +
+                                       (newer.unreadablePaths ?? []))).sorted(),
+            unlocatedUnreadableCount: max(older.unlocatedUnreadableCount ?? 0,
+                                          newer.unlocatedUnreadableCount ?? 0),
+            sampleLimited: older.directories.count < older.directoryCount - 1 ||
+                           newer.directories.count < newer.directoryCount - 1,
+            sampleLimitedParents: Array(Set((older.sampleLimitedParents ?? []) +
+                                            (newer.sampleLimitedParents ?? []))).sorted())
+    }
+
+    private static func isUncertain(_ path: String, _ uncertainty: SpaceComparisonUncertainty) -> Bool {
+        uncertainty.unlocatedUnreadableCount > 0 || uncertainty.unreadablePaths.contains {
+            $0 == path || $0.hasPrefix(path + "/") || path.hasPrefix($0 + "/")
+        }
+    }
+
+    /// Only paths present in both bounded samples have a trustworthy delta.
+    public func directoryChanges(olderID: UUID, newerID: UUID, under path: String)
+        -> [SpaceDirectoryChange] {
+        guard let olderIndex = snapshots.firstIndex(where: { $0.id == olderID }),
+              let newerIndex = snapshots.firstIndex(where: { $0.id == newerID }),
+              olderIndex < newerIndex else { return [] }
+        let older = snapshots[olderIndex], newer = snapshots[newerIndex]
+        guard older.rootPath == newer.rootPath, older.excludedPaths == newer.excludedPaths else { return [] }
+        let uncertainty = Self.uncertainty(older, newer)
+        let prefix = path.hasSuffix("/") ? path : path + "/"
+        let old = Dictionary(uniqueKeysWithValues: older.directories.map { ($0.path, $0.logicalBytes) })
+        let current = Dictionary(uniqueKeysWithValues: newer.directories.map { ($0.path, $0.logicalBytes) })
+        return Set(old.keys).union(current.keys).filter { $0.hasPrefix(prefix) }.map { candidate in
+            if Self.isUncertain(candidate, uncertainty) {
+                return SpaceDirectoryChange(path: candidate, previousBytes: nil, currentBytes: nil)
+            }
+            return SpaceDirectoryChange(path: candidate, previousBytes: old[candidate],
+                                        currentBytes: current[candidate])
+        }.filter { !$0.hasComparableDelta || $0.previousBytes != $0.currentBytes }.sorted {
+            let left = abs(($0.currentBytes ?? 0) - ($0.previousBytes ?? 0))
+            let right = abs(($1.currentBytes ?? 0) - ($1.previousBytes ?? 0))
+            return left == right ? $0.path < $1.path : left > right
+        }
+    }
+
+    public func fileChanges(olderID: UUID, newerID: UUID, under path: String) -> [SpaceFileChange] {
+        guard let olderIndex = snapshots.firstIndex(where: { $0.id == olderID }),
+              let newerIndex = snapshots.firstIndex(where: { $0.id == newerID }),
+              olderIndex < newerIndex else { return [] }
+        let older = snapshots[olderIndex], newer = snapshots[newerIndex]
+        guard older.rootPath == newer.rootPath, older.excludedPaths == newer.excludedPaths,
+              let olderFiles = older.files, let newerFiles = newer.files else { return [] }
+        let uncertainty = Self.uncertainty(older, newer)
+        let prefix = path.hasSuffix("/") ? path : path + "/"
+        let old = Dictionary(uniqueKeysWithValues: olderFiles.map { ($0.path, $0.logicalBytes) })
+        let current = Dictionary(uniqueKeysWithValues: newerFiles.map { ($0.path, $0.logicalBytes) })
+        return Set(old.keys).union(current.keys).filter { $0.hasPrefix(prefix) }.compactMap { candidate in
+            guard !Self.isUncertain(candidate, uncertainty) else { return nil }
+            let change = SpaceFileChange(path: candidate, previousBytes: old[candidate],
+                                         currentBytes: current[candidate])
+            return change.previousBytes != change.currentBytes ? change : nil
+        }.sorted {
+            let left = abs(($0.currentBytes ?? 0) - ($0.previousBytes ?? 0))
+            let right = abs(($1.currentBytes ?? 0) - ($1.previousBytes ?? 0))
+            return left == right ? $0.path < $1.path : left > right
+        }
+    }
+
     private static func compare(_ prior: SpaceScanSnapshot?, _ current: SpaceScanSnapshot) -> SpaceGrowthComparison {
         guard let prior else { return .noPrevious }
-        guard prior.excludedPaths == current.excludedPaths else { return .sourcesChanged }
+        guard prior.rootPath == current.rootPath,
+              prior.excludedPaths == current.excludedPaths else { return .sourcesChanged }
+        let uncertainty = Self.uncertainty(prior, current)
         let old = Dictionary(uniqueKeysWithValues: prior.directories.map { ($0.path, $0.logicalBytes) })
         let newSampleCount = current.directories.filter { old[$0.path] == nil }.count
         let growth = current.directories.compactMap { item -> SpaceGrowth? in
-            guard let before = old[item.path], item.logicalBytes > before else { return nil }
+            guard !Self.isUncertain(item.path, uncertainty),
+                  let before = old[item.path], item.logicalBytes > before else { return nil }
             return SpaceGrowth(path: item.path, previousBytes: before, currentBytes: item.logicalBytes)
         }.sorted {
             $0.increase == $1.increase ? $0.path < $1.path : $0.increase > $1.increase

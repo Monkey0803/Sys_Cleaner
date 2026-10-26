@@ -1002,14 +1002,35 @@ struct ContentView: View {
     private var overviewGrowthContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("spaceGrowthTitle").font(.title3.bold())
+            Text("spaceGrowthLimits").font(.caption).foregroundStyle(.secondary)
             if let error = store.spaceHistoryError {
                 Text(String(format: L("spaceGrowthSaveFailed"), error)).foregroundStyle(.orange)
             }
-            switch store.spaceGrowthComparison {
+            if let pair = store.selectedSpaceScanIDs {
+                HStack {
+                    Picker("spaceGrowthOlder", selection: Binding(get: { pair.older },
+                        set: { store.comparisonOlderID = $0 })) {
+                        ForEach(store.spaceScanHistory.snapshots, id: \.id) { snapshot in
+                            Text("\(localizedDate(snapshot.date)) · \(snapshot.rootPath)")
+                                .tag(snapshot.id)
+                        }
+                    }
+                    Picker("spaceGrowthNewer", selection: Binding(get: { pair.newer },
+                        set: { store.comparisonNewerID = $0 })) {
+                        ForEach(store.spaceScanHistory.snapshots, id: \.id) { snapshot in
+                            Text("\(localizedDate(snapshot.date)) · \(snapshot.rootPath)")
+                                .tag(snapshot.id)
+                        }
+                    }
+                }
+            }
+            switch store.selectedSpaceGrowthComparison {
             case .noPrevious:
                 Text("spaceGrowthNoPrevious").foregroundStyle(.secondary)
             case .sourcesChanged:
                 Text("spaceGrowthSourcesChanged").foregroundStyle(.orange)
+            case .invalidSelection:
+                Text("spaceGrowthInvalidSelection").foregroundStyle(.orange)
             case .comparable(let previousDate, let currentDate, let rootPath,
                              let previousTotal, let currentTotal, let sampledCount, let directoryCount,
                              let newSampleCount, let growth):
@@ -1020,25 +1041,115 @@ struct ContentView: View {
                 Text(String(format: L("spaceGrowthTotal"), fileSize(previousTotal), fileSize(currentTotal)))
                 Text(String(format: L("spaceGrowthCoverage"), sampledCount, directoryCount))
                     .font(.caption).foregroundStyle(.secondary)
+                if let pair = store.selectedSpaceScanIDs,
+                   let uncertainty = store.spaceScanHistory.uncertainty(
+                    olderID: pair.older, newerID: pair.newer) {
+                    if !uncertainty.unreadablePaths.isEmpty {
+                        DisclosureGroup(String(format: L("spaceGrowthUnreadableRanges"),
+                                               uncertainty.unreadablePaths.count)) {
+                            ForEach(uncertainty.unreadablePaths, id: \.self) { path in
+                                Text(path).font(.caption.monospaced()).textSelection(.enabled)
+                            }
+                        }
+                        .foregroundStyle(.orange)
+                    }
+                    if uncertainty.unlocatedUnreadableCount > 0 {
+                        Text(String(format: L("spaceGrowthUnlocatedUnreadable"),
+                                    uncertainty.unlocatedUnreadableCount))
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if uncertainty.sampleLimited {
+                        Text("spaceGrowthSampleLimit")
+                            .font(.caption).foregroundStyle(.orange)
+                        if !uncertainty.sampleLimitedParents.isEmpty {
+                            DisclosureGroup(String(format: L("spaceGrowthSampleLimitedRanges"),
+                                                   uncertainty.sampleLimitedParents.count)) {
+                                ForEach(uncertainty.sampleLimitedParents, id: \.self) { path in
+                                    Text(path).font(.caption.monospaced()).textSelection(.enabled)
+                                }
+                            }
+                            .foregroundStyle(.orange)
+                        }
+                    }
+                    if !uncertainty.unreadablePaths.isEmpty ||
+                        uncertainty.unlocatedUnreadableCount > 0 {
+                        Text("spaceGrowthPartialTotals")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
                 if newSampleCount > 0 {
                     Text(String(format: L("spaceGrowthNewSampleCount"), newSampleCount))
                         .font(.caption).foregroundStyle(.secondary)
+                }
+                if let pair = store.selectedSpaceScanIDs {
+                    let unknown = store.spaceScanHistory.directoryChanges(
+                        olderID: pair.older, newerID: pair.newer, under: rootPath)
+                        .filter { !$0.hasComparableDelta }.count
+                    if unknown > 0 {
+                        Text(String(format: L("spaceGrowthUnknownCount"), unknown))
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                 }
                 if growth.isEmpty {
                     Text("spaceGrowthNoIncrease").foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(growth.prefix(20).enumerated()), id: \.offset) { _, item in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(URL(fileURLWithPath: item.path).lastPathComponent).fontWeight(.medium)
-                                Text(item.path).font(.caption).foregroundStyle(.secondary)
-                                    .lineLimit(1).truncationMode(.middle)
+                        DisclosureGroup {
+                            Text(String(format: L("spaceGrowthDirectorySizes"),
+                                        fileSize(item.previousBytes), fileSize(item.currentBytes)))
+                                .font(.caption)
+                            let changes = store.spaceDirectoryChanges(under: item.path)
+                            let fileChanges = store.spaceFileChanges(under: item.path)
+                            ForEach(Array(changes.prefix(50).enumerated()), id: \.offset) { _, change in
+                                HStack {
+                                    Text(change.path).lineLimit(1).truncationMode(.middle)
+                                    Spacer()
+                                    if let before = change.previousBytes, let after = change.currentBytes {
+                                        Text("\(fileSize(before)) → \(fileSize(after))")
+                                    } else {
+                                        Text("spaceGrowthSampleUnknown")
+                                    }
+                                }
+                                .font(.caption)
                             }
-                            Spacer()
-                            Text("+" + fileSize(item.increase))
-                                .monospacedDigit()
+                            if changes.count > 50 {
+                                Text(String(format: L("spaceGrowthMoreChildren"), changes.count - 50))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            ForEach(Array(fileChanges.prefix(50).enumerated()), id: \.offset) { _, change in
+                                HStack {
+                                    Image(systemName: "doc")
+                                    Text(change.path).lineLimit(1).truncationMode(.middle)
+                                    Spacer()
+                                    if let before = change.previousBytes, let after = change.currentBytes {
+                                        Text("\(fileSize(before)) → \(fileSize(after))")
+                                    } else {
+                                        Text("spaceGrowthFileSampleUnknown")
+                                    }
+                                }
+                                .font(.caption)
+                            }
+                            if fileChanges.count > 50 {
+                                Text(String(format: L("spaceGrowthMoreFiles"), fileChanges.count - 50))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            if changes.isEmpty && fileChanges.isEmpty {
+                                Text("spaceGrowthNoRecordedChildren").font(.caption)
+                            }
+                            Text("spaceGrowthFileSampleLimits")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(URL(fileURLWithPath: item.path).lastPathComponent).fontWeight(.medium)
+                                    Text(item.path).font(.caption).foregroundStyle(.secondary)
+                                        .lineLimit(1).truncationMode(.middle)
+                                }
+                                Spacer()
+                                Text("+" + fileSize(item.increase)).monospacedDigit()
+                            }
+                            .font(.callout)
                         }
-                        .font(.callout)
                         .padding(8)
                         .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                     }
@@ -1375,9 +1486,14 @@ struct ContentView: View {
                          format: .dateTime.year().month().day().hour().minute())
                         .font(.caption).foregroundStyle(.secondary)
                     Text(store.category == .uninstall && store.reviewedApplicationName != nil ?
-                         L(entry.note == "appPossibleRelated" ? "appPossibleRelatedBasis" :
-                           (entry.isDirectory ? "appBundleBasis" : "appExactMatchBasis")) : L(entry.note))
+                         applicationEvidenceText(for: entry) :
+                         L(entry.category == .uninstall && entry.risk == .protected ? "appRunning" : entry.note))
                         .font(.caption).foregroundStyle(entry.canDelete ? .orange : .secondary)
+                    if store.category == .uninstall && store.reviewedApplicationName != nil &&
+                        !entry.canDelete {
+                        Text(L(selectionUnavailableReason(for: entry)))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 if store.category == .uninstall && entry.isDirectory && entry.note != "appPossibleRelated" &&
@@ -1569,18 +1685,8 @@ struct ContentView: View {
                         store.results.filter { $0.status == .success }.count,
                         store.results.filter { $0.status == .skipped }.count,
                         store.results.filter { $0.status == .failed }.count))
-            if let delta = store.lastAvailableSpaceDelta {
-                Text(String(format: L("observedAvailableChange"),
-                            delta >= 0 ? "+" : "-", fileSize(abs(delta))))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text("observedAvailableHelp")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("observedAvailableUnavailable")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if let receipt = store.lastReceipt {
+                receiptSummary(receipt)
             }
             List(store.results, id: \.url) { result in
                 HStack {
@@ -1620,11 +1726,31 @@ struct ContentView: View {
             lines.append("\(L("estimated")): \(size)")
         }
         lines.append("\(L("modifiedAt")): \(modified)")
-        if entry.category == .uninstall && entry.note != "appRunning" &&
-            entry.note != "appPossibleRelated" && !entry.note.isEmpty {
+        if entry.category == .uninstall && entry.note != "appPossibleRelated" &&
+            !entry.note.isEmpty {
             lines.append("\(L("bundleIdentifier")): \(entry.note)")
         }
+        if entry.category == .uninstall {
+            lines.append(applicationEvidenceText(for: entry))
+            if ApplicationAssociationEvidence.classify(entry, identifier: entry.note) ==
+                .exactIdentifierDirectory {
+                lines.append("\(L("appEvidenceMatchedPath")): \(entry.scope.path)")
+            }
+        }
         return lines.joined(separator: "\n")
+    }
+
+    private func applicationEvidenceText(for entry: ScanEntry) -> String {
+        let evidence = ApplicationAssociationEvidence.classify(entry, identifier: entry.note)
+        let key: String
+        switch evidence {
+        case .bundleIdentifier: key = "appEvidenceBundle"
+        case .exactIdentifierDirectory: key = "appEvidenceExactDirectory"
+        case .exactIdentifierFile: key = "appEvidenceExactFile"
+        case .similarIdentifier: key = "appEvidenceSimilar"
+        case .unverified: key = "appEvidenceUnverified"
+        }
+        return L(key)
     }
 
     private func reason(for entry: ScanEntry) -> String {
@@ -1637,10 +1763,9 @@ struct ContentView: View {
         case .systemCache: L("reasonSystemCache")
         case .developerCache: L("reasonDeveloperCache")
         case .uninstall:
-            if entry.note == "appPossibleRelated" { L("appPossibleRelatedBasis") }
+            if entry.note == "appPossibleRelated" { applicationEvidenceText(for: entry) }
             else if entry.risk == .protected { L("appRunning") }
-            else if entry.isDirectory { L("reasonAppBundle") }
-            else { L("reasonAppRelated") }
+            else { applicationEvidenceText(for: entry) }
         case .orphans: L("reasonOrphanCandidate")
         case .icloud: L(entry.note)
         }
@@ -1656,6 +1781,30 @@ struct ContentView: View {
         return "protected"
     }
 
+    private func receiptSummary(_ receipt: CleanupReceipt) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("cleanupReceiptTitle").font(.headline)
+            Text(String(format: L("cleanupReceiptSelected"), receipt.items.count,
+                        fileSize(receipt.selectedLocalBytes)))
+            Text(String(format: L("cleanupReceiptSucceeded"), receipt.succeededCount,
+                        fileSize(receipt.succeededLocalBytes)))
+            Text(String(format: L("cleanupReceiptTrash"), fileSize(receipt.trashBytes)))
+            if receipt.selectedCloudBytes > 0 {
+                Text(String(format: L("cleanupReceiptCloud"),
+                            fileSize(receipt.selectedCloudBytes), fileSize(receipt.succeededCloudBytes)))
+            }
+            if let delta = receipt.availableSpaceDelta {
+                Text(String(format: L("observedAvailableChange"),
+                            delta >= 0 ? "+" : "-", fileSize(abs(delta))))
+            } else {
+                Text("observedAvailableUnavailable")
+            }
+            Text("cleanupReceiptExplanation")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .font(.callout)
+    }
+
     private var historySheet: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("cleanupHistory").font(.title2.bold())
@@ -1663,14 +1812,39 @@ struct ContentView: View {
                 Text(String(format: L("historySaveFailed"), error))
                     .foregroundStyle(.orange)
             }
+            if let error = store.receiptError {
+                Text(String(format: L("historySaveFailed"), error))
+                    .foregroundStyle(.orange)
+            }
             if let error = store.restoreError {
                 Text(error).foregroundStyle(.orange)
             }
-            if store.cleanupHistory.isEmpty {
+            if store.cleanupHistory.isEmpty && store.cleanupReceipts.isEmpty {
                 ContentUnavailableView("historyEmpty", systemImage: "clock")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
+                    if !store.cleanupReceipts.isEmpty {
+                        Section("cleanupReceiptHistory") {
+                            ForEach(store.cleanupReceipts) { receipt in
+                                DisclosureGroup(localizedDate(receipt.date)) {
+                                    receiptSummary(receipt)
+                                    ForEach(Array(receipt.items.enumerated()), id: \.offset) { _, item in
+                                        HStack {
+                                            Text(URL(fileURLWithPath: item.path).lastPathComponent)
+                                            Spacer()
+                                            Text(L("cleanupReceiptOperation_" + item.operation))
+                                            Text(L("cleanupReceiptOutcome_" + item.outcome))
+                                            if let message = item.message, item.outcome != "success" {
+                                                Text(L(message)).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     ForEach(store.cleanupHistory) { record in
                         Section("\(localizedDate(record.date)) · \(L(record.category)) · \(L(record.mode == "trash" ? "moveToTrash" : "deletePermanently"))") {
                             ForEach(record.items) { item in

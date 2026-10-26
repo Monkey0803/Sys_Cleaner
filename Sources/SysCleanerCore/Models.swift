@@ -92,6 +92,31 @@ public struct ScanEntry: Identifiable, Sendable {
     }
 }
 
+public enum ApplicationAssociationEvidence: Equatable, Sendable {
+    case bundleIdentifier
+    case exactIdentifierDirectory
+    case exactIdentifierFile
+    case similarIdentifier
+    case unverified
+
+    public static func classify(_ entry: ScanEntry, identifier: String) -> Self {
+        guard entry.category == .uninstall else { return .unverified }
+        if entry.note == "appPossibleRelated" { return .similarIdentifier }
+        guard !identifier.isEmpty, entry.note == identifier else { return .unverified }
+        if entry.isDirectory && entry.url.pathExtension.lowercased() == "app" {
+            return .bundleIdentifier
+        }
+        let scopeName = entry.scope.lastPathComponent
+        if scopeName == identifier || scopeName == identifier + ".savedState" {
+            return .exactIdentifierDirectory
+        }
+        if entry.url.lastPathComponent == identifier + ".plist" {
+            return .exactIdentifierFile
+        }
+        return .unverified
+    }
+}
+
 public struct ScanRequest: Sendable {
     public let category: ScanCategory
     public let root: URL
@@ -741,6 +766,71 @@ public struct CleanupHistoryRecord: Codable, Identifiable, Sendable {
         self.category = category
         self.mode = mode
         self.items = items
+    }
+}
+
+/// A per-execution receipt. Estimated bytes and observed volume capacity are
+/// separate measurements and must never be presented as equivalent.
+public struct CleanupReceipt: Codable, Identifiable, Sendable {
+    public struct Item: Codable, Sendable {
+        public let path: String
+        public let operation: String
+        public let estimatedBytes: Int64
+        public let outcome: String
+        public let message: String?
+
+        public init(path: String, operation: String, estimatedBytes: Int64,
+                    outcome: String, message: String? = nil) {
+            self.path = path
+            self.operation = operation
+            self.estimatedBytes = max(0, estimatedBytes)
+            self.outcome = outcome
+            self.message = message
+        }
+    }
+
+    public let id: UUID
+    public let date: Date
+    public let items: [Item]
+    public let availableSpaceDelta: Int64?
+    public var selectedLocalBytes: Int64 {
+        items.filter { $0.operation != "cloudEviction" }.reduce(0) { $0 + $1.estimatedBytes }
+    }
+    public var selectedCloudBytes: Int64 {
+        items.filter { $0.operation == "cloudEviction" }.reduce(0) { $0 + $1.estimatedBytes }
+    }
+    public var succeededLocalBytes: Int64 {
+        items.filter { $0.operation != "cloudEviction" && $0.outcome == "success" }
+            .reduce(0) { $0 + $1.estimatedBytes }
+    }
+    public var succeededCloudBytes: Int64 {
+        items.filter { $0.operation == "cloudEviction" && $0.outcome == "success" }
+            .reduce(0) { $0 + $1.estimatedBytes }
+    }
+    public var trashBytes: Int64 {
+        items.filter { $0.operation == "trash" && $0.outcome == "success" }
+            .reduce(0) { $0 + $1.estimatedBytes }
+    }
+    public var succeededCount: Int { items.filter { $0.outcome == "success" }.count }
+
+    public init(date: Date = Date(), items: [Item], availableSpaceDelta: Int64?) {
+        id = UUID()
+        self.date = date
+        self.items = items
+        self.availableSpaceDelta = availableSpaceDelta
+    }
+}
+
+public enum CleanupReceiptStorage {
+    public static func load(from url: URL) throws -> [CleanupReceipt] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode([CleanupReceipt].self, from: Data(contentsOf: url))
+    }
+
+    public static func save(_ receipts: [CleanupReceipt], to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try JSONEncoder().encode(Array(receipts.prefix(50))).write(to: url, options: .atomic)
     }
 }
 
