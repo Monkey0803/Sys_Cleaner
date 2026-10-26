@@ -412,7 +412,15 @@ struct ContentView: View {
                 if store.hasScanned {
                     Text(store.hasPartialResults ? "partialResults" : "completeResults")
                         .foregroundStyle(store.hasPartialResults ? .orange : .secondary)
-                    if store.scanMetrics.omittedCount > 0 {
+                    if store.category == .space, let coverage = store.scanMetrics.spaceCoverage {
+                        if coverage.displayLimitedCount > 0 {
+                            Text(String(format: L("spaceIncludedNotListed"), coverage.displayLimitedCount))
+                        }
+                        if coverage.unreadableCount > 0 {
+                            Text(String(format: L("spaceUnreadable"), coverage.unreadableCount))
+                                .foregroundStyle(.orange)
+                        }
+                    } else if store.scanMetrics.omittedCount > 0 {
                         Text(String(format: L("omittedItemsCount"), store.scanMetrics.omittedCount))
                             .foregroundStyle(.orange)
                     }
@@ -560,7 +568,9 @@ struct ContentView: View {
                                 Text("overviewXcodeQuickIncomplete")
                                     .font(.caption).foregroundStyle(.orange)
                             }
-                            if section.omittedCount > 0 {
+                            if section.category == .space, let coverage = store.spaceCoverage(for: .space) {
+                                spaceCoverageDetails(coverage)
+                            } else if section.omittedCount > 0 {
                                 Text(String(format: L("omittedItemsCount"), section.omittedCount))
                                     .foregroundStyle(.orange)
                             }
@@ -681,7 +691,13 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Text("spaceAccountingCaveat").font(.caption).foregroundStyle(.secondary)
                 }
-                if accounting.omittedCount > 0 {
+                if let coverage = accounting.spaceCoverage {
+                    spaceCoverageDetails(coverage)
+                    if coverage.permissionDeniedCount > 0 {
+                        Button("fullDiskAccess") { store.openFullDiskAccess() }
+                            .hoverHighlight()
+                    }
+                } else if accounting.omittedCount > 0 {
                     Text(String(format: L("omittedItemsCount"), accounting.omittedCount))
                         .foregroundStyle(.orange)
                 }
@@ -697,16 +713,16 @@ struct ContentView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            if accounting.diagnostics.contains(where: { $0.kind == .unreadable }) {
-                                Button("fullDiskAccess") { store.openFullDiskAccess() }
-                                    .hoverHighlight()
-                            }
                         }
                         .font(.caption)
                     }
                     .foregroundStyle(.orange)
                 } else if !accounting.isHistorical {
                     Text("spaceAccountingNoNotices").font(.caption).foregroundStyle(.secondary)
+                }
+                if let coverage = accounting.spaceCoverage,
+                   coverage.unreadableCount > accounting.diagnostics.count {
+                    Text("spaceNoticesLimited").font(.caption).foregroundStyle(.secondary)
                 }
                 if !accounting.excludedPaths.isEmpty {
                     DisclosureGroup(String(format: L("spaceAccountingReviewExclusions"),
@@ -740,6 +756,30 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func spaceCoverageDetails(_ coverage: SpaceScanCoverage) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if coverage.displayLimitedCount > 0 {
+                Text(String(format: L("spaceIncludedNotListed"), coverage.displayLimitedCount))
+                    .foregroundStyle(.secondary)
+            }
+            if coverage.unreadableCount > 0 {
+                Text(String(format: L("spaceUnreadable"), coverage.unreadableCount))
+                    .foregroundStyle(.orange)
+                if coverage.permissionDeniedCount > 0 {
+                    Text(String(format: L("spacePermissionDenied"), coverage.permissionDeniedCount))
+                }
+                if coverage.disappearedCount > 0 {
+                    Text(String(format: L("spaceDisappeared"), coverage.disappearedCount))
+                }
+                if coverage.otherUnreadableCount > 0 {
+                    Text(String(format: L("spaceOtherUnreadable"), coverage.otherUnreadableCount))
+                }
+                Text("spaceUnreadableAction").foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
     }
 
     private var overviewReviewCandidates: [CleanupOverviewItem] {
@@ -1720,7 +1760,16 @@ struct ScanCompletionSummaryView: View {
                 Text(String(format: L("scanSummaryCounts"), store.entries.count,
                             store.entries.filter(\.canDelete).count))
             }
-            if store.scanMetrics.omittedCount > 0 {
+            if store.category == .space, let coverage = store.scanMetrics.spaceCoverage {
+                if coverage.displayLimitedCount > 0 {
+                    Text(String(format: L("spaceIncludedNotListed"), coverage.displayLimitedCount))
+                        .foregroundStyle(.secondary)
+                }
+                if coverage.unreadableCount > 0 {
+                    Text(String(format: L("spaceUnreadable"), coverage.unreadableCount))
+                        .foregroundStyle(.orange)
+                }
+            } else if store.scanMetrics.omittedCount > 0 {
                 Text(String(format: L("omittedItemsCount"), store.scanMetrics.omittedCount))
                     .foregroundStyle(.orange)
             }

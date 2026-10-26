@@ -177,6 +177,25 @@ public struct OrphanReviewGroup: Identifiable, Sendable {
     }
 }
 
+public struct SpaceScanCoverage: Equatable, Sendable {
+    public let displayLimitedCount: Int
+    public let unreadableCount: Int
+    public let permissionDeniedCount: Int
+    public let disappearedCount: Int
+
+    public var otherUnreadableCount: Int {
+        max(0, unreadableCount - permissionDeniedCount - disappearedCount)
+    }
+
+    public init(displayLimitedCount: Int, unreadableCount: Int,
+                permissionDeniedCount: Int, disappearedCount: Int) {
+        self.displayLimitedCount = max(0, displayLimitedCount)
+        self.unreadableCount = max(0, unreadableCount)
+        self.permissionDeniedCount = max(0, permissionDeniedCount)
+        self.disappearedCount = max(0, disappearedCount)
+    }
+}
+
 public struct ScanReport: Sendable {
     public let entries: [ScanEntry]
     private let storedSpaceItems: [SpaceItem]
@@ -186,6 +205,7 @@ public struct ScanReport: Sendable {
     public let scannedBytes: Int64
     public let scannedAllocatedBytes: Int64?
     public let omittedCount: Int
+    public let spaceCoverage: SpaceScanCoverage?
     public let warnings: [String]
     public let cancelled: Bool
     public let applicationCaskToken: String?
@@ -197,12 +217,17 @@ public struct ScanReport: Sendable {
         return warnings.allSatisfy { $0 == "spaceLimit" }
     }
     public var hasCompleteSpaceTotals: Bool {
-        spaceTree != nil && !cancelled &&
-            Self.spaceTotalsAreComplete(warnings: warnings, omittedCount: omittedCount)
+        guard spaceTree != nil && !cancelled else { return false }
+        if let spaceCoverage {
+            return spaceCoverage.unreadableCount == 0 &&
+                warnings.allSatisfy { $0 == "spaceLimit" }
+        }
+        return Self.spaceTotalsAreComplete(warnings: warnings, omittedCount: omittedCount)
     }
     public init(entries: [ScanEntry], warnings: [String], cancelled: Bool,
                 spaceItems: [SpaceItem] = [], scannedFileCount: Int? = nil, scannedBytes: Int64? = nil,
                 scannedAllocatedBytes: Int64? = nil, omittedCount: Int = 0,
+                spaceCoverage: SpaceScanCoverage? = nil,
                 spaceTree: SpaceTree? = nil, applicationCaskToken: String? = nil) {
         self.entries = entries
         self.storedSpaceItems = spaceItems
@@ -212,6 +237,7 @@ public struct ScanReport: Sendable {
         self.scannedAllocatedBytes = scannedAllocatedBytes ??
             (entries.allSatisfy { $0.allocatedBytes != nil } ? entries.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil)
         self.omittedCount = omittedCount
+        self.spaceCoverage = spaceCoverage
         self.warnings = warnings
         self.cancelled = cancelled
         self.applicationCaskToken = applicationCaskToken

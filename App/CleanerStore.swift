@@ -19,6 +19,7 @@ final class CleanerStore: ObservableObject {
     struct ScanMetrics {
         var allocatedBytes: Int64?
         var omittedCount = 0
+        var spaceCoverage: SpaceScanCoverage? = nil
     }
     struct OverviewScanState {
         let category: ScanCategory
@@ -35,6 +36,7 @@ final class CleanerStore: ObservableObject {
         let excludedPaths: [String]
         let diagnostics: [ScanDiagnostic]
         let omittedCount: Int
+        let spaceCoverage: SpaceScanCoverage?
         let isHistorical: Bool
     }
     private struct SpaceScanEvidence {
@@ -43,6 +45,7 @@ final class CleanerStore: ObservableObject {
         let excludedPaths: [String]
         let diagnostics: [ScanDiagnostic]
         let omittedCount: Int
+        let spaceCoverage: SpaceScanCoverage?
         let incomplete: Bool
     }
     private static let historyURL = FileManager.default.homeDirectoryForCurrentUser
@@ -178,7 +181,8 @@ final class CleanerStore: ObservableObject {
                 scanMetrics: ScanMetrics(
                     allocatedBytes: remaining.allSatisfy { $0.allocatedBytes != nil } ?
                         remaining.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil,
-                    omittedCount: scanMetrics.omittedCount),
+                    omittedCount: scanMetrics.omittedCount,
+                    spaceCoverage: scanMetrics.spaceCoverage),
                 warnings: warnings, selectedIDs: selectedIDs.subtracting(
                     entries.filter { urls.contains($0.url) }.map(\.id)),
                 hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
@@ -205,7 +209,8 @@ final class CleanerStore: ObservableObject {
                                   scanMetrics: ScanMetrics(
                                     allocatedBytes: updated.allSatisfy { $0.allocatedBytes != nil } ?
                                         updated.reduce(0) { $0 + ($1.allocatedBytes ?? 0) } : nil,
-                                    omittedCount: scanMetrics.omittedCount),
+                                    omittedCount: scanMetrics.omittedCount,
+                                    spaceCoverage: scanMetrics.spaceCoverage),
                                   warnings: warnings, selectedIDs: selectedIDs,
                                   hasScanned: hasScanned, isScanning: isScanning, scanProgress: scanProgress,
                                   spaceFolder: spaceFolder, resultQuery: resultQuery, resultFilter: resultFilter)
@@ -222,6 +227,9 @@ final class CleanerStore: ObservableObject {
     }
     var hasPartialResults: Bool {
         if category == .space, spaceTree != nil {
+            if let coverage = scanMetrics.spaceCoverage {
+                return coverage.unreadableCount > 0 || warnings.contains { $0 != "spaceLimit" }
+            }
             return !ScanReport.spaceTotalsAreComplete(warnings: warnings,
                                                      omittedCount: scanMetrics.omittedCount)
         }
@@ -257,6 +265,7 @@ final class CleanerStore: ObservableObject {
             excludedPaths: evidence?.excludedPaths ?? latestSpaceSnapshot?.excludedPaths ?? [],
             diagnostics: evidence?.diagnostics ?? [],
             omittedCount: evidence?.omittedCount ?? 0,
+            spaceCoverage: evidence?.spaceCoverage,
             isHistorical: evidence == nil)
     }
 
@@ -309,6 +318,12 @@ final class CleanerStore: ObservableObject {
         (scanDiagnostics[category] ?? []) + (category == .developerCache ? xcodeExtraDiagnostics : [])
     }
 
+    func spaceCoverage(for category: ScanCategory) -> SpaceScanCoverage? {
+        guard category == .space else { return nil }
+        if self.category == category && hasScanned { return scanMetrics.spaceCoverage }
+        return categoryResults[category]?.scanMetrics.spaceCoverage
+    }
+
     private func rebuildCleanupOverview() {
         var results = categoryResults
         if category != .overview && hasScanned { results[category] = currentResult() }
@@ -316,8 +331,10 @@ final class CleanerStore: ObservableObject {
             guard result.hasScanned else { return nil }
             let candidates = key == .uninstall ? (lastReviewedApplicationEntries ?? result.entries) : result.entries
             let incomplete = key == .space && result.spaceTree != nil
-                ? !ScanReport.spaceTotalsAreComplete(warnings: result.warnings,
-                                                    omittedCount: result.scanMetrics.omittedCount)
+                ? (result.scanMetrics.spaceCoverage.map { $0.unreadableCount > 0 ||
+                    result.warnings.contains { $0 != "spaceLimit" } } ??
+                    !ScanReport.spaceTotalsAreComplete(warnings: result.warnings,
+                        omittedCount: result.scanMetrics.omittedCount))
                 : result.scanMetrics.omittedCount > 0 || !result.warnings.isEmpty
             return CleanupOverviewSource(category: key, entries: candidates,
                                          incomplete: incomplete,
@@ -1035,7 +1052,8 @@ final class CleanerStore: ObservableObject {
             summaryCount = report.scannedFileCount
             summaryBytes = report.scannedBytes
             scanMetrics = ScanMetrics(allocatedBytes: report.scannedAllocatedBytes,
-                                      omittedCount: report.omittedCount)
+                                      omittedCount: report.omittedCount,
+                                      spaceCoverage: report.spaceCoverage)
             warnings = report.warnings
             isScanning = false
             scanProgress = nil
@@ -1048,7 +1066,8 @@ final class CleanerStore: ObservableObject {
                 spaceTree: report.spaceTree,
                 summaryCount: report.scannedFileCount, summaryBytes: report.scannedBytes,
                 scanMetrics: ScanMetrics(allocatedBytes: report.scannedAllocatedBytes,
-                                         omittedCount: report.omittedCount),
+                                         omittedCount: report.omittedCount,
+                                         spaceCoverage: report.spaceCoverage),
                 warnings: report.warnings, selectedIDs: [], hasScanned: !report.cancelled,
                 isScanning: false, scanProgress: nil,
                 spaceFolder: previous?.spaceFolder, resultQuery: previous?.resultQuery ?? "",
@@ -1065,7 +1084,8 @@ final class CleanerStore: ObservableObject {
                 excludedPaths: Array(Set(request.excludedPaths)).sorted(),
                 diagnostics: ScanDiagnostic.make(warnings: report.warnings,
                                                  omittedCount: report.omittedCount),
-                omittedCount: report.omittedCount, incomplete: !report.hasCompleteSpaceTotals)
+                omittedCount: report.omittedCount, spaceCoverage: report.spaceCoverage,
+                incomplete: !report.hasCompleteSpaceTotals)
             if !report.hasCompleteSpaceTotals { latestSpaceSnapshot = nil }
         }
         if category == .overview { rebuildCleanupOverview() }

@@ -72,6 +72,8 @@ public final class ScanControl: @unchecked Sendable {
     private var processedBytes: Int64 = 0
     private var lastPublished = 0.0
     private var omitted = 0
+    private var permissionDenied = 0
+    private var disappeared = 0
     private var cancellationHandler: (() -> Void)?
 
     public init(onProgress: (@Sendable (ScanProgress) -> Void)? = nil) {
@@ -93,8 +95,27 @@ public final class ScanControl: @unchecked Sendable {
     }
     public var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
     public var omittedCount: Int { lock.lock(); defer { lock.unlock() }; return omitted }
-    public func recordOmitted(_ count: Int = 1) {
-        lock.lock(); omitted += max(0, count); lock.unlock()
+    public var permissionDeniedCount: Int { lock.lock(); defer { lock.unlock() }; return permissionDenied }
+    public var disappearedCount: Int { lock.lock(); defer { lock.unlock() }; return disappeared }
+    public func recordOmitted(_ count: Int = 1, error: Error? = nil) {
+        let amount = max(0, count)
+        let issue = error as NSError?
+        lock.lock()
+        omitted += amount
+        if issue?.domain == NSPOSIXErrorDomain {
+            if issue?.code == Int(EPERM) || issue?.code == Int(EACCES) {
+                permissionDenied += amount
+            } else if issue?.code == Int(ENOENT) {
+                disappeared += amount
+            }
+        } else if issue?.domain == NSCocoaErrorDomain {
+            if issue?.code == NSFileReadNoPermissionError {
+                permissionDenied += amount
+            } else if issue?.code == NSFileNoSuchFileError || issue?.code == NSFileReadNoSuchFileError {
+                disappeared += amount
+            }
+        }
+        lock.unlock()
     }
 
     public func begin(_ stage: ScanStage, path: URL) {
@@ -369,7 +390,7 @@ public enum FileScanner {
                         if warnings.count < 50 {
                             appendWarning("Cannot read \(directory.path): \(error.localizedDescription)", to: &warnings)
                         }
-                        control.recordOmitted()
+                        control.recordOmitted(error: error)
                         return
                     }
                     let usesRequestedPath = children.first.map {
@@ -387,9 +408,10 @@ public enum FileScanner {
                         case .item(let stamp, let isDirectory): info = (stamp, isDirectory)
                         case .symbolicLink: continue
                         case .unavailable(let code):
-                            appendWarning("Cannot read \(candidate.path): \(NSError(domain: NSPOSIXErrorDomain, code: Int(code)).localizedDescription)",
+                            let error = NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+                            appendWarning("Cannot read \(candidate.path): \(error.localizedDescription)",
                                           to: &warnings)
-                            control.recordOmitted()
+                            control.recordOmitted(error: error)
                             continue
                         }
                         guard info.stamp.device == rootInfo.stamp.device else { continue }
@@ -438,7 +460,7 @@ public enum FileScanner {
                             let detail = error.map { ": \($0.localizedDescription)" } ?? ""
                             appendWarning("Cannot read \(url.path)\(detail)", to: &localWarnings)
                         }
-                        control.recordOmitted()
+                        control.recordOmitted(error: error)
                         lock.unlock()
                     }
                     guard let children = manager.enumerator(at: directory,
@@ -666,8 +688,12 @@ public enum FileScanner {
             }
         }
         guard !directories.isEmpty else {
+            let coverage = SpaceScanCoverage(displayLimitedCount: 0,
+                                             unreadableCount: control.omittedCount,
+                                             permissionDeniedCount: control.permissionDeniedCount,
+                                             disappearedCount: control.disappearedCount)
             return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
-                              omittedCount: control.omittedCount)
+                              omittedCount: control.omittedCount, spaceCoverage: coverage)
         }
         // Every directory is recorded before its children are queued. Reverse
         // discovery order therefore visits descendants before their ancestors.
@@ -686,6 +712,10 @@ public enum FileScanner {
         let files = visibleFiles + zeroFiles
         let fileParents = visibleFileParents + zeroFileParents
         let tree = SpaceTree(root: root, directories: nodes, files: files, fileParents: fileParents)
+        let coverage = SpaceScanCoverage(displayLimitedCount: hiddenIndividualCount,
+                                         unreadableCount: control.omittedCount,
+                                         permissionDeniedCount: control.permissionDeniedCount,
+                                         disappearedCount: control.disappearedCount)
         if hiddenIndividualCount > 0 {
             appendWarning("spaceLimit", to: &warnings)
             control.recordOmitted(hiddenIndividualCount)
@@ -693,7 +723,8 @@ public enum FileScanner {
         return ScanReport(entries: [], warnings: warnings, cancelled: control.isCancelled,
                           scannedFileCount: count, scannedBytes: total,
                           scannedAllocatedBytes: allocatedTotal,
-                          omittedCount: control.omittedCount, spaceTree: tree)
+                          omittedCount: control.omittedCount,
+                          spaceCoverage: coverage, spaceTree: tree)
     }
 
     private static func findDuplicates(files: [(URL, FileStamp)], root: URL, control: ScanControl,

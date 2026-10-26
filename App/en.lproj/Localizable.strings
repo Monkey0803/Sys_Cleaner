@@ -462,7 +462,7 @@
 "scanEntireVolumeHelp" = "Read-only scan from the selected volume root. It may take time; the difference is shown only when the scan is complete.";
 "spaceAccountingNoScan" = "Run Space Analysis first. A complete scan of a volume root can be compared with that volume's used space.";
 "spaceAccountingFolderOnly" = "This scan covered a folder, not the entire volume. Use Scan Entire Volume in Space Analysis before comparing totals.";
-"spaceAccountingIncomplete" = "Unreadable or omitted locations make this volume scan incomplete. Review scan notices and scan again.";
+"spaceAccountingIncomplete" = "Some locations were not included in this volume total, so the difference cannot be calculated reliably. Review the causes and scan again.";
 "spaceAccountingUsed" = "%@: volume used %@";
 "spaceAccountingScanned" = "Allocated file blocks found by the scan: %@";
 "spaceAccountingGap" = "Unaccounted difference: %@";
@@ -479,6 +479,13 @@
 "spaceAccountingExclusionsChanged" = "Exclusion settings have changed; the paths above are those used for this scan.";
 "spaceAccountingCheckExclusions" = "Check exclusions";
 "spaceAccountingRescan" = "Rescan this scope";
+"spaceIncludedNotListed" = "Above the individual display limit, but included in totals: %d files";
+"spaceUnreadable" = "Not included in totals: at least %d items";
+"spacePermissionDenied" = "Permission denied: %d items";
+"spaceDisappeared" = "Disappeared during scan: %d items";
+"spaceOtherUnreadable" = "Other read or verification failures: %d items";
+"spaceUnreadableAction" = "Check permissions and rescan. A rescan can confirm items that disappeared. Some system-protected locations may remain unreadable even after granting access.";
+"spaceNoticesLimited" = "Only the first 50 paths are listed; the counts above include failures not shown here.";
 "orphanReviewEvidence" = "Matching names grouped by identifier do not prove ownership. Verify in Finder or ignore a group after review.";
 "orphanGroupSummary" = "%d items · known size %@ · %d unknown · locations: %@";
 "orphanIgnoreIdentifier" = "Ignore identifier";

@@ -462,7 +462,7 @@
 "scanEntireVolumeHelp" = "从所选卷的根目录开始只读扫描，可能耗时较长；完成且无读取遗漏时才显示容量差额。";
 "spaceAccountingNoScan" = "先运行空间分析；扫描整个卷根目录后可与该卷已用空间对照。";
 "spaceAccountingFolderOnly" = "本次只扫描了文件夹，范围小于整个卷，不能与卷已用空间相减。可在空间分析页使用“扫描整个卷”。";
-"spaceAccountingIncomplete" = "本次卷扫描有不可读或遗漏位置，无法可靠计算差额；请查看扫描提示并重扫。";
+"spaceAccountingIncomplete" = "本次卷扫描有未计入容量的位置，无法可靠计算差额；请查看原因并重扫。";
 "spaceAccountingUsed" = "%@：卷已用 %@";
 "spaceAccountingScanned" = "扫描文件的已分配块合计：%@";
 "spaceAccountingGap" = "未能对上的差额：%@";
@@ -479,6 +479,13 @@
 "spaceAccountingExclusionsChanged" = "当前排除设置已变化；上方显示的是扫描当时使用的路径。";
 "spaceAccountingCheckExclusions" = "检查排除项";
 "spaceAccountingRescan" = "重新扫描此范围";
+"spaceIncludedNotListed" = "超过单列上限、仍计入容量：%d 个文件";
+"spaceUnreadable" = "未计入容量：至少 %d 项";
+"spacePermissionDenied" = "其中权限不足：%d 项";
+"spaceDisappeared" = "其中扫描期间消失：%d 项";
+"spaceOtherUnreadable" = "其他读取或核对失败：%d 项";
+"spaceUnreadableAction" = "可检查权限后重扫；扫描期间消失的项目可直接重扫确认。部分系统保护目录即使授权也可能无法读取。";
+"spaceNoticesLimited" = "具体路径最多展示 50 条；上方数量包含未展示的失败项。";
 "orphanReviewEvidence" = "按标识归组的名称线索不是归属证明；只读审阅后可在访达核实或忽略。";
 "orphanGroupSummary" = "%d 项 · 已知大小 %@ · %d 项大小未知 · 位置：%@";
 "orphanIgnoreIdentifier" = "忽略此标识";

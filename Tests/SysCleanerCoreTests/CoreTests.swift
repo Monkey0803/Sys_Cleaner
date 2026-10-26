@@ -172,6 +172,17 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(ScanDiagnostic.make(warnings: [], omittedCount: 3).first?.kind, .limited)
     }
 
+    func testSpaceOmissionReasonsKeepMissingAndPermissionSeparate() {
+        let control = ScanControl()
+        control.recordOmitted(error: NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT)))
+        control.recordOmitted(error: NSError(domain: NSCocoaErrorDomain,
+                                             code: NSFileReadNoPermissionError))
+        control.recordOmitted()
+        XCTAssertEqual(control.omittedCount, 3)
+        XCTAssertEqual(control.disappearedCount, 1)
+        XCTAssertEqual(control.permissionDeniedCount, 1)
+    }
+
     func testSpaceHistoryAcceptsDisplayLimitButRejectsUnreadableTotals() {
         let tree = SpaceTree(root: root, directories: [
             .init(name: root.lastPathComponent, parentIndex: -1, bytes: 128,
@@ -188,6 +199,18 @@ final class CoreTests: XCTestCase {
             .hasCompleteSpaceTotals)
         XCTAssertFalse(report([], omitted: 1).hasCompleteSpaceTotals)
         XCTAssertFalse(report([], omitted: 0, cancelled: true).hasCompleteSpaceTotals)
+        XCTAssertTrue(ScanReport(entries: [], warnings: [], cancelled: false,
+                                 omittedCount: 10_000,
+                                 spaceCoverage: .init(displayLimitedCount: 10_000,
+                                                      unreadableCount: 0,
+                                                      permissionDeniedCount: 0,
+                                                      disappearedCount: 0), spaceTree: tree).hasCompleteSpaceTotals)
+        XCTAssertFalse(ScanReport(entries: [], warnings: ["Cannot read /tmp/blocked"], cancelled: false,
+                                  omittedCount: 10_001,
+                                  spaceCoverage: .init(displayLimitedCount: 10_000,
+                                                       unreadableCount: 1,
+                                                       permissionDeniedCount: 1,
+                                                       disappearedCount: 0), spaceTree: tree).hasCompleteSpaceTotals)
         XCTAssertTrue(ScanReport.spaceTotalsAreComplete(warnings: ["spaceLimit"], omittedCount: 10_000))
         XCTAssertFalse(ScanReport.spaceTotalsAreComplete(
             warnings: ["spaceLimit", "Cannot read /tmp/blocked"], omittedCount: 10_001))
@@ -930,8 +953,33 @@ final class CoreTests: XCTestCase {
         let report = FileScanner.scan(ScanRequest(category: .space, root: root))
         XCTAssertTrue(report.warnings.contains { $0.contains("Cannot read") })
         XCTAssertEqual(report.omittedCount, 1)
+        XCTAssertEqual(report.spaceCoverage?.unreadableCount, 1)
+        XCTAssertEqual(report.spaceCoverage?.permissionDeniedCount, 1)
+        XCTAssertEqual(report.spaceCoverage?.displayLimitedCount, 0)
         XCTAssertEqual(report.scannedFileCount, 1)
         XCTAssertEqual(report.scannedBytes, 7)
+    }
+
+    func testSpaceDisplayLimitDoesNotHideUnreadableCount() throws {
+        let blocked = root.appendingPathComponent("blocked")
+        try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
+        try "hidden".write(to: blocked.appendingPathComponent("file"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: blocked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: blocked.path) }
+        for index in 0...10_000 {
+            let path = root.appendingPathComponent("zero-\(index)")
+            XCTAssertTrue(FileManager.default.createFile(atPath: path.path, contents: Data()))
+        }
+
+        let report = FileScanner.scan(ScanRequest(category: .space, root: root))
+        let coverage = try XCTUnwrap(report.spaceCoverage)
+        XCTAssertEqual(report.scannedFileCount, 10_001)
+        XCTAssertEqual(report.omittedCount, 2)
+        XCTAssertEqual(coverage.displayLimitedCount, 1)
+        XCTAssertEqual(coverage.unreadableCount, 1)
+        XCTAssertEqual(coverage.permissionDeniedCount, 1)
+        XCTAssertEqual(coverage.disappearedCount, 0)
+        XCTAssertFalse(report.hasCompleteSpaceTotals)
     }
 
     func testOpenFileIsRefused() throws {
