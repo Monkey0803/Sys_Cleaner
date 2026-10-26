@@ -135,6 +135,16 @@ public final class ScanControl: @unchecked Sendable {
     }
 }
 
+private struct DirectoryIdentity: Hashable {
+    let device: UInt64
+    let inode: UInt64
+
+    init(_ stamp: FileStamp) {
+        device = stamp.device
+        inode = stamp.inode
+    }
+}
+
 private final class DirectoryWorkQueue: @unchecked Sendable {
     struct Item {
         let url: URL
@@ -321,6 +331,7 @@ public enum FileScanner {
                                   includeApps: Bool = false, includeHardLinks: Bool = false,
                                   checkCloud: Bool = true, parallel: Bool = false,
                                   workers: Int = 4,
+                                  deduplicateDirectories: Bool = false,
                                   excludedPaths: [String] = [],
                                   minimumFileBytes: Int64 = 0,
                                   excludedDirectoryExtensions: Set<String> = [],
@@ -333,6 +344,14 @@ public enum FileScanner {
             control.recordOmitted()
             return
         }
+        // APFS firmlinks can expose a directory through both its ordinary path
+        // and /System/Volumes/Data (or /.nofollow). Compare directory identity
+        // before queuing children so a whole aliased subtree is counted once.
+        var visitedDirectories: Set<DirectoryIdentity> = []
+        if deduplicateDirectories {
+            visitedDirectories.insert(DirectoryIdentity(rootInfo.stamp))
+        }
+        let scansFilesystemRoot = root.path == "/"
         let rootIndex = onDirectory(root, nil)
         control.visited(root)
         if !parallel {
@@ -360,6 +379,7 @@ public enum FileScanner {
                         let candidate = usesRequestedPath ? child :
                             directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
                         if candidate.lastPathComponent == ".Trash" ||
+                            (scansFilesystemRoot && candidate.path == "/.nofollow") ||
                             (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
                             isExcluded(candidate, paths: excludedPaths) { continue }
                         let info: (stamp: FileStamp, isDirectory: Bool)
@@ -384,6 +404,10 @@ public enum FileScanner {
                         if info.isDirectory {
                             if (url.pathExtension == "app" && !includeApps) ||
                                 excludedDirectoryExtensions.contains(url.pathExtension.lowercased()) { continue }
+                            if deduplicateDirectories && scansFilesystemRoot &&
+                                isAliasedDataVolumeChild(url, stamp: info.stamp) { continue }
+                            if deduplicateDirectories &&
+                                !visitedDirectories.insert(DirectoryIdentity(info.stamp)).inserted { continue }
                             let index = onDirectory(url, item.index)
                             control.visited(url)
                             stack.append(DirectoryWorkQueue.Item(
@@ -467,6 +491,7 @@ public enum FileScanner {
                                 let candidate = usesRequestedPath == true ? child :
                                     directory.appendingPathComponent(child.lastPathComponent, isDirectory: false)
                                 if candidate.lastPathComponent == ".Trash" ||
+                                    (scansFilesystemRoot && candidate.path == "/.nofollow") ||
                                     (mayContainCloud && FileSafety.isCloudManagedPath(candidate)) ||
                                     isExcluded(candidate, paths: excludedPaths) { continue }
                                 let info: (stamp: FileStamp, isDirectory: Bool)
@@ -490,7 +515,14 @@ public enum FileScanner {
                                 if info.isDirectory {
                                     if (url.pathExtension == "app" && !includeApps) ||
                                         excludedDirectoryExtensions.contains(url.pathExtension.lowercased()) { continue }
+                                    if deduplicateDirectories && scansFilesystemRoot &&
+                                        isAliasedDataVolumeChild(url, stamp: info.stamp) { continue }
                                     lock.lock()
+                                    if deduplicateDirectories &&
+                                        !visitedDirectories.insert(DirectoryIdentity(info.stamp)).inserted {
+                                        lock.unlock()
+                                        continue
+                                    }
                                     let index = onDirectory(url, item.index)
                                     lock.unlock()
                                     reportProgress(url, bytes: nil)
@@ -626,6 +658,7 @@ public enum FileScanner {
             walkFiles(under: root, control: control, warnings: &warnings,
                       includeApps: true, includeHardLinks: true, parallel: true,
                       workers: min(8, max(1, ProcessInfo.processInfo.activeProcessorCount)),
+                      deduplicateDirectories: true,
                       excludedPaths: excludedPaths,
                       coalescedProgress: true,
                       onDirectory: recordDirectory) { url, parent, parentIndex, stamp in
@@ -1123,6 +1156,14 @@ public enum FileScanner {
 
     private static func appendWarning(_ message: String, to warnings: inout [String]) {
         if warnings.count < 50 { warnings.append(message) }
+    }
+
+    private static func isAliasedDataVolumeChild(_ url: URL, stamp: FileStamp) -> Bool {
+        guard url.deletingLastPathComponent().path == "/System/Volumes/Data" else { return false }
+        let visiblePath = URL(fileURLWithPath: "/").appendingPathComponent(url.lastPathComponent,
+                                                                            isDirectory: true)
+        guard let visible = FileSafety.metadata(at: visiblePath), visible.isDirectory else { return false }
+        return DirectoryIdentity(visible.stamp) == DirectoryIdentity(stamp)
     }
 
     private static func isExcluded(_ url: URL, paths: [String]) -> Bool {
