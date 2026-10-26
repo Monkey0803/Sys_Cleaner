@@ -470,6 +470,15 @@
 "spaceAccountingReclaimable" = "macOS reports about %@ as purgeable. It may overlap the difference and must not be added to it.";
 "spaceAccountingCaveat" = "The difference may include system snapshots, other APFS volumes, restricted or excluded locations, and filesystem accounting effects. This view cannot attribute each byte or promise it can be cleaned here.";
 "spaceAccountingDate" = "Scanned %@. Volume capacity is current; rescan if this snapshot is stale.";
+"spaceAccountingHistorical" = "This is a saved scan; its detailed notices were not retained. Scan again for new diagnostics.";
+"spaceAccountingUnattributed" = "The difference cannot be attributed by source and must not be treated as reclaimable space.";
+"spaceAccountingReviewNotices" = "Review scan notices (%d)";
+"spaceAccountingNoNotices" = "This scan reported no read issues.";
+"spaceAccountingReviewExclusions" = "Review excluded paths used for this scan (%d)";
+"spaceAccountingNoExclusions" = "No custom excluded paths were used for this scan.";
+"spaceAccountingExclusionsChanged" = "Exclusion settings have changed; the paths above are those used for this scan.";
+"spaceAccountingCheckExclusions" = "Check exclusions";
+"spaceAccountingRescan" = "Rescan this scope";
 "orphanReviewEvidence" = "Matching names grouped by identifier do not prove ownership. Verify in Finder or ignore a group after review.";
 "orphanGroupSummary" = "%d items · known size %@ · %d unknown · locations: %@";
 "orphanIgnoreIdentifier" = "Ignore identifier";

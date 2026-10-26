@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var overviewScanSelection: Set<ScanCategory> =
         [.downloads, .systemCache, .orphans]
     @State private var showingOverviewPlanConfirmation = false
+    @State private var showingAccountingNotices = false
+    @State private var showingAccountingExclusions = false
     private let overviewItemsPerPage = 50
     private let cloudItemsPerPage = 200
     private let duplicateGroupsPerPage = 200
@@ -654,6 +656,13 @@ struct ContentView: View {
             if let accounting = store.volumeAccountingSummary {
                 Text(accounting.rootPath).font(.caption.monospaced())
                     .foregroundStyle(.secondary).textSelection(.enabled)
+                if let date = accounting.scannedAt {
+                    Text(String(format: L("spaceAccountingDate"), localizedDate(date)))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if accounting.isHistorical {
+                    Text("spaceAccountingHistorical").font(.caption).foregroundStyle(.secondary)
+                }
                 switch accounting.result {
                 case .folderOnly:
                     Text("spaceAccountingFolderOnly").foregroundStyle(.secondary)
@@ -668,11 +677,60 @@ struct ContentView: View {
                     if let reclaimable = accounting.systemReclaimableEstimate, reclaimable > 0 {
                         Text(String(format: L("spaceAccountingReclaimable"), fileSize(reclaimable)))
                     }
+                    Text("spaceAccountingUnattributed")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("spaceAccountingCaveat").font(.caption).foregroundStyle(.secondary)
                 }
-                if let date = accounting.scannedAt {
-                    Text(String(format: L("spaceAccountingDate"), localizedDate(date)))
-                        .font(.caption).foregroundStyle(.secondary)
+                if accounting.omittedCount > 0 {
+                    Text(String(format: L("omittedItemsCount"), accounting.omittedCount))
+                        .foregroundStyle(.orange)
+                }
+                if !accounting.diagnostics.isEmpty {
+                    DisclosureGroup(String(format: L("spaceAccountingReviewNotices"),
+                                           accounting.diagnostics.count),
+                                    isExpanded: $showingAccountingNotices) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(accounting.diagnostics) { issue in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(localizedWarning(issue.detail)).textSelection(.enabled)
+                                    Text(L("diagnosticHint_\(issue.kind.rawValue)"))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if accounting.diagnostics.contains(where: { $0.kind == .unreadable }) {
+                                Button("fullDiskAccess") { store.openFullDiskAccess() }
+                                    .hoverHighlight()
+                            }
+                        }
+                        .font(.caption)
+                    }
+                    .foregroundStyle(.orange)
+                } else if !accounting.isHistorical {
+                    Text("spaceAccountingNoNotices").font(.caption).foregroundStyle(.secondary)
+                }
+                if !accounting.excludedPaths.isEmpty {
+                    DisclosureGroup(String(format: L("spaceAccountingReviewExclusions"),
+                                           accounting.excludedPaths.count),
+                                    isExpanded: $showingAccountingExclusions) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(accounting.excludedPaths, id: \.self) { path in
+                                Text(path).font(.caption.monospaced()).textSelection(.enabled)
+                            }
+                        }
+                    }
+                } else {
+                    Text("spaceAccountingNoExclusions").font(.caption).foregroundStyle(.secondary)
+                }
+                if Set(accounting.excludedPaths) != Set(preferences.excludedPaths) {
+                    Text("spaceAccountingExclusionsChanged")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                HStack(spacing: 12) {
+                    Button("spaceAccountingCheckExclusions") { openSettings() }
+                        .hoverHighlight()
+                    Button("spaceAccountingRescan") { store.rescanSpaceAccounting() }
+                        .hoverHighlight()
+                        .disabled(!store.canRescanSpaceAccounting)
                 }
             } else {
                 Text("spaceAccountingNoScan").foregroundStyle(.secondary)

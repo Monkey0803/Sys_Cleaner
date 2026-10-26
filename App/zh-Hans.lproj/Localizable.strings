@@ -470,6 +470,15 @@
 "spaceAccountingReclaimable" = "其中系统报告可清除空间约 %@；它可能与差额重叠，不能相加。";
 "spaceAccountingCaveat" = "差额可能来自系统快照、其他 APFS 卷、受限区域、排除目录或文件系统记账方式；这里无法逐项精确归因，也不代表这些空间可由本应用清理。";
 "spaceAccountingDate" = "扫描时间：%@；卷容量为当前读取值，过期扫描需重新运行。";
+"spaceAccountingHistorical" = "这是保存的历史扫描；当时的问题明细未保留，请重扫获取新诊断。";
+"spaceAccountingUnattributed" = "差额尚无法按来源归因，也不是可清理容量。";
+"spaceAccountingReviewNotices" = "查看扫描提示（%d）";
+"spaceAccountingNoNotices" = "本次扫描未报告读取问题。";
+"spaceAccountingReviewExclusions" = "查看本次扫描的排除路径（%d）";
+"spaceAccountingNoExclusions" = "本次扫描未配置自定义排除路径。";
+"spaceAccountingExclusionsChanged" = "当前排除设置已变化；上方显示的是扫描当时使用的路径。";
+"spaceAccountingCheckExclusions" = "检查排除项";
+"spaceAccountingRescan" = "重新扫描此范围";
 "orphanReviewEvidence" = "按标识归组的名称线索不是归属证明；只读审阅后可在访达核实或忽略。";
 "orphanGroupSummary" = "%d 项 · 已知大小 %@ · %d 项大小未知 · 位置：%@";
 "orphanIgnoreIdentifier" = "忽略此标识";

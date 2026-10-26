@@ -32,6 +32,18 @@ final class CleanerStore: ObservableObject {
         let volumeName: String?
         let systemReclaimableEstimate: Int64?
         let result: SpaceAccounting
+        let excludedPaths: [String]
+        let diagnostics: [ScanDiagnostic]
+        let omittedCount: Int
+        let isHistorical: Bool
+    }
+    private struct SpaceScanEvidence {
+        let rootPath: String
+        let completedAt: Date
+        let excludedPaths: [String]
+        let diagnostics: [ScanDiagnostic]
+        let omittedCount: Int
+        let incomplete: Bool
     }
     private static let historyURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Sys Cleaner/cleanup-history.json")
@@ -113,8 +125,7 @@ final class CleanerStore: ObservableObject {
         (try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL).latestComparison) ?? .noPrevious
     @Published private(set) var latestSpaceSnapshot: SpaceScanSnapshot? =
         try? SpaceScanHistory.load(from: CleanerStore.spaceHistoryURL).snapshots.last
-    @Published private(set) var lastSpaceScanRootPath: String?
-    @Published private(set) var lastSpaceScanIncomplete = false
+    private var lastSpaceScanEvidence: SpaceScanEvidence?
     @Published private(set) var spaceHistoryError: String?
     @Published private(set) var overviewScanState: OverviewScanState?
     @Published private(set) var overviewScanCompletedCount: Int?
@@ -229,19 +240,37 @@ final class CleanerStore: ObservableObject {
             !isDeleting && !overviewPlan.isEmpty
     }
     var volumeAccountingSummary: VolumeAccountingSummary? {
-        guard let rootPath = lastSpaceScanRootPath ?? latestSpaceSnapshot?.rootPath else { return nil }
+        guard let rootPath = lastSpaceScanEvidence?.rootPath ?? latestSpaceSnapshot?.rootPath else { return nil }
+        let evidence = lastSpaceScanEvidence
         let volume = volumes.first { $0.id == rootPath }
         let result = SpaceAccounting.assess(
             scanRootPath: rootPath, volumeRootPath: volume?.id,
             volumeUsedBytes: volume?.usedBytes,
             scannedAllocatedBytes: latestSpaceSnapshot?.rootPath == rootPath
                 ? latestSpaceSnapshot?.rootAllocatedBytes : nil,
-            complete: !lastSpaceScanIncomplete && latestSpaceSnapshot?.rootPath == rootPath)
+            complete: evidence?.incomplete != true && latestSpaceSnapshot?.rootPath == rootPath)
         return VolumeAccountingSummary(rootPath: rootPath,
-            scannedAt: latestSpaceSnapshot?.rootPath == rootPath ? latestSpaceSnapshot?.date : nil,
+            scannedAt: evidence?.completedAt ?? latestSpaceSnapshot?.date,
             volumeName: volume?.name,
             systemReclaimableEstimate: volume?.systemReclaimableEstimate,
-            result: result)
+            result: result,
+            excludedPaths: evidence?.excludedPaths ?? latestSpaceSnapshot?.excludedPaths ?? [],
+            diagnostics: evidence?.diagnostics ?? [],
+            omittedCount: evidence?.omittedCount ?? 0,
+            isHistorical: evidence == nil)
+    }
+
+    var canRescanSpaceAccounting: Bool {
+        guard let path = volumeAccountingSummary?.rootPath else { return false }
+        return !isDeleting && !isScanning && runningScans.isEmpty && overviewScanState == nil &&
+            FileSafety.isDirectory(URL(fileURLWithPath: path))
+    }
+
+    func rescanSpaceAccounting() {
+        guard canRescanSpaceAccounting, let path = volumeAccountingSummary?.rootPath else { return }
+        changeCategory(.space)
+        setScanRoot(URL(fileURLWithPath: path))
+        scan()
     }
 
     func refreshVolumes() { volumes = Self.readVolumeSummaries() }
@@ -1031,8 +1060,12 @@ final class CleanerStore: ObservableObject {
         }
         if scannedCategory == .space { refreshVolumes() }
         if scannedCategory == .space && !report.cancelled {
-            lastSpaceScanRootPath = request.root.standardizedFileURL.path
-            lastSpaceScanIncomplete = !report.hasCompleteSpaceTotals
+            lastSpaceScanEvidence = SpaceScanEvidence(
+                rootPath: request.root.standardizedFileURL.path, completedAt: Date(),
+                excludedPaths: Array(Set(request.excludedPaths)).sorted(),
+                diagnostics: ScanDiagnostic.make(warnings: report.warnings,
+                                                 omittedCount: report.omittedCount),
+                omittedCount: report.omittedCount, incomplete: !report.hasCompleteSpaceTotals)
             if !report.hasCompleteSpaceTotals { latestSpaceSnapshot = nil }
         }
         if category == .overview { rebuildCleanupOverview() }
