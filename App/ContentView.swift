@@ -70,11 +70,6 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         } detail: {
             VStack(spacing: 0) {
-                if CleanerWorkspace(category: store.category) == .files {
-                    workspaceTabs([.downloads, .large, .duplicates])
-                } else if CleanerWorkspace(category: store.category) == .applications {
-                    workspaceTabs([.uninstall, .orphans])
-                }
                 if store.category == .overview {
                     overviewContent
                 } else if store.category == .developerCache {
@@ -170,12 +165,10 @@ struct ContentView: View {
                         Label("cleanupHistory", systemImage: "clock.arrow.circlepath")
                     }
                     .help(L("cleanupHistory"))
-                    .hoverHighlight()
                 }
                 ToolbarItem(placement: .automatic) {
                     Button { openSettings() } label: { Label("settings", systemImage: "gearshape") }
                         .help(L("settings"))
-                        .hoverHighlight()
                 }
             }
             .alert(pendingMode == .trash ? L("confirmTrash") : L("confirmPermanent"),
@@ -290,16 +283,11 @@ struct ContentView: View {
     }
 
     private func workspaceTabs(_ categories: [ScanCategory]) -> some View {
-        Picker("workspaceTool", selection: Binding(get: { store.category },
-                                                  set: { store.changeCategory($0) })) {
+        WorkspaceSegments(title: "workspaceTool", selection: Binding(
+            get: { store.category }, set: { store.changeCategory($0) })) {
             ForEach(categories) { category in Text(category.title).tag(category) }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
         .disabled(store.isDeleting)
-        .frame(maxWidth: 460)
-        .padding(.horizontal, 20).padding(.top, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func entryDetails(_ entry: ScanEntry) -> some View {
@@ -318,7 +306,7 @@ struct ContentView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        WorkspacePageHeader {
             if store.category == .uninstall, store.reviewedApplicationName != nil {
                 Button { store.backFromApplication() } label: {
                     Label("back", systemImage: "chevron.left")
@@ -344,6 +332,11 @@ struct ContentView: View {
                     (store.category == .space ? store.hasSpaceResults : !store.visibleEntries.isEmpty) {
                     scanButton
                 }
+            }
+            if CleanerWorkspace(category: store.category) == .files {
+                workspaceTabs([.downloads, .large, .duplicates])
+            } else if CleanerWorkspace(category: store.category) == .applications {
+                workspaceTabs([.uninstall, .orphans])
             }
             if let token = store.reviewedHomebrewCaskToken {
                 Text(String(format: L("appHomebrewNotice"), token))
@@ -487,24 +480,17 @@ struct ContentView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20).padding(.vertical, 12)
     }
 
     private var resultFilterBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    resultFilterControls
-                    Spacer(minLength: 0)
-                    resultFilterStatus
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    resultFilterControls
-                    HStack {
-                        Spacer(minLength: 0)
-                        resultFilterStatus
-                    }
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            WorkspaceSearchFilterBar(
+                placeholder: L(store.category == .uninstall && store.reviewedApplicationName == nil
+                               ? "searchApps" : "searchResults"),
+                query: $store.resultQuery, searchDisabled: store.isScanning) {
+                resultFilterMenu
+            } status: {
+                resultFilterStatus
             }
             if store.category == .uninstall && store.reviewedApplicationName == nil {
                 HStack(spacing: 8) {
@@ -518,31 +504,23 @@ struct ContentView: View {
         .controlSize(.regular)
     }
 
-    private var resultFilterControls: some View {
-        HStack(spacing: 8) {
-            ClearableSearchField(
-                placeholder: L(store.category == .uninstall && store.reviewedApplicationName == nil ?
-                               "searchApps" : "searchResults"),
-                text: $store.resultQuery)
-                .frame(minWidth: 220, idealWidth: 360, maxWidth: 420)
-                .disabled(store.isScanning)
-            Menu {
-                ForEach(availableResultFilters, id: \.self) { filter in
-                    Toggle(L("filter_\(filter.rawValue)"), isOn: Binding(
-                        get: { store.resultFilter == filter },
-                        set: { if $0 { store.resultFilter = filter } }))
-                }
-            } label: {
-                Label(String(format: L("resultFilterLabel"), L("filter_\(store.resultFilter.rawValue)")),
-                      systemImage: "line.3.horizontal.decrease")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var resultFilterMenu: some View {
+        Menu {
+            ForEach(availableResultFilters, id: \.self) { filter in
+                Toggle(L("filter_\(filter.rawValue)"), isOn: Binding(
+                    get: { store.resultFilter == filter },
+                    set: { if $0 { store.resultFilter = filter } }))
             }
-            .frame(width: resultFilterMenuWidth)
-            .accessibilityLabel(L("filterResults"))
-            .accessibilityValue(L("filter_\(store.resultFilter.rawValue)"))
-            .hoverHighlight()
-            .disabled(store.isScanning)
+        } label: {
+            Label(String(format: L("resultFilterLabel"), L("filter_\(store.resultFilter.rawValue)")),
+                  systemImage: "line.3.horizontal.decrease")
         }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityLabel(L("filterResults"))
+        .accessibilityValue(L("filter_\(store.resultFilter.rawValue)"))
+        .hoverHighlight()
+        .disabled(store.isScanning)
+        .frame(width: resultFilterMenuWidth, alignment: .leading)
     }
 
     private var availableResultFilters: [ScanEntryFilter] {
@@ -673,7 +651,7 @@ struct ContentView: View {
 
     private var overviewContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
+            WorkspacePageHeader {
                 WorkspaceHeading(title: L("overview"), subtitle: L("overviewDescription")) {
                     Button { showingScanSources = true } label: {
                         Label("overviewSources", systemImage: "info.circle")
@@ -698,7 +676,6 @@ struct ContentView: View {
                     }
                 }
             }
-            .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 12)
             Divider()
             overviewReviewContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -996,35 +973,37 @@ struct ContentView: View {
                 .padding(8)
                 .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
             }
-            WorkspaceFilterBar {
-                ClearableSearchField(placeholder: L("overviewReviewSearch"), text: $overviewQuery)
-                    .frame(maxWidth: 360)
-                Menu {
-                    Button("overviewReviewAllCategories") { overviewCategory = nil }
-                    ForEach(store.cleanupOverview.sections) { section in
-                        Button(section.category.title) { overviewCategory = section.category }
+            WorkspaceSearchFilterBar(placeholder: L("overviewReviewSearch"), query: $overviewQuery) {
+                HStack(spacing: 8) {
+                    Menu {
+                        Button("overviewReviewAllCategories") { overviewCategory = nil }
+                        ForEach(store.cleanupOverview.sections) { section in
+                            Button(section.category.title) { overviewCategory = section.category }
+                        }
+                    } label: {
+                        Text(overviewCategory?.title ?? L("overviewReviewAllCategories"))
                     }
-                } label: {
-                    Text(overviewCategory?.title ?? L("overviewReviewAllCategories"))
+                    .hoverHighlight()
+                    Menu {
+                        Button("overviewReviewAllOperations") { reviewOperationFilter = nil }
+                        Button("overviewActionTrash") { reviewOperationFilter = .trash }
+                        Button("overviewActionCloud") { reviewOperationFilter = .cloudEviction }
+                        Button("overviewActionSimulator") { reviewOperationFilter = .simulator }
+                    } label: {
+                        Text(reviewOperationFilter.map(overviewOperation) ?? L("overviewReviewAllOperations"))
+                    }
+                    .hoverHighlight()
+                    Menu {
+                        Button("overviewReviewAllRisks") { reviewRiskFilter = nil }
+                        Button("overviewRiskLow") { reviewRiskFilter = .low }
+                        Button("overviewRiskReview") { reviewRiskFilter = .review }
+                    } label: {
+                        Text(reviewRiskFilter.map(overviewRisk) ?? L("overviewReviewAllRisks"))
+                    }
+                    .hoverHighlight()
                 }
-                .hoverHighlight()
-                Menu {
-                    Button("overviewReviewAllOperations") { reviewOperationFilter = nil }
-                    Button("overviewActionTrash") { reviewOperationFilter = .trash }
-                    Button("overviewActionCloud") { reviewOperationFilter = .cloudEviction }
-                    Button("overviewActionSimulator") { reviewOperationFilter = .simulator }
-                } label: {
-                    Text(reviewOperationFilter.map(overviewOperation) ?? L("overviewReviewAllOperations"))
-                }
-                .hoverHighlight()
-                Menu {
-                    Button("overviewReviewAllRisks") { reviewRiskFilter = nil }
-                    Button("overviewRiskLow") { reviewRiskFilter = .low }
-                    Button("overviewRiskReview") { reviewRiskFilter = .review }
-                } label: {
-                    Text(reviewRiskFilter.map(overviewRisk) ?? L("overviewReviewAllRisks"))
-                }
-                .hoverHighlight()
+            } status: {
+                EmptyView()
             }
             Text(String(format: L("overviewReviewCount"), candidates.count,
                         store.cleanupOverview.candidates.count))

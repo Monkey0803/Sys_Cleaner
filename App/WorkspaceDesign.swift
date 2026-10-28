@@ -69,8 +69,34 @@ final class WorkspaceNavigation: ObservableObject {
 
 enum WorkspaceStyle {
     static let pageInset: CGFloat = 20
+    static let controlSpacing: CGFloat = 12
     static let sectionSpacing: CGFloat = 16
     static let cornerRadius: CGFloat = 10
+}
+
+struct WorkspacePageHeader<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WorkspaceStyle.controlSpacing) { content }
+            .padding(.horizontal, WorkspaceStyle.pageInset)
+            .padding(.top, WorkspaceStyle.pageInset)
+            .padding(.bottom, WorkspaceStyle.controlSpacing)
+    }
+}
+
+struct WorkspaceSegments<Selection: Hashable, Options: View>: View {
+    let title: LocalizedStringKey
+    @Binding var selection: Selection
+    @ViewBuilder var options: Options
+
+    var body: some View {
+        Picker(title, selection: $selection) { options }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
 }
 
 struct WorkspaceHeading<Actions: View>: View {
@@ -79,7 +105,7 @@ struct WorkspaceHeading<Actions: View>: View {
     @ViewBuilder var actions: Actions
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.title2.weight(.semibold))
                 Text(subtitle).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -140,12 +166,38 @@ struct WorkspaceActionBar<Content: View>: View {
     }
 }
 
-struct WorkspaceFilterBar<Content: View>: View {
-    @ViewBuilder var content: Content
+struct WorkspaceSearchFilterBar<Filters: View, Status: View>: View {
+    let placeholder: String
+    @Binding var query: String
+    var searchDisabled = false
+    @ViewBuilder var filters: Filters
+    @ViewBuilder var status: Status
 
     var body: some View {
-        HStack(spacing: 8) { content }
-            .controlSize(.regular)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: WorkspaceStyle.controlSpacing) {
+                search
+                filters.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                status.fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: WorkspaceStyle.controlSpacing) {
+                search
+                HStack(spacing: WorkspaceStyle.controlSpacing) {
+                    filters.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    status.fixedSize(horizontal: true, vertical: false)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .controlSize(.regular)
+    }
+
+    private var search: some View {
+        ClearableSearchField(placeholder: placeholder, text: $query)
+            .frame(minWidth: 220, idealWidth: 360, maxWidth: 420)
+            .disabled(searchDisabled)
     }
 }
 
@@ -157,7 +209,7 @@ struct WorkspaceSheet<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text(title).font(.title2.weight(.semibold))
                 Spacer()
                 Button("done", action: onClose)

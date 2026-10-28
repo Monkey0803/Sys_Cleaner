@@ -126,23 +126,21 @@ struct XcodeWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            WorkspaceHeading(title: L("xcodeTitle"), subtitle: L("xcodeDescription")) {
-                Button("scanAgain") { refresh() }
-                    .hoverHighlight()
-                    .disabled(store.isDeleting)
+            WorkspacePageHeader {
+                WorkspaceHeading(title: L("xcodeTitle"), subtitle: L("xcodeDescription")) {
+                    Button("scanAgain") { refresh() }
+                        .hoverHighlight()
+                        .disabled(store.isDeleting)
+                }
+                WorkspaceSegments(title: "xcodeSection", selection: $section) {
+                    Text("xcodeOverview").tag(Section.overview)
+                    Text("xcodeReview").tag(Section.review)
+                    Text("xcodeProjects").tag(Section.projects)
+                    Text("xcodeArchives").tag(Section.archives)
+                    Text("xcodeSimulators").tag(Section.simulators)
+                }
+                .disabled(store.isDeleting)
             }
-            .padding(20)
-            Picker("xcodeSection", selection: $section) {
-                Text("xcodeOverview").tag(Section.overview)
-                Text("xcodeReview").tag(Section.review)
-                Text("xcodeProjects").tag(Section.projects)
-                Text("xcodeArchives").tag(Section.archives)
-                Text("xcodeSimulators").tag(Section.simulators)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
             Divider()
             switch section {
             case .overview: overviewView
@@ -153,7 +151,8 @@ struct XcodeWorkspaceView: View {
             }
             if let operationError {
                 Text(operationError).foregroundStyle(.orange)
-                    .font(.caption).padding(12)
+                    .font(.caption)
+                    .padding(.horizontal, WorkspaceStyle.pageInset).padding(.vertical, 12)
             }
         }
         .task {
@@ -719,22 +718,25 @@ struct XcodeWorkspaceView: View {
                     .hoverHighlight()
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
-            HStack {
-                ClearableSearchField(placeholder: L("xcodeSearchProjects"), text: $projectQuery)
-                    .onChange(of: projectQuery) { _, _ in pruneHiddenProjectSelection() }
-                Picker("xcodeProjectFilter", selection: $projectFilter) {
-                    Text("xcodeFilterAll").tag(ProjectFilter.all)
-                    Text("xcodeFilterIdentified").tag(ProjectFilter.identified)
-                    Text("xcodeFilterUnknown").tag(ProjectFilter.unknown)
+            WorkspaceSearchFilterBar(placeholder: L("xcodeSearchProjects"), query: $projectQuery) {
+                HStack(spacing: 8) {
+                    Picker("xcodeProjectFilter", selection: $projectFilter) {
+                        Text("xcodeFilterAll").tag(ProjectFilter.all)
+                        Text("xcodeFilterIdentified").tag(ProjectFilter.identified)
+                        Text("xcodeFilterUnknown").tag(ProjectFilter.unknown)
+                    }
+                    .onChange(of: projectFilter) { _, _ in pruneHiddenProjectSelection() }
+                    Picker("xcodeProjectSort", selection: $projectSort) {
+                        Text("xcodeSortSize").tag(ProjectSort.size)
+                        Text("xcodeSortRecent").tag(ProjectSort.recent)
+                        Text("xcodeSortName").tag(ProjectSort.name)
+                    }
                 }
-                .onChange(of: projectFilter) { _, _ in pruneHiddenProjectSelection() }
-                Picker("xcodeProjectSort", selection: $projectSort) {
-                    Text("xcodeSortSize").tag(ProjectSort.size)
-                    Text("xcodeSortRecent").tag(ProjectSort.recent)
-                    Text("xcodeSortName").tag(ProjectSort.name)
-                }
+            } status: {
+                EmptyView()
             }
-            .padding(.horizontal, 20).padding(.bottom, 10)
+            .onChange(of: projectQuery) { _, _ in pruneHiddenProjectSelection() }
+            .padding(.horizontal, WorkspaceStyle.pageInset).padding(.bottom, 12)
             if !preferences.derivedDataRoots.isEmpty {
                 ScrollView(.horizontal) {
                     HStack {
@@ -801,6 +803,8 @@ struct XcodeWorkspaceView: View {
                     }
                 }
                 .listStyle(.inset)
+                .frame(minHeight: 0)
+                .layoutPriority(-1)
             }
             if !store.isScanning && (store.hasScanned || store.hasPartialResults) {
                 HStack {
@@ -836,7 +840,7 @@ struct XcodeWorkspaceView: View {
                     .hoverHighlight()
                     .disabled(store.selectedEntries.isEmpty || store.isScanning || store.isDeleting)
             }
-            .padding(16)
+            .padding(.horizontal, WorkspaceStyle.pageInset).padding(.vertical, 12)
             .background(.bar)
         }
     }
@@ -1007,7 +1011,7 @@ struct XcodeWorkspaceView: View {
                 Button("xcodeAddRoot") { chooseArchivesRoot() }
                     .hoverHighlight()
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
+            .padding(.horizontal, WorkspaceStyle.pageInset).padding(.vertical, 10)
             if !preferences.archivesRoots.isEmpty {
                 ScrollView(.horizontal) {
                     HStack {
@@ -1026,12 +1030,12 @@ struct XcodeWorkspaceView: View {
                             .padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                         }
                     }
-                }.padding(.horizontal, 16)
+                }.padding(.horizontal, WorkspaceStyle.pageInset)
             }
             ForEach(archiveWarnings, id: \.self) { warning in
                 Text(localizedWarning(warning)).font(.caption).foregroundStyle(.orange)
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, WorkspaceStyle.pageInset)
             }
             if archiveScan.isScanning {
                 ProgressView("scanning").frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1061,7 +1065,8 @@ struct XcodeWorkspaceView: View {
     private var simulatorsView: some View {
         VStack(spacing: 0) {
             Text("xcodeSimulatorHelp").font(.caption).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, WorkspaceStyle.pageInset).padding(.vertical, 12)
             if simulatorScan.isScanning {
                 ProgressView("scanning").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let simulatorInventoryError {
@@ -1081,7 +1086,9 @@ struct XcodeWorkspaceView: View {
                 Button("xcodeDeleteDevices", role: .destructive) { showingSimulatorConfirmation = true }
                     .hoverHighlight()
                     .disabled(selectedSimulatorIDs.isEmpty || simulatorScan.isScanning)
-            }.padding(16).background(.bar)
+            }
+            .padding(.horizontal, WorkspaceStyle.pageInset).padding(.vertical, 12)
+            .background(.bar)
         }
     }
 

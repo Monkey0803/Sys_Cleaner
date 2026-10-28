@@ -15,7 +15,6 @@ private struct HoverHighlightModifier: ViewModifier {
                             .strokeBorder(isEnabled && isHovered ? Color.accentColor.opacity(0.55) : .clear,
                                           lineWidth: 1)
                     }
-                    .padding(-3)
                     .allowsHitTesting(false)
             }
             .onHover { isHovered = $0 }
@@ -23,6 +22,7 @@ private struct HoverHighlightModifier: ViewModifier {
 }
 
 extension View {
+    /// Keep the overlay inside the control's bounds. Size the control before applying this modifier.
     /// Apply before an outer alignment/expansion frame so empty layout space does not highlight.
     /// Apply before `disabled(_:)` so the modifier receives the button's enabled state.
     func hoverHighlight() -> some View { modifier(HoverHighlightModifier()) }
