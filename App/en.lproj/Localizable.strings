@@ -273,6 +273,9 @@
 "searchApps" = "Search apps or bundle IDs";
 "searchResults" = "Search names or paths";
 "filterResults" = "Filter results";
+"resultFilterLabel" = "Filter: %@";
+"resetResultFilters" = "Reset";
+"visibleDuplicateResultCount" = "Showing %d groups · %d files";
 "filter_all" = "All";
 "filter_selectable" = "Removable";
 "filter_locked" = "Unavailable";

@@ -452,44 +452,7 @@ struct ContentView: View {
                 }
             }
             if store.category != .space {
-                WorkspaceFilterBar {
-                    ClearableSearchField(
-                        placeholder: L(store.category == .uninstall && store.reviewedApplicationName == nil ?
-                                       "searchApps" : "searchResults"),
-                        text: $store.resultQuery)
-                        .frame(maxWidth: 360)
-                    Menu {
-                        Picker("filterResults", selection: $store.resultFilter) {
-                            Text("filter_all").tag(ScanEntryFilter.all)
-                            if store.category != .duplicates {
-                                Text("filter_selectable").tag(ScanEntryFilter.selectable)
-                                Text("filter_locked").tag(ScanEntryFilter.locked)
-                            }
-                            Text("filter_images").tag(ScanEntryFilter.images)
-                            Text("filter_videos").tag(ScanEntryFilter.videos)
-                            Text("filter_documents").tag(ScanEntryFilter.documents)
-                            Text("filter_archives").tag(ScanEntryFilter.archives)
-                            Text("filter_folders").tag(ScanEntryFilter.folders)
-                            Text("filter_other").tag(ScanEntryFilter.other)
-                        }
-                    } label: {
-                        Label(L("filter_\(store.resultFilter.rawValue)"), systemImage: "line.3.horizontal.decrease")
-                    }
-                    .hoverHighlight()
-                    .disabled(store.isScanning)
-                    if store.hasScanned && (!store.resultQuery.isEmpty || store.resultFilter != .all) {
-                        Text(String(format: L("visibleResultCount"), store.visibleEntries.count,
-                                    store.entries.count))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if store.category == .uninstall && store.reviewedApplicationName == nil {
-                        Button("chooseApp") { store.chooseApplication() }
-                            .hoverHighlight()
-                            .disabled(store.isScanning || store.isDeleting)
-                        Text("dropAppHint").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                resultFilterBar
             }
             HStack(spacing: 12) {
                 Label(String(format: L("itemsCount"), store.summaryCount), systemImage: "doc")
@@ -525,6 +488,102 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
+    }
+
+    private var resultFilterBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    resultFilterControls
+                    Spacer(minLength: 0)
+                    resultFilterStatus
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    resultFilterControls
+                    HStack {
+                        Spacer(minLength: 0)
+                        resultFilterStatus
+                    }
+                }
+            }
+            if store.category == .uninstall && store.reviewedApplicationName == nil {
+                HStack(spacing: 8) {
+                    Button("chooseApp") { store.chooseApplication() }
+                        .hoverHighlight()
+                        .disabled(store.isScanning || store.isDeleting)
+                    Text("dropAppHint").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .controlSize(.regular)
+    }
+
+    private var resultFilterControls: some View {
+        HStack(spacing: 8) {
+            ClearableSearchField(
+                placeholder: L(store.category == .uninstall && store.reviewedApplicationName == nil ?
+                               "searchApps" : "searchResults"),
+                text: $store.resultQuery)
+                .frame(minWidth: 220, idealWidth: 360, maxWidth: 420)
+                .disabled(store.isScanning)
+            Menu {
+                ForEach(availableResultFilters, id: \.self) { filter in
+                    Toggle(L("filter_\(filter.rawValue)"), isOn: Binding(
+                        get: { store.resultFilter == filter },
+                        set: { if $0 { store.resultFilter = filter } }))
+                }
+            } label: {
+                Label(String(format: L("resultFilterLabel"), L("filter_\(store.resultFilter.rawValue)")),
+                      systemImage: "line.3.horizontal.decrease")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: resultFilterMenuWidth)
+            .accessibilityLabel(L("filterResults"))
+            .accessibilityValue(L("filter_\(store.resultFilter.rawValue)"))
+            .hoverHighlight()
+            .disabled(store.isScanning)
+        }
+    }
+
+    private var availableResultFilters: [ScanEntryFilter] {
+        ScanEntryFilter.allCases.filter {
+            store.category != .duplicates || ($0 != .selectable && $0 != .locked)
+        }
+    }
+
+    private var resultFilterMenuWidth: CGFloat {
+        let longestLabel = availableResultFilters.map { filter in
+            let title = String(format: L("resultFilterLabel"), L("filter_\(filter.rawValue)"))
+            return (title as NSString).size(withAttributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            ]).width
+        }.max() ?? 0
+        // Reserve room for the filter symbol, native menu indicator and padding.
+        return max(200, ceil(longestLabel + 60))
+    }
+
+    private var resultFilterStatus: some View {
+        HStack(spacing: 12) {
+            if store.hasScanned {
+                Text(store.category == .duplicates ?
+                     String(format: L("visibleDuplicateResultCount"), store.visibleDuplicateGroups.count,
+                            store.visibleEntries.count) :
+                     String(format: L("visibleResultCount"), store.visibleEntries.count, store.entries.count))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            if !store.resultQuery.isEmpty || store.resultFilter != .all {
+                Button("resetResultFilters") {
+                    store.resultQuery = ""
+                    store.resultFilter = .all
+                }
+                .accessibilityLabel(L("clearSearchAndFilter"))
+                .hoverHighlight()
+                .disabled(store.isScanning)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var descriptionText: String {
@@ -2413,6 +2472,8 @@ struct ClearableSearchField: NSViewRepresentable {
         field.placeholderString = placeholder
         field.stringValue = text
         field.sendsSearchStringImmediately = true
+        field.isEnabled = context.environment.isEnabled
+        field.setAccessibilityLabel(placeholder)
         field.delegate = context.coordinator
         field.target = context.coordinator
         field.action = #selector(Coordinator.searchChanged(_:))
@@ -2421,6 +2482,8 @@ struct ClearableSearchField: NSViewRepresentable {
 
     func updateNSView(_ field: NSSearchField, context: Context) {
         field.placeholderString = placeholder
+        field.isEnabled = context.environment.isEnabled
+        field.setAccessibilityLabel(placeholder)
         context.coordinator.text = $text
         if field.stringValue != text { field.stringValue = text }
     }

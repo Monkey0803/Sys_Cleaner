@@ -273,6 +273,9 @@
 "searchApps" = "搜索应用或包标识";
 "searchResults" = "搜索名称或路径";
 "filterResults" = "筛选结果";
+"resultFilterLabel" = "筛选：%@";
+"resetResultFilters" = "重置";
+"visibleDuplicateResultCount" = "显示 %d 组 · %d 项";
 "filter_all" = "全部";
 "filter_selectable" = "可清理";
 "filter_locked" = "不可清理";
