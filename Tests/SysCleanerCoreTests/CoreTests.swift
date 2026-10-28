@@ -219,6 +219,37 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(overview.candidates.first?.estimatedBytes, 25)
     }
 
+    func testCleanupOverviewInvestigationMatchesOnlyRelatedPathComponents() throws {
+        let folder = root.appendingPathComponent("cache")
+        let sibling = root.appendingPathComponent("cache-copy")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
+        let inside = folder.appendingPathComponent("data")
+        let outside = sibling.appendingPathComponent("data")
+        try Data([1]).write(to: inside)
+        try Data([2]).write(to: outside)
+        let entries = [inside, outside].map { url in
+            ScanEntry(url: url, scope: root, category: .large,
+                      stamp: FileSafety.stamp(at: url)!, estimatedBytes: 1)
+        }
+        let files = CleanupOverviewSnapshot.make(sources: [
+            .init(category: .large, entries: entries, incomplete: false)
+        ])
+        XCTAssertEqual(files.candidates(relatedTo: folder.path, isDirectory: true).map(\.path),
+                       [inside.path])
+        XCTAssertEqual(files.candidates(relatedTo: inside.path, isDirectory: false).map(\.path),
+                       [inside.path])
+        XCTAssertTrue(files.candidates(relatedTo: folder.path, isDirectory: false).isEmpty)
+
+        let parent = CleanupOverviewItem(path: folder.path, category: .developerCache,
+                                         estimatedBytes: 1, isDirectory: true,
+                                         operation: .simulator, simulatorID: "fixture")
+        let directories = CleanupOverviewSnapshot.make(sources: [], supplemental: [parent])
+        XCTAssertEqual(directories.candidates(relatedTo: inside.path, isDirectory: false).map(\.path),
+                       [folder.path])
+        XCTAssertTrue(directories.candidates(relatedTo: outside.path, isDirectory: false).isEmpty)
+    }
+
     func testScanDiagnosticsKeepUnreadablePathAndLimitReason() {
         let issues = ScanDiagnostic.make(warnings: ["Cannot read /tmp/private: Permission denied",
                                                     "Changed or unreadable: /tmp/changed"], omittedCount: 3)
@@ -1193,6 +1224,13 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(tree.children(of: folder).map(\.url.lastPathComponent), ["nested"])
         XCTAssertEqual(tree.children(of: nested).map(\.url.lastPathComponent), ["large"])
         XCTAssertTrue(tree.children(of: root.appendingPathComponent("missing")).isEmpty)
+        let large = nested.appendingPathComponent("large")
+        XCTAssertEqual(tree.displayFolder(containing: folder, isDirectory: true)?.path, root.path)
+        XCTAssertEqual(tree.displayFolder(containing: large, isDirectory: false)?.path, nested.path)
+        XCTAssertNil(tree.displayFolder(containing: root.appendingPathComponent("small"),
+                                        isDirectory: false))
+        XCTAssertNil(tree.displayFolder(containing: root.appendingPathComponent("missing"),
+                                        isDirectory: true))
 
         let complete = Dictionary(uniqueKeysWithValues: report.spaceItems.map { ($0.id, $0.bytes) })
         XCTAssertEqual(complete[folder.path], 1_048_576)

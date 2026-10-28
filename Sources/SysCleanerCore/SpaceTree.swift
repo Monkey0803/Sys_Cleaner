@@ -92,6 +92,27 @@ public struct SpaceTree: Sendable {
         return result
     }
 
+    /// Locate an item in this scan's display set without consulting the live file system.
+    /// Files counted only in "Other files" cannot be focused individually.
+    public func displayFolder(containing path: URL, isDirectory: Bool) -> URL? {
+        let item = path.standardizedFileURL
+        if isDirectory && item.path == root.standardizedFileURL.path { return root }
+        let parent = item.deletingLastPathComponent()
+        guard let index = directoryIndex(for: parent) else { return nil }
+        if isDirectory {
+            guard (offsets[index]..<offsets[index + 1]).contains(where: {
+                let child = children[$0]
+                return child >= 0 && directories[child].name == item.lastPathComponent
+            }) else { return nil }
+        } else {
+            guard (offsets[index]..<offsets[index + 1]).contains(where: {
+                let child = children[$0]
+                return child < 0 && files[-child - 1].url.standardizedFileURL == item
+            }) else { return nil }
+        }
+        return parent
+    }
+
     /// Used by explicit full-result exports and small test fixtures, not by the App.
     public func allItems() -> [SpaceItem] {
         var urls = [URL](repeating: root, count: directories.count)

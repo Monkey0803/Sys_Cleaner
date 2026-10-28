@@ -454,6 +454,16 @@
 "diagnosticHint_unavailable" = "Check this category's location and system authorization.";
 "diagnosticHint_other" = "See the original category for details, then scan again.";
 "spaceGrowthTitle" = "Space change history";
+"spaceGrowthNavigationHint" = "History is for locating items. Locate in Space Analysis requires a current scan of the same scope; cleanup candidates come from category scans completed during this app session and are checked again before action.";
+"spaceGrowthLocate" = "Locate in Space Analysis";
+"spaceGrowthLocateHelp" = "Available only for items listed individually in the current space scan. Items outside its scope or display limit cannot be focused.";
+"spaceGrowthReviewCandidates" = "Find cleanup candidates";
+"spaceGrowthActions" = "Locate and review";
+"spaceGrowthLocateUnavailable" = "The current space scan does not list this item individually, or its scope differs. You can check an existing path in Finder.";
+"spaceGrowthPathMissing" = "This historical path no longer exists and cannot be shown in Finder.";
+"spaceGrowthReviewFocus" = "Cleanup candidates related to: %@";
+"spaceGrowthClearFocus" = "Show all candidates";
+"spaceGrowthNoCandidates" = "No cleanup candidate from completed category scans matches this path. Check the relevant scan scope or scan again.";
 "spaceGrowthNoPrevious" = "Complete two space scans with the same scope to compare directory growth. Incomplete scans are saved, but affected ranges are excluded from growth rankings.";
 "spaceGrowthSourcesChanged" = "The selected scans have different roots or exclusions. Choose records for the same scope.";
 "spaceGrowthSaveFailed" = "Could not save space change history: %@";
@@ -527,3 +537,13 @@
 "orphanGroupSummary" = "%d items · known size %@ · %d unknown · locations: %@";
 "orphanIgnoreIdentifier" = "Ignore identifier";
 "orphanIgnoredCount" = "%d ignored identifiers (choose to restore)";
+
+/* Workspace navigation and shared presentation */
+"workspaceFiles" = "File Cleanup";
+"workspaceApplications" = "Applications";
+"workspaceTool" = "Tool";
+"workspaceSpaceDetails" = "History & Diagnostics";
+"workspaceResultsSubtitle" = "Review the outcome of each operation.";
+"workspaceHistorySubtitle" = "Review previous operations and restore eligible items from Trash.";
+"workspaceReadyTitle" = "Ready to review";
+"workspaceReadyHelp" = "Run a check or scan a category to discover cleanup candidates.";

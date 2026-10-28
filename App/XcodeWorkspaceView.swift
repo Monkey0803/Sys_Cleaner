@@ -126,12 +126,7 @@ struct XcodeWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("xcodeTitle").font(.largeTitle.bold())
-                    Text("xcodeDescription").foregroundStyle(.secondary)
-                }
-                Spacer()
+            WorkspaceHeading(title: L("xcodeTitle"), subtitle: L("xcodeDescription")) {
                 Button("scanAgain") { refresh() }
                     .hoverHighlight()
                     .disabled(store.isDeleting)
@@ -304,7 +299,7 @@ struct XcodeWorkspaceView: View {
                             finderButton(runtimePath(runtime))
                         }
                         .padding(10)
-                        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 10))
                     }
                 }
                 if !deviceSupport.isEmpty {
@@ -324,7 +319,7 @@ struct XcodeWorkspaceView: View {
                                 .hoverHighlight()
                         }
                         .padding(10)
-                        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 10))
                     }
                 }
                 ForEach(archiveWarnings + deviceSupportWarnings, id: \.self) { warning in
@@ -388,7 +383,7 @@ struct XcodeWorkspaceView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
             }
@@ -712,7 +707,7 @@ struct XcodeWorkspaceView: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var projectsView: some View {
@@ -829,7 +824,7 @@ struct XcodeWorkspaceView: View {
                     }.frame(height: 100)
                 }
                 .font(.caption).padding(10)
-                .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
                 .padding(.horizontal, 20)
             }
             HStack {
@@ -874,7 +869,7 @@ struct XcodeWorkspaceView: View {
         .font(.caption)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 20).padding(.bottom, 8)
     }
 

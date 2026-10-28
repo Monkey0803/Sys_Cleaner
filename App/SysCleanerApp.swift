@@ -6,6 +6,7 @@ struct SysCleanerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = CleanerStore()
     @StateObject private var preferences = AppPreferences.shared
+    @StateObject private var navigation = WorkspaceNavigation()
 
     var body: some Scene {
         Window("Sys Cleaner", id: "main") {
@@ -13,6 +14,7 @@ struct SysCleanerApp: App {
                 .id(preferences.language)
                 .environmentObject(store)
                 .environmentObject(preferences)
+                .environmentObject(navigation)
                 .environment(\.locale, preferences.language.locale)
                 .frame(minWidth: 980, minHeight: 640)
         }

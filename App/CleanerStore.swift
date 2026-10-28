@@ -56,7 +56,7 @@ final class CleanerStore: ObservableObject {
         .appendingPathComponent("Library/Application Support/Sys Cleaner/xcode-project-history.json")
     private static let spaceHistoryURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Sys Cleaner/space-scan-history.json")
-    @Published var category: ScanCategory = .space {
+    @Published var category: ScanCategory = .overview {
         didSet { refreshVisibleEntries(); refreshSpaceChildren() }
     }
     @Published var root = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().standardizedFileURL {
@@ -116,6 +116,7 @@ final class CleanerStore: ObservableObject {
     @Published var spaceFolder: URL? {
         didSet { refreshSpaceChildren() }
     }
+    @Published private(set) var focusedSpacePath: String?
     @Published var cloudFolder: URL = ICloudDrive.root {
         didSet {
             selectedIDs = []
@@ -164,6 +165,37 @@ final class CleanerStore: ObservableObject {
     func spaceFileChanges(under path: String) -> [SpaceFileChange] {
         guard let pair = selectedSpaceScanIDs else { return [] }
         return spaceScanHistory.fileChanges(olderID: pair.older, newerID: pair.newer, under: path)
+    }
+
+    func canLocateSpaceChange(_ path: String, isDirectory: Bool) -> Bool {
+        spaceChangeLocation(path, isDirectory: isDirectory) != nil
+    }
+
+    @discardableResult
+    func locateSpaceChange(_ path: String, isDirectory: Bool) -> Bool {
+        guard !isDeleting, let folder = spaceChangeLocation(path, isDirectory: isDirectory) else {
+            return false
+        }
+        changeCategory(.space)
+        spaceFolder = folder
+        focusedSpacePath = URL(fileURLWithPath: path).standardizedFileURL.path
+        return true
+    }
+
+    func clearSpaceFocus() { focusedSpacePath = nil }
+
+    private func spaceChangeLocation(_ path: String, isDirectory: Bool) -> URL? {
+        guard let pair = selectedSpaceScanIDs,
+              let olderIndex = spaceScanHistory.snapshots.firstIndex(where: { $0.id == pair.older }),
+              let newerIndex = spaceScanHistory.snapshots.firstIndex(where: { $0.id == pair.newer }),
+              olderIndex < newerIndex else { return nil }
+        let older = spaceScanHistory.snapshots[olderIndex]
+        let newer = spaceScanHistory.snapshots[newerIndex]
+        guard older.rootPath == newer.rootPath,
+              older.excludedPaths == newer.excludedPaths else { return nil }
+        let tree = category == .space ? spaceTree : categoryResults[.space]?.spaceTree
+        guard let tree, tree.root.standardizedFileURL.path == newer.rootPath else { return nil }
+        return tree.displayFolder(containing: URL(fileURLWithPath: path), isDirectory: isDirectory)
     }
 
     private struct RunningScan {
@@ -540,6 +572,7 @@ final class CleanerStore: ObservableObject {
             scanDiagnostics[category] = nil
         }
         latestSpaceScanID = nil
+        focusedSpacePath = nil
         root = chosenRoot
         entries = []
         spaceItems = []
@@ -567,6 +600,7 @@ final class CleanerStore: ObservableObject {
             categoryResults.removeValue(forKey: category)
         }
         category = newValue
+        focusedSpacePath = nil
         sortSelection = AppPreferences.shared.sortSelection(for: newValue)
         if let saved = categoryResults.removeValue(forKey: newValue) {
             restore(saved)
@@ -610,6 +644,7 @@ final class CleanerStore: ObservableObject {
 
     func invalidateScan() {
         cancel()
+        focusedSpacePath = nil
         cancelApplicationSizeMeasurement()
         categoryResults.removeValue(forKey: category)
         scanDiagnostics[category] = nil
@@ -636,6 +671,7 @@ final class CleanerStore: ObservableObject {
     func scan() {
         guard category != .overview else { return }
         cancel()
+        focusedSpacePath = nil
         cancelApplicationSizeMeasurement()
         categoryResults.removeValue(forKey: category)
         scanDiagnostics[category] = nil

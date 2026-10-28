@@ -351,6 +351,17 @@ public struct CleanupOverviewSnapshot: Sendable {
     public let candidates: [CleanupOverviewItem]
     public let largestCandidates: [CleanupOverviewItem]
 
+    /// Includes an exact item, a selected directory containing it, or items
+    /// inside an investigated directory. Path boundaries prevent prefix matches.
+    public func candidates(relatedTo path: String, isDirectory: Bool) -> [CleanupOverviewItem] {
+        let target = URL(fileURLWithPath: path).standardizedFileURL.path
+        return candidates.filter { item in
+            item.path == target ||
+                (item.isDirectory && target.hasPrefix(item.path + "/")) ||
+                (isDirectory && item.path.hasPrefix(target + "/"))
+        }
+    }
+
     public static func make(sources: [CleanupOverviewSource],
                             supplemental: [CleanupOverviewItem] = [],
                             supplementalScanned: Set<ScanCategory> = [],

@@ -12,51 +12,19 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                tabButton(.general, title: "settingsGeneral", symbol: "gearshape")
-                tabButton(.logos, title: "settingsLogo", symbol: "app")
-                tabButton(.about, title: "settingsAbout", symbol: "info.circle")
-            }
-            .padding(.top, 24)
-            .padding(.bottom, 8)
-
-            Divider()
-
-            Group {
-                switch selectedTab {
-                case .general: general
-                case .logos: logos
-                case .about: about
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        TabView(selection: $selectedTab) {
+            general
+                .tabItem { Label("settingsGeneral", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
+            logos
+                .tabItem { Label("settingsLogo", systemImage: "app") }
+                .tag(SettingsTab.logos)
+            about
+                .tabItem { Label("settingsAbout", systemImage: "info.circle") }
+                .tag(SettingsTab.about)
         }
-        .frame(width: 600, height: 460)
-    }
-
-    private func tabButton(_ tab: SettingsTab, title: String, symbol: String) -> some View {
-        let isSelected = selectedTab == tab
-        return Button {
-            selectedTab = tab
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: symbol)
-                    .font(.system(size: 20))
-                    .frame(height: 23)
-                Text(L(title))
-                    .font(.caption)
-            }
-            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .frame(width: 72, height: 48)
-            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
-        .hoverHighlight()
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .padding(20)
+        .frame(width: 640, height: 500)
     }
 
     private var general: some View {
@@ -71,9 +39,7 @@ struct SettingsView: View {
                 Text("themeDark").tag(AppTheme.dark)
                 Text("themeLight").tag(AppTheme.light)
             }
-            Text("settingsAppliesNow")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            WorkspaceStatus(title: L("settingsAppliesNow"), symbol: "checkmark.circle")
             Section("settingsExclusions") {
                 ForEach(preferences.excludedPaths, id: \.self) { path in
                     HStack {

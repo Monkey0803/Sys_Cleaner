@@ -454,6 +454,16 @@
 "diagnosticHint_unavailable" = "检查该扫描项的位置和系统授权状态。";
 "diagnosticHint_other" = "查看原分类的详细提示，处理后重新扫描。";
 "spaceGrowthTitle" = "空间变化记录";
+"spaceGrowthNavigationHint" = "历史记录只用于定位；“定位到空间分析”需要当前仍保留相同范围的扫描结果，清理候选来自本次打开 App 后完成的各类扫描，操作前仍会复核。";
+"spaceGrowthLocate" = "定位到空间分析";
+"spaceGrowthLocateHelp" = "仅能定位到当前空间扫描中单独列出的项目；扫描范围不同或项目未列出时不可用。";
+"spaceGrowthReviewCandidates" = "查找清理候选";
+"spaceGrowthActions" = "定位与审阅";
+"spaceGrowthLocateUnavailable" = "当前空间扫描未单独列出此项目，或扫描范围不同；可以在访达中查看现有路径。";
+"spaceGrowthPathMissing" = "此历史路径当前不存在，无法在访达中显示。";
+"spaceGrowthReviewFocus" = "与此路径相关的清理候选：%@";
+"spaceGrowthClearFocus" = "显示全部候选";
+"spaceGrowthNoCandidates" = "已完成的分类扫描中没有与此路径对应的可清理候选；可检查相关分类的扫描范围或重新扫描。";
 "spaceGrowthNoPrevious" = "完成两次相同范围的空间分析扫描后，可比较目录增长。读取不完整的扫描也会保存，但受影响范围不参与增长排名。";
 "spaceGrowthSourcesChanged" = "两次扫描的根目录或排除路径不同，不能可靠比较；请选择相同范围的记录。";
 "spaceGrowthSaveFailed" = "空间变化记录保存失败：%@";
@@ -527,3 +537,13 @@
 "orphanGroupSummary" = "%d 项 · 已知大小 %@ · %d 项大小未知 · 位置：%@";
 "orphanIgnoreIdentifier" = "忽略此标识";
 "orphanIgnoredCount" = "已忽略 %d 个标识（选择恢复）";
+
+/* Workspace navigation and shared presentation */
+"workspaceFiles" = "文件清理";
+"workspaceApplications" = "应用管理";
+"workspaceTool" = "工具";
+"workspaceSpaceDetails" = "记录与诊断";
+"workspaceResultsSubtitle" = "查看每一项操作的处理结果。";
+"workspaceHistorySubtitle" = "查看以往操作，恢复符合条件的废纸篓项目。";
+"workspaceReadyTitle" = "开始检查，发现可审阅项目";
+"workspaceReadyHelp" = "运行检查或扫描具体分类，候选项目将在这里汇总。";

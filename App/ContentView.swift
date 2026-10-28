@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject private var store: CleanerStore
     @EnvironmentObject private var preferences: AppPreferences
+    @EnvironmentObject private var navigation: WorkspaceNavigation
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @State private var pendingMode: DeleteMode = .trash
@@ -15,13 +16,18 @@ struct ContentView: View {
     @State private var previewURL: URL?
     @State private var previewSelection: UUID?
     @State private var spacePieHasAppeared = false
-    @State private var showingVolumeOverview = true
+    @State private var selectedSpaceItemID: String?
+    @State private var showingVolumeOverview = false
     @State private var hoveredVolumeID: String?
     @State private var duplicateGroupPage = 0
     @State private var cloudPage = 0
     @State private var showingCloudConfirmation = false
     @State private var overviewQuery = ""
     @State private var overviewCategory: ScanCategory?
+    @State private var overviewInvestigationPath: String?
+    @State private var overviewInvestigationIsDirectory = false
+    @State private var investigationNotice: String?
+    @State private var investigationNavigationID = 0
     @State private var reviewOperationFilter: CleanupOverviewOperation?
     @State private var reviewRiskFilter: RiskLevel?
     @State private var overviewPage = 0
@@ -30,6 +36,13 @@ struct ContentView: View {
     @State private var showingOverviewPlanConfirmation = false
     @State private var showingAccountingNotices = false
     @State private var showingAccountingExclusions = false
+    @State private var showingScanSources = false
+    @State private var showingSpaceHistory = false
+    @State private var showingSpaceAccounting = false
+    @State private var showingOverviewCategories = false
+    @State private var showingPlanItems = false
+    @State private var detailWidth: CGFloat = 0
+    @State private var usesInspector = false
     private let overviewItemsPerPage = 50
     private let cloudItemsPerPage = 200
     private let duplicateGroupsPerPage = 200
@@ -37,28 +50,31 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: Binding(get: { store.category }, set: { store.changeCategory($0) })) {
+            List(selection: Binding(get: { CleanerWorkspace(category: store.category) },
+                                   set: { store.changeCategory(navigation.category(for: $0)) })) {
                 Section {
-                    categoryRow(.overview)
-                }
-                Section(L("explore")) {
-                    categoryRow(.space)
-                    categoryRow(.large)
-                    categoryRow(.duplicates)
-                    categoryRow(.downloads)
-                    categoryRow(.icloud)
+                    workspaceRow(.overview)
                 }
                 Section(L("cleanup")) {
-                    categoryRow(.systemCache)
-                    categoryRow(.developerCache)
-                    categoryRow(.uninstall)
-                    categoryRow(.orphans)
+                    workspaceRow(.files)
+                    workspaceRow(.applications)
+                    workspaceRow(.caches)
+                    workspaceRow(.cloud)
+                }
+                Section(L("explore")) {
+                    workspaceRow(.space)
+                    workspaceRow(.xcode)
                 }
             }
             .navigationTitle("Sys Cleaner")
-            .frame(minWidth: 200)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         } detail: {
             VStack(spacing: 0) {
+                if CleanerWorkspace(category: store.category) == .files {
+                    workspaceTabs([.downloads, .large, .duplicates])
+                } else if CleanerWorkspace(category: store.category) == .applications {
+                    workspaceTabs([.uninstall, .orphans])
+                }
                 if store.category == .overview {
                     overviewContent
                 } else if store.category == .developerCache {
@@ -133,6 +149,7 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))
             .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
                 guard store.category == .uninstall, let provider = providers.first else { return false }
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
@@ -184,19 +201,66 @@ struct ContentView: View {
             } message: {
                 Text(overviewPlanConfirmationText)
             }
-            .sheet(isPresented: $store.showResults) { resultsSheet }
-            .sheet(isPresented: $store.showHistory) { historySheet }
-            .alert(item: $inspectedEntry) { entry in
-                Alert(title: Text(entry.url.lastPathComponent),
-                      message: Text(inspectorMessage(for: entry)),
-                      dismissButton: .default(Text("done")))
+            .sheet(isPresented: $store.showResults) {
+                resultsSheet.environment(\.locale, preferences.language.locale)
+            }
+            .sheet(isPresented: $store.showHistory) {
+                historySheet.environment(\.locale, preferences.language.locale)
+            }
+            .sheet(isPresented: $showingScanSources) {
+                WorkspaceSheet(title: L("overviewSources"), onClose: { showingScanSources = false }) {
+                    overviewSourceDetails
+                }
+            }
+            .sheet(isPresented: $showingSpaceHistory) {
+                WorkspaceSheet(title: L("spaceGrowthTitle"), onClose: { showingSpaceHistory = false }) {
+                    overviewGrowthContent
+                }
+            }
+            .sheet(isPresented: $showingSpaceAccounting) {
+                WorkspaceSheet(title: L("spaceAccountingTitle"), onClose: { showingSpaceAccounting = false }) {
+                    spaceAccountingContent
+                }
+            }
+            .sheet(isPresented: Binding(get: { inspectedEntry != nil && !usesInspector },
+                                       set: { if !$0 { inspectedEntry = nil } })) {
+                if let entry = inspectedEntry {
+                    WorkspaceSheet(title: L("cleanupBasis"), onClose: { inspectedEntry = nil }) {
+                        entryDetails(entry)
+                    }
+                }
+            }
+            .inspector(isPresented: Binding(get: { inspectedEntry != nil && usesInspector },
+                                           set: { if !$0 { inspectedEntry = nil } })) {
+                if let entry = inspectedEntry {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack {
+                            Text("cleanupBasis").font(.headline)
+                            Spacer()
+                            Button("done") { inspectedEntry = nil }.hoverHighlight()
+                        }.padding(20)
+                        Divider()
+                        ScrollView { entryDetails(entry).padding(20) }
+                    }
+                        .inspectorColumnWidth(min: 280, ideal: 320, max: 380)
+                }
             }
             .quickLookPreview($previewURL)
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.onAppear { detailWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { _, width in detailWidth = width }
+            }
         }
         .onChange(of: store.minimumMB) { _, _ in store.invalidateScan() }
         .onChange(of: store.olderThanDays) { _, _ in store.invalidateScan() }
         .onChange(of: preferences.language) { _, _ in store.refreshSorting() }
-        .onChange(of: store.category) { _, _ in duplicateGroupPage = 0 }
+        .onChange(of: store.category, initial: true) { _, category in
+            duplicateGroupPage = 0
+            inspectedEntry = nil
+            navigation.remember(category)
+        }
         .onChange(of: store.cloudFolder) { _, _ in cloudPage = 0 }
         .onChange(of: store.visibleEntries.count) { _, _ in cloudPage = 0 }
         .onChange(of: store.resultQuery) { _, _ in duplicateGroupPage = 0 }
@@ -219,33 +283,59 @@ struct ContentView: View {
         }
     }
 
-    private func categoryRow(_ category: ScanCategory) -> some View {
-        Label(category.title, systemImage: category.symbol).tag(category)
+    private func workspaceRow(_ workspace: CleanerWorkspace) -> some View {
+        Label(workspace.title, systemImage: workspace.symbol)
+            .padding(.vertical, 3)
+            .tag(workspace)
+    }
+
+    private func workspaceTabs(_ categories: [ScanCategory]) -> some View {
+        Picker("workspaceTool", selection: Binding(get: { store.category },
+                                                  set: { store.changeCategory($0) })) {
+            ForEach(categories) { category in Text(category.title).tag(category) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .disabled(store.isDeleting)
+        .frame(maxWidth: 460)
+        .padding(.horizontal, 20).padding(.top, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func entryDetails(_ entry: ScanEntry) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label(entry.url.lastPathComponent, systemImage: entry.isDirectory ? "folder" : "doc")
+                .font(.headline).textSelection(.enabled)
+            Text(inspectorMessage(for: entry)).font(.callout).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack {
+                Button("showInFinder") { store.reveal(entry.url) }.hoverHighlight()
+                if !entry.isDirectory {
+                    Button("previewFile") { previewURL = entry.url }.hoverHighlight()
+                }
+            }
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    if store.category == .uninstall, store.reviewedApplicationName != nil {
-                        Button { store.backFromApplication() } label: {
-                            Label("back", systemImage: "chevron.left")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Color.accentColor)
-                        .hoverHighlight()
-                        .disabled(store.isDeleting)
-                        .padding(.bottom, 4)
-                    }
-                    Text(store.reviewedApplicationName ?? store.category.title).font(.largeTitle.bold())
-                    Text(descriptionKey).foregroundStyle(.secondary)
-                    if let token = store.reviewedHomebrewCaskToken {
-                        Text(String(format: L("appHomebrewNotice"), token))
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
+            if store.category == .uninstall, store.reviewedApplicationName != nil {
+                Button { store.backFromApplication() } label: {
+                    Label("back", systemImage: "chevron.left")
                 }
-                Spacer()
+                .buttonStyle(.borderless).hoverHighlight().disabled(store.isDeleting)
+            }
+            WorkspaceHeading(title: store.reviewedApplicationName ?? store.category.title,
+                             subtitle: descriptionText) {
+                if store.category == .space {
+                    Menu {
+                        Button("spaceGrowthTitle") { showingSpaceHistory = true }
+                        Button("spaceAccountingTitle") { showingSpaceAccounting = true }
+                    } label: {
+                        Label("workspaceSpaceDetails", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+                    .hoverHighlight()
+                }
                 if store.hasScanned && !store.isScanning &&
                     (store.category == .space ? store.hasSpaceResults : !store.entries.isEmpty) {
                     sortMenu
@@ -254,6 +344,10 @@ struct ContentView: View {
                     (store.category == .space ? store.hasSpaceResults : !store.visibleEntries.isEmpty) {
                     scanButton
                 }
+            }
+            if let token = store.reviewedHomebrewCaskToken {
+                Text(String(format: L("appHomebrewNotice"), token))
+                    .font(.callout).foregroundStyle(.secondary)
             }
             if [.space, .large, .duplicates].contains(store.category) {
                 HStack {
@@ -266,7 +360,7 @@ struct ContentView: View {
                         .hoverHighlight()
                 }
                 .padding(10)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
             }
             if store.category == .space && !store.volumes.isEmpty {
                 HStack {
@@ -358,7 +452,7 @@ struct ContentView: View {
                 }
             }
             if store.category != .space {
-                HStack {
+                WorkspaceFilterBar {
                     ClearableSearchField(
                         placeholder: L(store.category == .uninstall && store.reviewedApplicationName == nil ?
                                        "searchApps" : "searchResults"),
@@ -430,21 +524,21 @@ struct ContentView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
         }
-        .padding(20)
+        .padding(.horizontal, 20).padding(.vertical, 12)
     }
 
-    private var descriptionKey: LocalizedStringKey {
+    private var descriptionText: String {
         switch store.category {
-        case .overview: "overviewDescription"
-        case .space: "spaceDescription"
-        case .large: "largeDescription"
-        case .duplicates: "duplicatesDescription"
-        case .downloads: "downloadsDescription"
-        case .systemCache: "systemCacheDescription"
-        case .developerCache: "developerCacheDescription"
-        case .uninstall: "uninstallDescription"
-        case .orphans: "orphansDescription"
-        case .icloud: "icloudDescription"
+        case .overview: L("overviewDescription")
+        case .space: L("spaceDescription")
+        case .large: L("largeDescription")
+        case .duplicates: L("duplicatesDescription")
+        case .downloads: L("downloadsDescription")
+        case .systemCache: L("systemCacheDescription")
+        case .developerCache: L("developerCacheDescription")
+        case .uninstall: L("uninstallDescription")
+        case .orphans: L("orphansDescription")
+        case .icloud: L("icloudDescription")
         }
     }
 
@@ -474,10 +568,10 @@ struct ContentView: View {
             .padding(10)
             .frame(height: 112)
             .background(.quaternary.opacity(hoveredVolumeID == volume.id ? 0.8 : 0.4),
-                        in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8)
+                        in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(Color.accentColor.opacity(hoveredVolumeID == volume.id ? 0.55 : 0), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .help(L("chooseVolumeFolder"))
@@ -519,11 +613,13 @@ struct ContentView: View {
     }
 
     private var overviewContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("overview").font(.largeTitle.bold())
-                    Text("overviewDescription").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                WorkspaceHeading(title: L("overview"), subtitle: L("overviewDescription")) {
+                    Button { showingScanSources = true } label: {
+                        Label("overviewSources", systemImage: "info.circle")
+                    }
+                    .hoverHighlight()
                 }
                 overviewScanControls
                 HStack(spacing: 12) {
@@ -532,75 +628,86 @@ struct ContentView: View {
                     overviewMetric("overviewCloudEstimate", bytes: store.cleanupOverview.cloudEstimate,
                                    symbol: "icloud")
                 }
-                Text("overviewEstimateHelp")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("overviewScanBoundaryHelp")
-                    .font(.caption).foregroundStyle(.secondary)
-                overviewExcludedLocations
-                if store.cleanupOverview.duplicateCount > 0 {
-                    Text(String(format: L("overviewOverlapCount"), store.cleanupOverview.duplicateCount))
-                        .font(.caption).foregroundStyle(.secondary)
+                HStack(alignment: .top) {
+                    Text("overviewEstimateHelp").font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    if store.cleanupOverview.sections.contains(where: { $0.incomplete }) {
+                        Button { showingScanSources = true } label: {
+                            Label("partialResults", systemImage: "exclamationmark.triangle")
+                        }
+                        .buttonStyle(.borderless).foregroundStyle(.orange).hoverHighlight()
+                    }
                 }
-                overviewReviewContent
-                Text("overviewSources").font(.title3.bold())
-                ForEach(store.cleanupOverview.sections) { section in
-                    HStack(spacing: 12) {
-                        Image(systemName: section.category.symbol)
-                            .frame(width: 24)
-                            .foregroundStyle(Color.accentColor)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(section.category.title).fontWeight(.semibold)
-                            overviewScopePaths(for: section.category)
-                            if !section.scanned {
-                                Text("overviewNotScanned").foregroundStyle(.secondary)
-                            } else if section.category == .space || section.category == .orphans {
-                                Text("overviewReadOnly").foregroundStyle(.secondary)
-                            } else {
-                                Text(String(format: L("overviewCandidateSummary"),
-                                            section.candidateCount, fileSize(section.estimatedBytes)))
+            }
+            .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 12)
+            Divider()
+            overviewReviewContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            WorkspaceActionBar { overviewPlanContent }
+        }
+    }
+
+    private var overviewSourceDetails: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("overviewScanBoundaryHelp").font(.callout).foregroundStyle(.secondary)
+            overviewExcludedLocations
+            if store.cleanupOverview.duplicateCount > 0 {
+                Text(String(format: L("overviewOverlapCount"), store.cleanupOverview.duplicateCount))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(store.cleanupOverview.sections) { section in
+                HStack(spacing: 12) {
+                    Image(systemName: section.category.symbol)
+                        .frame(width: 24)
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(section.category.title).fontWeight(.semibold)
+                        overviewScopePaths(for: section.category)
+                        if !section.scanned {
+                            Text("overviewNotScanned").foregroundStyle(.secondary)
+                        } else if section.category == .space || section.category == .orphans {
+                            Text("overviewReadOnly").foregroundStyle(.secondary)
+                        } else {
+                            Text(String(format: L("overviewCandidateSummary"),
+                                        section.candidateCount, fileSize(section.estimatedBytes)))
+                                .foregroundStyle(.secondary)
+                        }
+                        if section.incomplete {
+                            Text("partialResults").foregroundStyle(.orange)
+                        }
+                        if section.category == .developerCache && section.scanned &&
+                            !store.xcodeInventoryWasScanned {
+                            Text("overviewXcodeQuickIncomplete")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                        if section.category == .space, let coverage = store.spaceCoverage(for: .space) {
+                            spaceCoverageDetails(coverage)
+                        } else if section.omittedCount > 0 {
+                            Text(String(format: L("omittedItemsCount"), section.omittedCount))
+                                .foregroundStyle(.orange)
+                        }
+                        if section.scanned, !store.diagnostics(for: section.category).isEmpty {
+                            overviewDiagnostics(store.diagnostics(for: section.category))
+                        }
+                        if section.category == .uninstall && section.scanned {
+                            if let name = store.lastReviewedApplicationName {
+                                Text(String(format: L("overviewUninstallReviewed"), name))
                                     .foregroundStyle(.secondary)
-                            }
-                            if section.incomplete {
-                                Text("partialResults").foregroundStyle(.orange)
-                            }
-                            if section.category == .developerCache && section.scanned &&
-                                !store.xcodeInventoryWasScanned {
-                                Text("overviewXcodeQuickIncomplete")
-                                    .font(.caption).foregroundStyle(.orange)
-                            }
-                            if section.category == .space, let coverage = store.spaceCoverage(for: .space) {
-                                spaceCoverageDetails(coverage)
-                            } else if section.omittedCount > 0 {
-                                Text(String(format: L("omittedItemsCount"), section.omittedCount))
-                                    .foregroundStyle(.orange)
-                            }
-                            if section.scanned, !store.diagnostics(for: section.category).isEmpty {
-                                overviewDiagnostics(store.diagnostics(for: section.category))
-                            }
-                            if section.category == .uninstall && section.scanned {
-                                if let name = store.lastReviewedApplicationName {
-                                    Text(String(format: L("overviewUninstallReviewed"), name))
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Text("overviewUninstallHint").foregroundStyle(.secondary)
-                                }
+                            } else {
+                                Text("overviewUninstallHint").foregroundStyle(.secondary)
                             }
                         }
-                        Spacer()
-                        Button("overviewOpenCategory") { store.changeCategory(section.category) }
-                            .hoverHighlight()
-                            .disabled(store.isDeleting)
                     }
-                    .font(.callout)
-                    .padding(12)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                    Spacer()
+                    Button("overviewOpenCategory") { showingScanSources = false; store.changeCategory(section.category) }
+                        .hoverHighlight()
+                        .disabled(store.isDeleting)
                 }
-                overviewGrowthContent
-                spaceAccountingContent
-                Text("overviewXcodeHelp").font(.caption).foregroundStyle(.secondary)
+                .font(.callout)
+                .padding(12)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("overviewXcodeHelp").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -621,22 +728,33 @@ struct ContentView: View {
                     .disabled(overviewScanSelection.isEmpty || !store.canStartOverviewScan)
                 }
             }
-            Text("overviewQuickCheckHelp").font(.caption).foregroundStyle(.secondary)
-            DisclosureGroup("overviewChooseChecks") {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
-                          alignment: .leading, spacing: 7) {
-                    ForEach(ScanCategory.allCases.filter { $0 != .overview }, id: \.self) { category in
-                        Toggle(category == .developerCache ? L("overviewXcodeQuickLabel") : category.title,
-                               isOn: Binding(
-                            get: { overviewScanSelection.contains(category) },
-                            set: { selected in
-                                if selected { overviewScanSelection.insert(category) }
-                                else { overviewScanSelection.remove(category) }
-                            }))
-                            .disabled(store.overviewScanState != nil)
+            Button { showingOverviewCategories = true } label: {
+                Label("overviewChooseChecks", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.borderless)
+            .hoverHighlight()
+            .popover(isPresented: $showingOverviewCategories) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("overviewQuickCheckHelp").font(.caption).foregroundStyle(.secondary)
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                                  alignment: .leading, spacing: 7) {
+                            ForEach(ScanCategory.allCases.filter { $0 != .overview }, id: \.self) { category in
+                                Toggle(category == .developerCache ? L("overviewXcodeQuickLabel") : category.title,
+                                       isOn: Binding(
+                                    get: { overviewScanSelection.contains(category) },
+                                    set: { selected in
+                                        if selected { overviewScanSelection.insert(category) }
+                                        else { overviewScanSelection.remove(category) }
+                                    }))
+                                    .disabled(store.overviewScanState != nil)
+                            }
+                        }
+                        .padding(.top, 6)
                     }
+                    .padding(20)
                 }
-                .padding(.top, 6)
+                .frame(width: 440, height: 290)
             }
             if let state = store.overviewScanState {
                 ProgressView(value: Double(state.completed), total: Double(state.total))
@@ -656,8 +774,7 @@ struct ContentView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        .workspaceCard()
     }
 
     private var spaceAccountingContent: some View {
@@ -705,15 +822,19 @@ struct ContentView: View {
                     DisclosureGroup(String(format: L("spaceAccountingReviewNotices"),
                                            accounting.diagnostics.count),
                                     isExpanded: $showingAccountingNotices) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(accounting.diagnostics) { issue in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(localizedWarning(issue.detail)).textSelection(.enabled)
-                                    Text(L("diagnosticHint_\(issue.kind.rawValue)"))
-                                        .foregroundStyle(.secondary)
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(accounting.diagnostics) { issue in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(localizedWarning(issue.detail)).textSelection(.enabled)
+                                        Text(L("diagnosticHint_\(issue.kind.rawValue)"))
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .frame(maxHeight: 180)
                         .font(.caption)
                     }
                     .foregroundStyle(.orange)
@@ -744,7 +865,10 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     Button("spaceAccountingCheckExclusions") { openSettings() }
                         .hoverHighlight()
-                    Button("spaceAccountingRescan") { store.rescanSpaceAccounting() }
+                    Button("spaceAccountingRescan") {
+                        showingSpaceAccounting = false
+                        store.rescanSpaceAccounting()
+                    }
                         .hoverHighlight()
                         .disabled(!store.canRescanSpaceAccounting)
                 }
@@ -754,8 +878,7 @@ struct ContentView: View {
         }
         .font(.callout)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        .workspaceCard()
     }
 
     private func spaceCoverageDetails(_ coverage: SpaceScanCoverage) -> some View {
@@ -784,7 +907,11 @@ struct ContentView: View {
 
     private var overviewReviewCandidates: [CleanupOverviewItem] {
         let query = overviewQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        return store.cleanupOverview.candidates.filter { item in
+        let candidates = overviewInvestigationPath.map {
+            store.cleanupOverview.candidates(relatedTo: $0,
+                                             isDirectory: overviewInvestigationIsDirectory)
+        } ?? store.cleanupOverview.candidates
+        return candidates.filter { item in
             (overviewCategory == nil || item.category == overviewCategory) &&
             (reviewOperationFilter == nil || item.operation == reviewOperationFilter) &&
             (reviewRiskFilter == nil || item.risk == reviewRiskFilter) &&
@@ -799,8 +926,18 @@ struct ContentView: View {
         let page = min(overviewPage, pageCount - 1)
         return VStack(alignment: .leading, spacing: 10) {
             Text("overviewReviewTitle").font(.title3.bold())
-            Text("overviewReviewHelp").font(.caption).foregroundStyle(.secondary)
-            HStack {
+            if let path = overviewInvestigationPath {
+                HStack {
+                    Text(String(format: L("spaceGrowthReviewFocus"), path))
+                        .font(.caption).lineLimit(2).textSelection(.enabled)
+                    Spacer()
+                    Button("spaceGrowthClearFocus") { overviewInvestigationPath = nil }
+                        .hoverHighlight()
+                }
+                .padding(8)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            }
+            WorkspaceFilterBar {
                 ClearableSearchField(placeholder: L("overviewReviewSearch"), text: $overviewQuery)
                     .frame(maxWidth: 360)
                 Menu {
@@ -833,10 +970,13 @@ struct ContentView: View {
             Text(String(format: L("overviewReviewCount"), candidates.count,
                         store.cleanupOverview.candidates.count))
                 .font(.caption).foregroundStyle(.secondary)
-            overviewPlanContent
-            LazyVStack(alignment: .leading, spacing: 8) {
+            if overviewInvestigationPath != nil && candidates.isEmpty {
+                Text("spaceGrowthNoCandidates")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            List {
                 ForEach(Array(candidates.dropFirst(page * overviewItemsPerPage)
-                    .prefix(overviewItemsPerPage).enumerated()), id: \.offset) { _, item in
+                    .prefix(overviewItemsPerPage)), id: \.path) { item in
                     HStack(spacing: 10) {
                         Toggle("", isOn: Binding(
                             get: { store.overviewPlan[item.path] != nil },
@@ -860,10 +1000,22 @@ struct ContentView: View {
                             .disabled(store.isDeleting)
                     }
                     .font(.callout)
-                    .padding(10)
-                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.vertical, 6)
+                    .listRowSeparator(.visible)
+                }
+                if candidates.isEmpty {
+                    ContentUnavailableView {
+                        Label(store.cleanupOverview.candidates.isEmpty ? "workspaceReadyTitle" : "noMatchingResults",
+                              systemImage: "checklist")
+                    } description: {
+                        Text(store.cleanupOverview.candidates.isEmpty ? "workspaceReadyHelp" : "adjustSearchOrFilter")
+                    }
+                        .frame(maxWidth: .infinity)
+                        .listRowSeparator(.hidden)
                 }
             }
+            .listStyle(.plain)
+            .frame(minHeight: 100)
             if pageCount > 1 {
                 HStack {
                     Button("previousPage") { overviewPage = max(0, page - 1) }
@@ -876,6 +1028,7 @@ struct ContentView: View {
                 .font(.caption)
             }
         }
+        .padding(.horizontal, 20).padding(.vertical, 12)
     }
 
     private var overviewPlanContent: some View {
@@ -897,7 +1050,9 @@ struct ContentView: View {
             if items.isEmpty {
                 Text("overviewPlanEmpty").font(.caption).foregroundStyle(.secondary)
             } else {
-                DisclosureGroup("overviewPlanSelectedItems") {
+                Button("overviewPlanSelectedItems") { showingPlanItems = true }
+                    .buttonStyle(.borderless).hoverHighlight()
+                    .popover(isPresented: $showingPlanItems) {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 6) {
                             ForEach(items, id: \.path) { item in
@@ -923,13 +1078,12 @@ struct ContentView: View {
                             }
                         }
                     }
-                    .frame(maxHeight: 180)
+                    .padding(16)
+                    .frame(width: 540, height: 220)
                 }
                 .font(.caption)
             }
         }
-        .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var overviewPlanConfirmationText: String {
@@ -1003,6 +1157,10 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("spaceGrowthTitle").font(.title3.bold())
             Text("spaceGrowthLimits").font(.caption).foregroundStyle(.secondary)
+            Text("spaceGrowthNavigationHint").font(.caption).foregroundStyle(.secondary)
+            if let investigationNotice {
+                Text(investigationNotice).font(.caption).foregroundStyle(.orange)
+            }
             if let error = store.spaceHistoryError {
                 Text(String(format: L("spaceGrowthSaveFailed"), error)).foregroundStyle(.orange)
             }
@@ -1098,6 +1256,7 @@ struct ContentView: View {
                             Text(String(format: L("spaceGrowthDirectorySizes"),
                                         fileSize(item.previousBytes), fileSize(item.currentBytes)))
                                 .font(.caption)
+                            investigationActions(path: item.path, isDirectory: true)
                             let changes = store.spaceDirectoryChanges(under: item.path)
                             let fileChanges = store.spaceFileChanges(under: item.path)
                             ForEach(Array(changes.prefix(50).enumerated()), id: \.offset) { _, change in
@@ -1109,6 +1268,7 @@ struct ContentView: View {
                                     } else {
                                         Text("spaceGrowthSampleUnknown")
                                     }
+                                    investigationMenu(path: change.path, isDirectory: true)
                                 }
                                 .font(.caption)
                             }
@@ -1126,6 +1286,7 @@ struct ContentView: View {
                                     } else {
                                         Text("spaceGrowthFileSampleUnknown")
                                     }
+                                    investigationMenu(path: change.path, isDirectory: false)
                                 }
                                 .font(.caption)
                             }
@@ -1151,11 +1312,79 @@ struct ContentView: View {
                             .font(.callout)
                         }
                         .padding(8)
-                        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
                     }
                 }
             }
         }
+    }
+
+    private func investigationActions(path: String, isDirectory: Bool) -> some View {
+        HStack {
+            Button("spaceGrowthLocate") { locateInvestigationPath(path, isDirectory: isDirectory) }
+                .hoverHighlight()
+                .disabled(!store.canLocateSpaceChange(path, isDirectory: isDirectory) || store.isDeleting)
+                .help(L("spaceGrowthLocateHelp"))
+            Button("showInFinder") { revealInvestigationPath(path) }
+                .hoverHighlight()
+                .disabled(store.isDeleting)
+            Button("spaceGrowthReviewCandidates") {
+                reviewInvestigationPath(path, isDirectory: isDirectory)
+            }
+            .hoverHighlight()
+            .disabled(store.isDeleting)
+        }
+        .font(.caption)
+    }
+
+    private func investigationMenu(path: String, isDirectory: Bool) -> some View {
+        Menu {
+            Button("spaceGrowthLocate") { locateInvestigationPath(path, isDirectory: isDirectory) }
+                .disabled(!store.canLocateSpaceChange(path, isDirectory: isDirectory))
+            Button("showInFinder") { revealInvestigationPath(path) }
+            Button("spaceGrowthReviewCandidates") {
+                reviewInvestigationPath(path, isDirectory: isDirectory)
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .hoverHighlight()
+        .disabled(store.isDeleting)
+        .help(L("spaceGrowthActions"))
+    }
+
+    private func locateInvestigationPath(_ path: String, isDirectory: Bool) {
+        if store.locateSpaceChange(path, isDirectory: isDirectory) {
+            showingSpaceHistory = false
+            investigationNotice = nil
+        } else {
+            investigationNotice = L("spaceGrowthLocateUnavailable")
+        }
+    }
+
+    private func revealInvestigationPath(_ path: String) {
+        guard FileManager.default.fileExists(atPath: path) else {
+            investigationNotice = L("spaceGrowthPathMissing")
+            return
+        }
+        investigationNotice = nil
+        store.reveal(URL(fileURLWithPath: path))
+    }
+
+    private func reviewInvestigationPath(_ path: String, isDirectory: Bool) {
+        showingSpaceHistory = false
+        store.changeCategory(.overview)
+        overviewInvestigationPath = path
+        overviewInvestigationIsDirectory = isDirectory
+        overviewQuery = ""
+        overviewCategory = nil
+        reviewOperationFilter = nil
+        reviewRiskFilter = nil
+        overviewPage = 0
+        investigationNotice = nil
+        investigationNavigationID += 1
     }
 
     private func overviewOperation(_ operation: CleanupOverviewOperation) -> String {
@@ -1175,13 +1404,7 @@ struct ContentView: View {
     }
 
     private func overviewMetric(_ title: LocalizedStringKey, bytes: Int64, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: symbol).font(.callout.weight(.semibold))
-            Text(fileSize(bytes)).font(.title2.monospacedDigit().bold())
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+        WorkspaceMetric(title: title, value: fileSize(bytes), symbol: symbol)
     }
 
     private var resultsContent: some View {
@@ -1382,6 +1605,7 @@ struct ContentView: View {
                         .padding(8)
                     }
                 }
+                WorkspaceActionBar {
                 HStack {
                     Text(String(format: L("icloudSelected"), store.selectedEntries.count,
                                 fileSize(store.selectedAllocatedBytes ?? 0)))
@@ -1392,10 +1616,11 @@ struct ContentView: View {
                     }
                     Spacer()
                     Button("icloudEvict") { showingCloudConfirmation = true }
+                        .buttonStyle(.borderedProminent)
                         .hoverHighlight()
                         .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection || store.isDeleting)
                 }
-                .padding(16).background(.bar)
+                }
             }
         }
     }
@@ -1443,7 +1668,7 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
+            Button { store.reveal(entry.url) } label: { Label("showInFinder", systemImage: "folder").labelStyle(.iconOnly) }
                 .buttonStyle(.borderless).hoverHighlight()
                 .help(L("revealInFinder"))
         }
@@ -1517,23 +1742,24 @@ struct ContentView: View {
                         Text("—").font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                Button { inspectedEntry = entry } label: { Image(systemName: "info.circle") }
+                Button { usesInspector = detailWidth >= 1200; inspectedEntry = entry } label: { Label("cleanupBasis", systemImage: "info.circle").labelStyle(.iconOnly) }
                     .buttonStyle(.borderless)
                     .help(L("cleanupBasis"))
                     .hoverHighlight()
                 if !entry.isDirectory {
-                    Button { previewURL = entry.url } label: { Image(systemName: "eye") }
+                    Button { previewURL = entry.url } label: { Label("previewFile", systemImage: "eye").labelStyle(.iconOnly) }
                         .buttonStyle(.borderless)
                         .help(L("previewFile"))
                         .hoverHighlight()
                 }
-                Button { store.reveal(entry.url) } label: { Image(systemName: "folder") }
+                Button { store.reveal(entry.url) } label: { Label("showInFinder", systemImage: "folder").labelStyle(.iconOnly) }
                     .buttonStyle(.borderless)
                     .help(L("showInFinder"))
                     .hoverHighlight()
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .tag(entry.id)
+        .accessibilityElement(children: .contain)
         .contextMenu {
             Button("ignorePathNextScan") { preferences.addExclusion(entry.url) }
             Button("showInFinder") { store.reveal(entry.url) }
@@ -1546,10 +1772,10 @@ struct ContentView: View {
 
     private var spaceContent: some View {
         VStack(spacing: 0) {
-            spaceAccountingContent.padding(.horizontal, 20).padding(.top, 10)
             HStack {
                 Button {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                        store.clearSpaceFocus()
                         store.spaceFolder = store.spaceFolder?.deletingLastPathComponent()
                     }
                 } label: {
@@ -1563,48 +1789,81 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
             Divider()
-            SpacePieChartView(items: store.visibleSpaceChildren,
-                              entranceDuration: spacePieHasAppeared ? 0.25 : 0.45,
-                              onAppear: { spacePieHasAppeared = true },
-                              onOpen: openSpaceItem)
-                .id((store.spaceFolder ?? store.root).path)
-            List(store.visibleSpaceChildren) { child in
-                HStack {
-                    Image(systemName: child.isFolder ? "folder.fill" : child.isOther ? "ellipsis" : "doc")
-                        .foregroundStyle(child.isFolder ? .blue : .secondary)
-                    Text(child.isOther ? L("otherFiles") : child.url.lastPathComponent)
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(fileSize(child.bytes))
-                        if let allocated = child.allocatedBytes {
-                            Text(String(format: L("allocatedSizeValue"), fileSize(allocated)))
-                                .font(.caption2)
-                                .help(L("allocatedSizeHelp"))
-                        }
+            GeometryReader { geometry in
+                let wide = geometry.size.width >= 900
+                if wide {
+                    HStack(alignment: .top, spacing: 0) {
+                        ScrollView { spaceChart(compact: false) }
+                            .frame(width: 430)
+                        Divider()
+                        spaceDirectoryList
                     }
-                    .foregroundStyle(.secondary)
-                    if child.isFolder {
-                        Button { openSpaceItem(child) } label: { Image(systemName: "chevron.right") }
-                            .buttonStyle(.borderless)
-                            .hoverHighlight()
-                    } else if !child.isOther {
-                        Button { previewURL = child.url } label: { Image(systemName: "eye") }
-                            .buttonStyle(.borderless)
-                            .help(L("previewFile"))
-                            .hoverHighlight()
-                        Button { store.reveal(child.url) } label: { Image(systemName: "folder") }
-                            .buttonStyle(.borderless)
-                            .hoverHighlight()
+                } else {
+                    VStack(spacing: 0) {
+                        spaceChart(compact: true).frame(height: 200)
+                        Divider()
+                        spaceDirectoryList
                     }
                 }
             }
-            .listStyle(.inset)
+        }
+    }
+
+    private func spaceChart(compact: Bool) -> some View {
+        SpacePieChartView(items: store.visibleSpaceChildren,
+                          entranceDuration: spacePieHasAppeared ? 0.25 : 0.45,
+                          onAppear: { spacePieHasAppeared = true },
+                          onOpen: openSpaceItem, compact: compact)
+            .id((store.spaceFolder ?? store.root).path)
+    }
+
+    private var spaceDirectoryList: some View {
+        List(store.visibleSpaceChildren, selection: $selectedSpaceItemID) { child in
+            HStack {
+                Image(systemName: child.isFolder ? "folder.fill" : child.isOther ? "ellipsis" : "doc")
+                    .foregroundStyle(child.isFolder ? .blue : .secondary)
+                Text(child.isOther ? L("otherFiles") : child.url.lastPathComponent)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(fileSize(child.bytes))
+                    if let allocated = child.allocatedBytes {
+                        Text(String(format: L("allocatedSizeValue"), fileSize(allocated)))
+                            .font(.caption2)
+                            .help(L("allocatedSizeHelp"))
+                    }
+                }
+                .foregroundStyle(.secondary)
+                if child.isFolder {
+                    Button { openSpaceItem(child) } label: { Image(systemName: "chevron.right") }
+                        .buttonStyle(.borderless)
+                        .hoverHighlight()
+                } else if !child.isOther {
+                    Button { previewURL = child.url } label: { Image(systemName: "eye") }
+                        .buttonStyle(.borderless)
+                        .help(L("previewFile"))
+                        .hoverHighlight()
+                    Button { store.reveal(child.url) } label: { Image(systemName: "folder") }
+                        .buttonStyle(.borderless)
+                        .hoverHighlight()
+                }
+            }
+            .listRowBackground(store.focusedSpacePath == child.url.standardizedFileURL.path
+                ? Color.accentColor.opacity(0.18) : Color.clear)
+            .tag(child.id)
+        }
+        .listStyle(.inset)
+        .onAppear {
+            selectedSpaceItemID = store.focusedSpacePath
+        }
+        .onChange(of: store.focusedSpacePath) { _, path in
+            selectedSpaceItemID = path
         }
     }
 
     private func openSpaceItem(_ item: SpaceItem) {
         if item.isFolder {
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                store.clearSpaceFocus()
                 store.spaceFolder = item.url
             }
         } else if !item.isOther {
@@ -1627,7 +1886,7 @@ struct ContentView: View {
             .frame(height: 120)
         }
         .padding(12)
-        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 20).padding(.bottom, 10)
     }
 
@@ -1642,6 +1901,7 @@ struct ContentView: View {
     }
 
     private var actionBar: some View {
+        WorkspaceActionBar {
         HStack {
             Text(String(format: L("selectedSummary"), store.selectedEntries.count,
                         fileSize(store.estimatedSelectedBytes)))
@@ -1661,6 +1921,7 @@ struct ContentView: View {
             }
             Spacer()
             Button("moveToTrash") { pendingMode = .trash; showingConfirmation = true }
+                .buttonStyle(.borderedProminent)
                 .hoverHighlight()
                 .disabled(store.selectedEntries.isEmpty || store.hasHiddenSelection ||
                           store.isDeleting || store.isScanning)
@@ -1674,13 +1935,14 @@ struct ContentView: View {
                           store.isDeleting || store.isScanning)
             }
         }
-        .padding(16)
-        .background(.bar)
+        }
     }
 
     private var resultsSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("operationResults").font(.title2.bold())
+            WorkspaceHeading(title: L("operationResults"), subtitle: L("workspaceResultsSubtitle")) {
+                Image(systemName: "checklist").foregroundStyle(Color.accentColor)
+            }
             Text(String(format: L("resultSummaryDetailed"),
                         store.results.filter { $0.status == .success }.count,
                         store.results.filter { $0.status == .skipped }.count,
@@ -1708,6 +1970,8 @@ struct ContentView: View {
                 }
             }
             Button("done") { store.showResults = false }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .hoverHighlight()
         }
@@ -1807,7 +2071,9 @@ struct ContentView: View {
 
     private var historySheet: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("cleanupHistory").font(.title2.bold())
+            WorkspaceHeading(title: L("cleanupHistory"), subtitle: L("workspaceHistorySubtitle")) {
+                Image(systemName: "clock.arrow.circlepath").foregroundStyle(Color.accentColor)
+            }
             if let error = store.historyError {
                 Text(String(format: L("historySaveFailed"), error))
                     .foregroundStyle(.orange)
@@ -1876,6 +2142,7 @@ struct ContentView: View {
                 }
             }
             Button("done") { store.showHistory = false }
+                .keyboardShortcut(.defaultAction)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .hoverHighlight()
         }
@@ -1897,6 +2164,8 @@ struct ScanCompletionSummaryView: View {
     @EnvironmentObject private var store: CleanerStore
     @EnvironmentObject private var preferences: AppPreferences
 
+    @State private var expanded = false
+
     private var scope: String {
         switch store.category {
         case .overview: L("overview")
@@ -1913,51 +2182,60 @@ struct ScanCompletionSummaryView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        DisclosureGroup(isExpanded: $expanded) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(String(format: L("scanSummaryScope"), scope))
+                        .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                    if store.category == .space {
+                        Text(String(format: L("scanSummarySpaceFiles"), store.summaryCount))
+                    } else if store.category == .icloud {
+                        Text(String(format: L("icloudScanSummary"), store.summaryCount,
+                                    store.entries.filter(\.canDelete).count))
+                    } else if store.category == .uninstall && store.reviewedApplicationName == nil {
+                        Text(String(format: L("scanSummaryApps"), store.entries.count))
+                    } else {
+                        Text(String(format: L("scanSummaryCounts"), store.entries.count,
+                                    store.entries.filter(\.canDelete).count))
+                    }
+                    if store.category == .space, let coverage = store.scanMetrics.spaceCoverage {
+                        if coverage.displayLimitedCount > 0 {
+                            Text(String(format: L("spaceIncludedNotListed"), coverage.displayLimitedCount))
+                                .foregroundStyle(.secondary)
+                        }
+                        if coverage.unreadableCount > 0 {
+                            Text(String(format: L("spaceUnreadable"), coverage.unreadableCount))
+                                .foregroundStyle(.orange)
+                        }
+                    } else if store.scanMetrics.omittedCount > 0 {
+                        Text(String(format: L("omittedItemsCount"), store.scanMetrics.omittedCount))
+                            .foregroundStyle(.orange)
+                    }
+                    if !store.warnings.isEmpty {
+                        Text(String(format: L("scanSummaryWarnings"), store.warnings.count))
+                            .foregroundStyle(.orange)
+                    }
+                    if !preferences.excludedPaths.isEmpty {
+                        Text(String(format: L("scanSummaryExclusions"), preferences.excludedPaths.count))
+                    }
+                    if store.category != .icloud {
+                        Text("cloudExcludedFromLocalScan").foregroundStyle(.secondary)
+                    }
+                    Text("scanSummaryEstimateHelp").foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxHeight: 120)
+        } label: {
             HStack {
                 Label("scanSummaryTitle", systemImage: "checklist")
-                    .font(.callout.weight(.semibold))
                 Spacer()
-                Text(store.hasPartialResults ? "partialResults" : "completeResults")
-                    .foregroundStyle(store.hasPartialResults ? .orange : .secondary)
-            }
-            Text(String(format: L("scanSummaryScope"), scope))
-                .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
-            if store.category == .space {
-                Text(String(format: L("scanSummarySpaceFiles"), store.summaryCount))
-            } else if store.category == .icloud {
-                Text(String(format: L("icloudScanSummary"), store.summaryCount,
-                            store.entries.filter(\.canDelete).count))
-            } else if store.category == .uninstall && store.reviewedApplicationName == nil {
-                Text(String(format: L("scanSummaryApps"), store.entries.count))
-            } else {
-                Text(String(format: L("scanSummaryCounts"), store.entries.count,
-                            store.entries.filter(\.canDelete).count))
-            }
-            if store.category == .space, let coverage = store.scanMetrics.spaceCoverage {
-                if coverage.displayLimitedCount > 0 {
-                    Text(String(format: L("spaceIncludedNotListed"), coverage.displayLimitedCount))
-                        .foregroundStyle(.secondary)
+                WorkspaceStatus(title: L(store.hasPartialResults ? "partialResults" : "completeResults"),
+                                symbol: store.hasPartialResults ? "exclamationmark.triangle" : "checkmark.circle",
+                                warning: store.hasPartialResults)
+                if !store.warnings.isEmpty {
+                    Text(String(format: L("scanSummaryWarnings"), store.warnings.count)).foregroundStyle(.orange)
                 }
-                if coverage.unreadableCount > 0 {
-                    Text(String(format: L("spaceUnreadable"), coverage.unreadableCount))
-                        .foregroundStyle(.orange)
-                }
-            } else if store.scanMetrics.omittedCount > 0 {
-                Text(String(format: L("omittedItemsCount"), store.scanMetrics.omittedCount))
-                    .foregroundStyle(.orange)
             }
-            if !store.warnings.isEmpty {
-                Text(String(format: L("scanSummaryWarnings"), store.warnings.count))
-                    .foregroundStyle(.orange)
-            }
-            if !preferences.excludedPaths.isEmpty {
-                Text(String(format: L("scanSummaryExclusions"), preferences.excludedPaths.count))
-            }
-            if store.category != .icloud {
-                Text("cloudExcludedFromLocalScan").foregroundStyle(.secondary)
-            }
-            Text("scanSummaryEstimateHelp").foregroundStyle(.secondary)
         }
         .font(.caption)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1971,6 +2249,7 @@ private struct SpacePieChartView: View {
     let entranceDuration: Double
     let onAppear: () -> Void
     let onOpen: (SpaceItem) -> Void
+    var compact = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
@@ -1988,9 +2267,12 @@ private struct SpacePieChartView: View {
             HStack {
                 Text("spacePie").font(.headline)
                 Spacer()
-                Text("spacePieHint").font(.caption).foregroundStyle(.secondary)
+                Image(systemName: "cursorarrow").foregroundStyle(.secondary).help(L("spacePieHint"))
             }
-            HStack(spacing: 18) {
+            let contentLayout = compact
+                ? AnyLayout(HStackLayout(spacing: 18))
+                : AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            contentLayout {
                 Chart(Array(slices.enumerated()), id: \.element.id) { index, slice in
                     SectorMark(angle: .value(L("sortSize"), slice.bytes),
                                innerRadius: .ratio(0),
@@ -2019,7 +2301,8 @@ private struct SpacePieChartView: View {
                     }
                 }
                 .mask(PieRevealMask(progress: revealProgress))
-                .frame(width: 220, height: 220)
+                .frame(width: compact ? 160 : 180, height: compact ? 160 : 180)
+                .frame(maxWidth: compact ? nil : .infinity)
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
                         let label = slice.item?.url.lastPathComponent ?? L("otherSpaceSlice")
@@ -2046,7 +2329,7 @@ private struct SpacePieChartView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 220)
+            .frame(height: compact ? 160 : nil)
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
         .onAppear {
