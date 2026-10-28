@@ -23,5 +23,7 @@ private struct HoverHighlightModifier: ViewModifier {
 }
 
 extension View {
+    /// Apply before an outer alignment/expansion frame so empty layout space does not highlight.
+    /// Apply before `disabled(_:)` so the modifier receives the button's enabled state.
     func hoverHighlight() -> some View { modifier(HoverHighlightModifier()) }
 }

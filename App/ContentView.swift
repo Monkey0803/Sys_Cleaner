@@ -1972,8 +1972,8 @@ struct ContentView: View {
             Button("done") { store.showResults = false }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .frame(maxWidth: .infinity, alignment: .trailing)
                 .hoverHighlight()
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(20)
         .frame(width: 650, height: 420)
@@ -2143,8 +2143,8 @@ struct ContentView: View {
             }
             Button("done") { store.showHistory = false }
                 .keyboardShortcut(.defaultAction)
-                .frame(maxWidth: .infinity, alignment: .trailing)
                 .hoverHighlight()
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(20)
         .frame(width: 700, height: 480)
